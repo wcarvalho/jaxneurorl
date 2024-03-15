@@ -1,0 +1,9 @@
+name: jaxneurorl
+channels:
+  - conda-forge
+dependencies:
+  - pip:
+    - wandb
+    - "xminigrid==0.6.0"
+    - ipdb
+    - "ray[tune]"
