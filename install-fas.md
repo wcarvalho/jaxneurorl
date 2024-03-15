@@ -23,6 +23,7 @@ This is important for jax to properly link to cuda. Unfortunately, relatively ma
 
 ```
 # put cudnn path at beginning of path (before $LD_LIBRARY_PATH)
+unset LD_LIBRARY_PATH
 export LD_LIBRARY_PATH=/n/sw/helmod-rocky8/apps/Core/cudnn/8.9.2.26_cuda12-fasrc01/lib/:$LD_LIBRARY_PATH
 
 # add conda lib to end of path (after $LD_LIBRARY_PATH)
@@ -30,9 +31,11 @@ export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$CONDA_PREFIX/lib
 ```
 
 ## Installing JAX
+see guide at: https://jax.readthedocs.io/en/latest/installation.html
+
 **pip install:**
 ```
-pip install --upgrade "jax[cuda12_local]==0.4.11" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+pip install -U "jax[cuda12_local]==0.4.20" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
 ```
 
 **test jax install**

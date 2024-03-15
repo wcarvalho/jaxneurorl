@@ -5,16 +5,14 @@ python -m ipdb -c continue multiagent/overcooked.py \
   --debug=True \
   --search=default
 
-TESTING PARALLEL:
+TESTING SLURM LAUNCH:
 python multiagent/overcooked.py \
-  WANDB_MODE=enabled \
   --parallel=sbatch \
   --debug_parallel=True \
   --search=default
 
-RUNNING:
+RUNNING ON SLURM:
 python multiagent/overcooked.py \
-  WANDB_MODE=enabled \
   --parallel=sbatch \
   --search=default
 """
@@ -89,7 +87,7 @@ def sweep(search: str = 'default'):
   if search == 'default':
     space = [
         {
-            "group": tune.grid_search(['run-1-iql']),
+            "group": tune.grid_search(['run-3-iql']),
             "alg": tune.grid_search(['iql']),
         }
     ]

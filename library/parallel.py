@@ -350,9 +350,13 @@ def load_hydra_config(sweep_config, config_path: str, tags=[]):
   #---------------
   # create wandb kwargs
   #---------------
+  project = config["PROJECT"]
+  if FLAGS.debug:
+    project += "_debug"
+
   wandb_init = dict(
     entity=config['user']["ENTITY"],
-    project=config["PROJECT"],
+    project=project,
     tags=tags+[
       algo_name.upper(),
       env_name.upper(),
@@ -360,6 +364,9 @@ def load_hydra_config(sweep_config, config_path: str, tags=[]):
     group=sweep_config.get('wandb_group', 'default'),
     name=sweep_config.get('wandb_name', f'{algo_name}_{env_name}'),
     config=config,
-    mode=config["WANDB_MODE"],
   )
+
+  if not FLAGS.wandb:
+    wandb_init['mode'] = 'disabled'
+
   return config, wandb_init

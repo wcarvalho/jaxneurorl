@@ -3,6 +3,7 @@ from absl import flags
 # flags.DEFINE_integer('num_actors', 6, 'number of actors.')
 
 # WANDB
+flags.DEFINE_bool('wandb', True, 'whether to use wandb.')
 flags.DEFINE_string('entity', '', 'wandb entity.')
 
 # INDIVIDUAL RUN
