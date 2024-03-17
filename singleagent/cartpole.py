@@ -1,48 +1,45 @@
 """
 
 TESTING:
-python -m ipdb -c continue multiagent/overcooked.py \
+JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue singleagent/cartpole.py \
   --debug=True \
+  --wandb=False \
   --search=default
 
 TESTING SLURM LAUNCH:
-python multiagent/overcooked.py \
+python singleagent/cartpole.py \
   --parallel=sbatch \
   --debug_parallel=True \
   --search=default
 
 RUNNING ON SLURM:
-python multiagent/overcooked.py \
+python singleagent/cartpole.py \
   --parallel=sbatch \
   --search=default
 """
 
 from absl import flags
 from absl import app
-# from absl import logging
-
 
 import os
 import jax
-from typing import NamedTuple, Dict, Union
+from typing import Dict, Union
 
 from ray import tune
 
 import wandb
-from omegaconf import OmegaConf
 from safetensors.flax import save_file
 from flax.traverse_util import flatten_dict
 
-from jaxmarl import make
-from jaxmarl.wrappers.baselines import LogWrapper
-from jaxmarl.environments.overcooked import overcooked_layouts
-
+import gymnax
+from gymnax.wrappers.purerl import FlattenObservationWrapper, LogWrapper
+from library.wrappers import TimestepWrapper
 
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']='false'
 
 import library.flags
 from library import parallel
-from multiagent import iql
+from singleagent import qlearning
 FLAGS = flags.FLAGS
 
 def run_single(
@@ -58,19 +55,21 @@ def run_single(
         )
     wandb.init(**wandb_init)
 
-    config['env']["ENV_KWARGS"]["layout"] = overcooked_layouts[config['env']["ENV_KWARGS"]["layout"]]
-    env = make(config["env"]["ENV_NAME"], **config['env']['ENV_KWARGS'])
-    env = LogWrapper(env)
+    basic_env, env_params = gymnax.make("CartPole-v1")
+    env = FlattenObservationWrapper(basic_env)
+    # converts to using timestep
+    env = TimestepWrapper(env, autoreset=True)
+    # env = LogWrapper(env)
 
     alg_name = config['alg']
-    if alg_name == 'iql':
-      make_train = iql.make_train
+    if alg_name == 'qlearning':
+      make_train = qlearning.make_train
     else:
       raise NotImplementedError(alg_name)
 
     rng = jax.random.PRNGKey(config["SEED"])
     rngs = jax.random.split(rng, config["NUM_SEEDS"])
-    train_vjit = jax.jit(jax.vmap(make_train(config, env)))
+    train_vjit = jax.jit(jax.vmap(make_train(config, env, env_params)))
     outs = jax.block_until_ready(train_vjit(rngs))
 
     if save_path is not None:
@@ -88,8 +87,8 @@ def sweep(search: str = 'default'):
   if search == 'default':
     space = [
         {
-            "group": tune.grid_search(['run-3-iql']),
-            "alg": tune.grid_search(['iql']),
+            "group": tune.grid_search(['run-1-qlearning']),
+            "alg": tune.grid_search(['qlearning']),
         }
     ]
   else:

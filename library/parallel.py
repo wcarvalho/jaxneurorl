@@ -307,7 +307,7 @@ def run(run_fn, sweep_fn, folder,
   else:
     raise NotImplementedError
 
-def load_hydra_config(sweep_config, config_path: str, tags=[]):
+def load_hydra_config(sweep_config, config_path: str, save_path: str, tags=[]):
   from omegaconf import OmegaConf
 
   #---------------
@@ -338,8 +338,10 @@ def load_hydra_config(sweep_config, config_path: str, tags=[]):
   config = OmegaConf.to_container(config)
 
   config.update(algo_config)
-  config['env']['ENV_KWARGS'].update(env_config)
-  config['env_name'] = env_name = config["env"]["ENV_NAME"]
+  env_name = 'env'
+  if 'env' in config:
+    config['env']['ENV_KWARGS'].update(env_config)
+    config['env_name'] = env_name = config["env"]["ENV_NAME"]
 
   if FLAGS.debug:
     config.update(config.pop('debug', {}))
@@ -355,15 +357,15 @@ def load_hydra_config(sweep_config, config_path: str, tags=[]):
     project += "_debug"
 
   wandb_init = dict(
-    entity=config['user']["ENTITY"],
     project=project,
-    tags=tags+[
-      algo_name.upper(),
-      env_name.upper(),
-    ],
+    entity=config['user']["ENTITY"],
     group=sweep_config.get('wandb_group', 'default'),
     name=sweep_config.get('wandb_name', f'{algo_name}_{env_name}'),
+    tags=tags+[algo_name.upper(), env_name.upper()],
     config=config,
+    save_code=False,
+    dir=save_path,
+    # reinit=True,
   )
 
   if not FLAGS.wandb:
