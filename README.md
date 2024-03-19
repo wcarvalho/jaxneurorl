@@ -17,19 +17,29 @@ def make_agent(
         env_params: environment.EnvParams,
         rng: jax.random.KeyArray,
         ) -> Tuple[Agent, Params, AgentState]:
-  """This create a neural network that defines the agent. It also, initializes their parameters and initial agent state (e.g. LSTM state)"
+  """This create a neural network that defines the agent.
+      It also, initializes their parameters and initial
+      agent state (e.g. LSTM state)"
   ...
 
 def make_optimizer(config: dict) -> optax.GradientTransformation:
-  """This create the optimizer (e.g. ADAM) that will optimize the neural network."
+  """This create the optimizer (e.g. ADAM) that will optimize 
+      the neural network."
   ...
 
 def make_loss_fn_class(config) -> vbb.RecurrentLossFn:
-  """This create the loss function that will be used for learning (e.g. Q-learning)."
+  """This create the loss function that will be used for
+      learning (e.g. Q-learning)."
   ...
 
 def make_actor(config: dict, agent: Agent) -> :
-  """This creates an Actor with two methods actor_step and eval_step. actor_step is used to generate actions during training. eval_step is used to generate actions during evaluation. For example, with epsilon-greedy Q-learning actor_step maybe sample using the current epsilon-value whereas eval_step maybe also select actions according to the highest Q-value.""
+  """This creates an Actor with two methods actor_step and eval_step.
+      actor_step is used to generate actions during training.
+      eval_step is used to generate actions during evaluation.
+      For example, with epsilon-greedy Q-learning actor_step 
+      maybe sample using the current epsilon-value whereas
+      eval_step maybe also select actions according to the
+      highest Q-value.""
   ...
 
 
