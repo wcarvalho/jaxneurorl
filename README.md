@@ -1,4 +1,3 @@
-# Install
 
 # Single-agent algorithms
 
@@ -49,10 +48,8 @@ custom_make_train = functools.partial(
 
 ```
 
+# Install
 
 
-<!-- 2. [Successor Features](td_agents/usfa.py)
-3. [MuZero](td_agents/muzero.py) -->
-
-
-<!-- # Single-agent algorithms -->
+1. [FAS Install and Setup](install-fas.md)
+2. [Local Install and Setup](install.md)
