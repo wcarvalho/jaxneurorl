@@ -147,7 +147,7 @@ def run_sbatch(
     # dir will be root_path/folder/group/exp_name
     # exp_name is also name in wandb
     log_dir, exp_name = gen_log_dir(
-      base_dir=os.path.join(base_path, group),
+      base_dir=os.path.join(base_path, trainer_filename, group),
       return_kwpath=True,
       path_skip=['num_steps', 'num_learner_steps', 'group'],
       **algo_config,
@@ -236,9 +236,12 @@ def run_sbatch(
   process = subprocess.Popen(sbatch_command, shell=True)
   process.wait()
 
-def run(run_fn, sweep_fn, folder,
-  trainer_filename: str,
-  config_path: str):
+def run(
+    run_fn,
+    sweep_fn,
+    folder: str,
+    trainer_filename: str,
+    config_path: str):
   """The basic logics is as follows:
 
   Simplest: if FLAGS.parallel == 'none', simply runs run_fn
@@ -287,7 +290,8 @@ def run(run_fn, sweep_fn, folder,
         )
     else:  # called by this script (i.e. you)
       save_path = gen_log_dir(
-          base_dir=os.path.join(folder, 'rl_results', FLAGS.search),
+          base_dir=os.path.join(
+            folder, 'rl_results', trainer_filename, FLAGS.search),
           hourminute=True,
           date=True,
       )
@@ -318,10 +322,10 @@ def load_hydra_config(sweep_config, config_path: str, save_path: str, tags=[]):
   #---------------
   # split sweep config into algo + env configs
   #---------------
-  algo_config = sweep_config['algo_config']
-  env_config = sweep_config['env_config']
+  sweep_algo_config = sweep_config['algo_config']
+  sweep_env_config = sweep_config['env_config']
 
-  algo_name = algo_config.get('alg', None)
+  algo_name = sweep_algo_config.get('alg', None)
   assert algo_name is not None, "set algorithm"
   config_name = sweep_config.get('config_name', algo_name)
 
@@ -331,17 +335,25 @@ def load_hydra_config(sweep_config, config_path: str, save_path: str, tags=[]):
   #---------------
   with hydra.initialize(
     version_base=None,
-    config_path=config_path,
-    ):
+    config_path=config_path):
     config = hydra.compose(
       config_name=config_name)
-  config = OmegaConf.to_container(config)
+    config = OmegaConf.to_container(config)
 
-  config.update(algo_config)
-  env_name = 'env'
-  if 'env' in config:
-    config['env']['ENV_KWARGS'].update(env_config)
-    config['env_name'] = env_name = config["env"]["ENV_NAME"]
+    # some setup to make sure env field is populated
+    hydra_env_config = config.get('env', {})
+    hydra_env_kwargs = hydra_env_config.pop('ENV_KWARGS', {})
+    config['env']['ENV_KWARGS'] = hydra_env_kwargs
+
+    # put everything in env config in main config
+    config.update(hydra_env_config)
+
+  # update hydra config with algo config settings from sweep
+  config.update(sweep_algo_config)
+
+  # update hydra config with env config settings from sweep
+  config['env']['ENV_KWARGS'].update(sweep_env_config)
+  config['env_name'] = env_name = config["env"].get("ENV_NAME", 'env')
 
   if FLAGS.debug:
     config.update(config.pop('debug', {}))

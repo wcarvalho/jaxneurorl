@@ -31,6 +31,7 @@ import wandb
 from safetensors.flax import save_file
 from flax.traverse_util import flatten_dict
 
+import hydra
 import gymnax
 from gymnax.wrappers.purerl import FlattenObservationWrapper, LogWrapper
 from library.wrappers import TimestepWrapper

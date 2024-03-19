@@ -2,9 +2,6 @@
 "NUM_SEEDS": 1
 "SEED": 1
 
-# WANDB PARAMS
-"PROJECT": "minigrid"
-
 "ALG": 'qlearning'
 
 # RUN PARAMS
@@ -53,3 +50,4 @@ defaults:
 - _self_
 - user: wilka.yaml
 - debug: default.yaml
+- env: cartpole.yaml
