@@ -297,12 +297,16 @@ def run(
       )
       configs = get_all_configurations(spaces=sweep_fn(FLAGS.search))
 
+      process_path(save_path)
       # this is to make sure that the sweep config has the same format as produced by run_sbatch
       sweep_config = configs[0]
-      algo_config, env_config = get_agent_env_configs(
-        config=sweep_config)
+      algo_config, env_config = get_agent_env_configs(config=sweep_config)
       sweep_config['algo_config'] = algo_config
       sweep_config['env_config'] = env_config
+
+      # sensible name for wandb run
+      algo_name = algo_config['alg']
+      sweep_config['wandb_name'] = f'{algo_name}_{(date_time(time=True))}'
 
       run_fn(
         sweep_config=sweep_config,

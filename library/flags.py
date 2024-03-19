@@ -7,7 +7,7 @@ flags.DEFINE_bool('wandb', True, 'whether to use wandb.')
 flags.DEFINE_string('entity', '', 'wandb entity.')
 
 # INDIVIDUAL RUN
-flags.DEFINE_string('search', 'default', 'which search to use.')
+flags.DEFINE_string('search', '', 'which search to use.')
 flags.DEFINE_string(
     'parallel', 'none', "none: run 1 experiment. sbatch: run many experiments with SBATCH. ray: run many experiments with say. use sbatch with SLUM or ray otherwise.")
 flags.DEFINE_bool(

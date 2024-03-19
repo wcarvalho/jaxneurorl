@@ -64,7 +64,7 @@ def run_single(
 
     alg_name = config['alg']
     if alg_name == 'qlearning':
-      make_train = qlearning.make_train
+      make_train = qlearning.make_train_preloaded
     else:
       raise NotImplementedError(alg_name)
 
@@ -84,11 +84,12 @@ def run_single(
         save_params(params, f'{save_path}/{alg_name}.safetensors')
         print(f'Parameters of first batch saved in {save_path}/{alg_name}.safetensors')
 
-def sweep(search: str = 'default'):
+def sweep(search: str = ''):
+  search = search or 'default'
   if search == 'default':
     space = [
         {
-            "group": tune.grid_search(['run-1-qlearning']),
+            "group": tune.grid_search(['run-2-qlearning']),
             "alg": tune.grid_search(['qlearning']),
         }
     ]

@@ -100,7 +100,7 @@ class BasicObserver(Observer):
   def __init__(
       self,
       num_envs: int,
-      log_period: int = 1000,
+      log_period: int = 50_000,
       max_episode_length: int = 100,
       ):
 
@@ -162,6 +162,9 @@ class BasicObserver(Observer):
     action: jax.Array,
     next_timestep: TimeStep,
     agent_state: Optional[struct.PyTreeNode] = None,
+    key: str = 'actor',
+    maybe_flush: bool = True,
+    maybe_reset: bool = True,
     ) -> None:
     """Update log and flush if terminal + log period hit.
 
@@ -220,13 +223,13 @@ class BasicObserver(Observer):
     # if final time-step and log-period has been hit, flush the metrics
     #-----------------------
     flush = jnp.logical_and(
-      first_next_timestep.last(),
       observer_state.episodes[0] % self.log_period == 0,
+      first_next_timestep.last(),
       )
 
     jax.lax.cond(
-        flush,
-        lambda: self.flush_metrics(observer_state),
+        jnp.logical_and(maybe_flush, flush),
+        lambda: self.flush_metrics(key, observer_state),
         lambda: None,
     )
 
@@ -234,7 +237,7 @@ class BasicObserver(Observer):
     # if final time-step, reset buffers. only keep around 1.
     #-----------------------
     observer_state = jax.lax.cond(
-        first_next_timestep.last(),
+        jnp.logical_and(maybe_reset, first_next_timestep.last()),
         lambda: self.reset_buffers(observer_state),
         lambda: observer_state,
     )
@@ -258,14 +261,18 @@ class BasicObserver(Observer):
       episodes=observer_state.episodes + 1,
     )
 
-  def flush_metrics(self, observer_state: BasicObserverState):
+  def flush_metrics(
+    self,
+    key: str,
+    observer_state: BasicObserverState):
     def callback(os: BasicObserverState):
         if wandb.run is not None:
+          idx = os.episodes[0]
           metrics = {
-            'avg_episode_length': os.episode_lengths.mean(),
-            'avg_episode_return': os.episode_returns.mean(),
-            'num_episodes': os.episodes.sum(),
-            'num_steps': os.env_steps.sum(),
+            f'{key}/avg_episode_length': os.episode_lengths[0, :idx].mean(),
+            f'{key}/avg_episode_return': os.episode_returns[0, :idx].mean(),
+            f'{key}/num_episodes': os.episodes.sum(),
+            f'{key}/num_steps': os.env_steps.sum(),
           }
           wandb.log(metrics)
     jax.debug.callback(callback, observer_state)

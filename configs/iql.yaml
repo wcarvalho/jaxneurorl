@@ -14,7 +14,8 @@
 "VERBOSE": FALSE
 "WANDB_ONLINE_REPORT": TRUE
 "NUM_TEST_EPISODES": 32
-"TEST_INTERVAL": 50000
+"ACTOR_LOG_PERIOD": 500_000  # every this number of steps
+"LEARNER_LOG_PERIOD": 50_000  # every this number of learner updates
 
 # NEURAL NET PARAMS
 "AGENT_HIDDEN_DIM": 64

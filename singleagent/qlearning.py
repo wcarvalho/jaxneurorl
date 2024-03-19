@@ -2,9 +2,6 @@
 Recurrent Q-learning.
 """
 
-from absl import flags
-from absl import app
-# from absl import logging
 
 
 import functools
@@ -32,131 +29,24 @@ import rlax
 from omegaconf import OmegaConf
 from safetensors.flax import save_file
 from flax.traverse_util import flatten_dict
+from gymnax.environments import environment
 
-os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']='false'
 
-import library.flags
 from library.wrappers import TimeStep
-from library import parallel
-from library import observers
-FLAGS = flags.FLAGS
+from singleagent import value_based_basics as vbb
 
-
-def batch_to_sequence(values: jax.Array) -> jax.Array:
-    return jax.tree_map(
-        lambda x: jnp.transpose(x, axes=(1, 0, *range(2, len(x.shape)))), values)
-
-def add_time_axis(values: jax.Array) -> jax.Array:
-    return jax.tree_map(
-      lambda x: x[np.newaxis], values)
-
-def make_agent_input(timestep: TimeStep):
+def extract_timestep_input(timestep: TimeStep):
   return RNNInput(
       obs=timestep.observation,
       done=timestep.last())
 
-
-class AcmeBatchData(flax.struct.PyTreeNode):
-    timestep: TimeStep
-    action: jax.Array
-
-    @property
-    def discount(self): 
-        return self.timestep.discount
-
-    @property
-    def reward(self): 
-        return self.timestep.reward
+Agent = nn.Module
+Params = flax.core.FrozenDict
+AgentState = flax.struct.PyTreeNode
+RNNInput = vbb.RNNInput
 
 @dataclasses.dataclass
-class RecurrentLossFn:
-  """Recurrent loss function with burn-in structured modelled after R2D2.
-  
-  https://openreview.net/forum?id=r1lyTjAqYX
-  """
-
-  network: nn.Module
-  discount: float = 0.99
-  tx_pair: rlax.TxPair = rlax.IDENTITY_PAIR
-  burn_in_length: int = None
-
-  data_wrapper: flax.struct.PyTreeNode = AcmeBatchData
-
-  def __call__(
-      self,
-      params,
-      target_params,
-      batch,
-      key_grad,
-      steps,
-    ):
-    """Calculate a loss on a single batch of data."""
-
-    unroll = functools.partial(self.network.apply, method=self.network.unroll)
-    # unroll = jax.vmap(unroll, 1, 1)  # vmap over batch dimension
-
-    # Get core state & warm it up on observations for a burn-in period.
-    # Replay core state.
-    online_state = batch.extras.get('agent_state')
-
-    # get online_state from 0-th time-step
-    online_state = jax.tree_map(lambda x: x[:, 0], online_state)
-    target_state = online_state
-
-    # Convert sample data to sequence-major format [T, B, ...].
-    data = batch_to_sequence(batch)
-
-    #--------------------------
-    # Maybe burn the core state in.
-    #--------------------------
-    burn_in_length = self.burn_in_length
-    if burn_in_length:
-
-      burn_data = jax.tree_map(lambda x: x[:burn_in_length], data)
-      x = make_agent_input(burn_data.timestep)
-
-      _, online_state = unroll(params, online_state, x)
-      import ipdb; ipdb.set_trace()
-      _, target_state = unroll(target_params, target_state, x)
-
-    # Only get data to learn on from after the end of the burn in period.
-    data = jax.tree_map(lambda seq: seq[burn_in_length:], data)
-
-    #--------------------------
-    # Unroll on sequences to get online and target Q-Values.
-    #--------------------------
-    x = make_agent_input(data.timestep)
-
-    online_preds, online_state = unroll(
-        params, online_state, x)
-    target_preds, target_state = unroll(
-        target_params, target_state, x)
-
-    # -----------------------
-    # compute loss
-    # -----------------------
-    data = self.data_wrapper(data.timestep, data.action)
-
-    # [T-1, B], [B]
-    elemwise_error, batch_loss, metrics = self.error(
-      data=data,
-      online_preds=online_preds,
-      online_state=online_state,
-      target_preds=target_preds,
-      target_state=target_state,
-      params=params,
-      target_params=target_params,
-      steps=steps,
-      key_grad=key_grad)
-
-    # TODO: add priorizied replay
-
-    Cls = lambda x: x.__class__.__name__
-    batch_loss = batch_loss.mean()
-    return batch_loss, {Cls(self) : metrics}
-
-@dataclasses.dataclass
-class R2D2LossFn(RecurrentLossFn):
+class R2D2LossFn(vbb.RecurrentLossFn):
 
   """Loss function of R2D2.
   
@@ -205,70 +95,9 @@ class R2D2LossFn(RecurrentLossFn):
 
     return batch_td_error, batch_loss, metrics  # [T-1, B], [B]
 
-class RNNInput(NamedTuple):
-    obs: jax.Array
-    done: jax.Array
-
 class Predictions(NamedTuple):
     q_vals: jax.Array
     rnn_states: jax.Array
-
-class Transition(NamedTuple):
-    timestep: TimeStep
-    action: jax.Array
-    extras: Optional[dict] = None
-    info: Optional[dict] = None
-
-class RunnerState(NamedTuple):
-    train_state: TrainState
-    buffer_state: fbx.trajectory_buffer.TrajectoryBufferState
-    observer_state: flax.struct.PyTreeNode
-    timestep: TimeStep
-    agent_state: jax.Array
-    rng: jax.random.KeyArray
-
-class ScannedRNN(nn.Module):
-
-    hidden_dim: int = 128
-    cell: nn.RNNCellBase = nn.LSTMCell
-
-    def unroll(self, rnn_state, x: RNNInput):
-        """Applies the module.
-
-        follows example: https://flax.readthedocs.io/en/latest/api_reference/flax.linen/_autosummary/flax.linen.scan.html
-        rnn_state: [B]
-        x: [T, B]; however, scan over it
-        """
-
-        def body_fn(step, carry, x):
-          y, carry = step(carry, x)
-          return carry, y
-
-        scan = nn.scan(
-          body_fn, variable_broadcast="params",
-          split_rngs={"params": False}, in_axes=0, out_axes=0)
-
-        return scan(self, rnn_state, x)
-
-    @nn.compact
-    def __call__(self, rnn_state, x: RNNInput):
-        """Applies the module."""
-        # [B, D]
-
-        def conditional_update(cond, new, old):
-          # [B, D]
-          return jnp.where(cond[:, np.newaxis], new, old)
-
-        # [B, ...]
-        updated_rnn_state = tuple(conditional_update(x.done, new, old) for new, old in zip(self.initialize_carry((x.obs.shape)), rnn_state))
-
-        new_rnn_state, y = self.cell(updated_rnn_state, x.obs)
-        return y, new_rnn_state
-
-    def initialize_carry(self, example_shape: Tuple[int]):
-        return self.cell.initialize_carry(
-            jax.random.PRNGKey(0), example_shape
-        )
 
 class AgentRNN(nn.Module):
     # homogenous agent for parameters sharing, assumes all agents have same obs and action dim
@@ -282,7 +111,7 @@ class AgentRNN(nn.Module):
             self.hidden_dim, kernel_init=orthogonal(self.init_scale), bias_init=constant(0.0))
         self.cell = self.cell_type(self.hidden_dim)
 
-        self.rnn = ScannedRNN(
+        self.rnn = vbb.ScannedRNN(
             hidden_dim=self.hidden_dim,
             cell=self.cell)
 
@@ -294,7 +123,8 @@ class AgentRNN(nn.Module):
         rnn_state = self.initialize_carry(x.obs.shape)
         return self.__call__(rnn_state, x)
 
-    def __call__(self, rnn_state, x: RNNInput):
+    def __call__(self, rnn_state, x: TimeStep):
+        x = extract_timestep_input(x)
 
         embedding = self.observation_encoder(x.obs)
         embedding = nn.relu(embedding)
@@ -306,9 +136,11 @@ class AgentRNN(nn.Module):
 
         return Predictions(q_vals, rnn_out), new_rnn_state
 
-    def unroll(self, rnn_state, x: RNNInput):
+    def unroll(self, rnn_state, x: TimeStep):
         # rnn_state: [B]
         # x: [T, B]
+        x = extract_timestep_input(x)
+
         embedding = self.observation_encoder(x.obs)
         embedding = nn.relu(embedding)
 
@@ -351,392 +183,78 @@ class EpsilonGreedy:
         rng = jax.random.split(rng, q_vals.shape[0])
         return jax.vmap(explore, in_axes=(0, None, 0))(q_vals, eps, rng)
 
-class CustomTrainState(TrainState):
-    target_network_params: flax.core.FrozenDict
-    timesteps: int
-    n_updates: int
+def make_agent(
+        config: dict,
+        env: environment.Environment,
+        env_params: environment.EnvParams,
+        example_timestep: TimeStep,
+        rng: jax.random.KeyArray,
+        ) -> Tuple[Agent, Params, AgentState]:
 
-def make_train(config, env, env_params):
-
-    config["NUM_UPDATES"] = (
-        config["TOTAL_TIMESTEPS"] // config["NUM_ENVS"]
+    agent = AgentRNN(
+        action_dim=env.action_space(env_params).n,
+        hidden_dim=config["AGENT_HIDDEN_DIM"],
+        init_scale=config['AGENT_INIT_SCALE'],
     )
 
-    vmap_reset = lambda rng: jax.vmap(env.reset, in_axes=(0, None))(
-        jax.random.split(rng, config["NUM_ENVS"]), env_params
-    )
-    vmap_step = lambda rng, env_state, action: jax.vmap(
-        env.step, in_axes=(0, 0, 0, None)
-    )(jax.random.split(rng, config["NUM_ENVS"]), env_state, action, env_params)
+    rng, _rng = jax.random.split(rng)
+    network_params = agent.init(
+        _rng, example_timestep, method=agent.initialize)
 
+    init_agent_state = agent.apply(
+        network_params,
+        example_timestep.obs.shape,
+        method=agent.initialize_carry)
 
-    def train(rng):
+    return agent, network_params, init_agent_state
 
-        ##############################
-        # INIT NETWORK
-        # will be absorbed into _update_step via closure
-        # TODO: isolate out this part
-        ##############################
-        # [B, ...]
-        init_obs = jnp.zeros((config["NUM_ENVS"], *env.observation_space(env_params).shape))
-        init_done = jnp.zeros((config["NUM_ENVS"]), dtype=bool)
+def make_optimizer(config: dict) -> optax.GradientTransformation:
+  def linear_schedule(count):
+      frac = 1.0 - (count / config["NUM_UPDATES"])
+      return config["LR"] * frac
 
-        agent = AgentRNN(
-            action_dim=env.action_space(env_params).n,
-            hidden_dim=config["AGENT_HIDDEN_DIM"],
-            init_scale=config['AGENT_INIT_SCALE'],
-        )
+  lr = linear_schedule if config.get("LR_LINEAR_DECAY", False) else config["LR"]
+  return optax.chain(
+      optax.clip_by_global_norm(config["MAX_GRAD_NORM"]),
+      optax.adam(learning_rate=lr, eps=config['EPS_ADAM'])
+  )
 
-        rng, _rng = jax.random.split(rng)
-        init = RNNInput(init_obs, init_done)
-        network_params = agent.init(
-            _rng, init, method=agent.initialize)
+def make_loss_fn_class(config):
+  return functools.partial(
+     R2D2LossFn,
+     discount=config['GAMMA'])
 
-        init_agent_state = agent.apply(
-            network_params,
-            init_obs.shape,
-            method=agent.initialize_carry)
+def make_actor(config: dict, agent: Agent):
+  explorer = EpsilonGreedy(
+      start_e=config["EPSILON_START"],
+      end_e=config["EPSILON_FINISH"],
+      duration=config["EPSILON_ANNEAL_TIME"]
+  )
 
+  def actor_step(train_state, x, rng):
+    preds, agent_state = agent.apply(
+        train_state.params, agent_state, x)
 
-        ##############################
-        # INIT ENV
-        ##############################
-        rng, _rng = jax.random.split(rng)
-        init_timestep = vmap_reset(_rng)
+    action = explorer.choose_actions(
+        preds.q_vals, train_state.timesteps, rng)
 
-        ##############################
-        # INIT BUFFER
-        ##############################
-        period = config.get("ADDING_PERIOD", config['SAMPLE_LENGTH']-1)
-        buffer = fbx.make_trajectory_buffer(
-            max_length_time_axis=config['BUFFER_SIZE']//config['NUM_ENVS'],
-            min_length_time_axis=config['BUFFER_BATCH_SIZE'],
-            sample_batch_size=config['BUFFER_BATCH_SIZE'],
-            add_batch_size=config['NUM_ENVS'],
-            sample_sequence_length=config['SAMPLE_LENGTH'],
-            period=period,
-        )
-        buffer = buffer.replace(
-            init=jax.jit(buffer.init),
-            add=jax.jit(buffer.add, donate_argnums=0),
-            sample=jax.jit(buffer.sample),
-            can_sample=jax.jit(buffer.can_sample),
-        )
+    return preds, action, agent_state
 
-        # ---------------
-        # use init_transition from 0th env to initialize buffer
-        # ---------------
-        action = env.action_space().sample(jax.random.PRNGKey(0))
-        # broadcast to number of envs
-        action = jnp.tile(action[None], [config["NUM_ENVS"]])
+  def eval_step(train_state, x, rng):
+    del rng
+    preds, agent_state = agent.apply(
+        train_state.params, agent_state, x)
 
-        init_transition = Transition(
-            init_timestep,
-            action=action,
-            extras=dict(agent_state=init_agent_state))
-        init_transition = jax.tree_map(
-          lambda x: x[0], init_transition)
+    action = preds.q_vals.argmax(-1)
 
-        # [num_envs, max_length, ...]
-        buffer_state = buffer.init(init_transition) 
+    return preds, action, agent_state
 
-        ##############################
-        # INIT OPTIMIZER
-        # TODO: isolate out this part
-        ##############################
-        def linear_schedule(count):
-            frac = 1.0 - (count / config["NUM_UPDATES"])
-            return config["LR"] * frac
+  return vbb.Actor(actor_step=actor_step, eval_step=eval_step)
 
-        lr = linear_schedule if config.get("LR_LINEAR_DECAY", False) else config["LR"]
-        tx = optax.chain(
-            optax.clip_by_global_norm(config["MAX_GRAD_NORM"]),
-            optax.adam(learning_rate=lr, eps=config['EPS_ADAM'])
-        )
-
-        train_state = CustomTrainState.create(
-            apply_fn=agent.apply,
-            params=network_params,
-            target_network_params=jax.tree_map(lambda x: jnp.copy(x), network_params),
-            tx=tx,
-            timesteps=0,
-            n_updates=0,
-        )
-
-        ##############################
-        # INIT Observer
-        # TODO: isolate
-        ##############################
-        observer = observers.BasicObserver(num_envs=config['NUM_ENVS'])
-        if observer:
-          x = make_agent_input(init_timestep)
-          init_preds, _ = agent.apply(
-              train_state.params, init_agent_state, x)
-
-          observer_state = init_eval_observer_state = observer.init(
-              example_timestep=init_timestep,
-              example_action = init_preds.q_vals.argmax(-1),
-              example_predictions=init_preds)
-
-          observer_state = observer.observe_first(
-             first_timestep=init_timestep, observer_state=observer_state)
-
-        ##############################
-        # INIT LOSS FN and DUMMY METRICS
-        # TODO: isolate out this part
-        ##############################
-
-        loss_fn = R2D2LossFn(
-          discount=config['GAMMA'],
-          network=agent)
-        dummy_rng = jax.random.PRNGKey(0)
-
-        # (batch_size, timesteps, ...)
-        dummy_learn_trajectory = buffer.sample(
-            buffer_state, dummy_rng).experience
-
-        _, dummy_metrics = loss_fn(
-            train_state.params,
-            train_state.target_network_params,
-            dummy_learn_trajectory,
-            dummy_rng,
-            train_state.n_updates
-        )
-        dummy_metrics = jax.tree_map(lambda x:x*0, dummy_metrics)
-
-        ##############################
-        # INIT EXPLORATION STRATEGY
-        # will be absorbed into _update_step via closure
-        ##############################
-        explorer = EpsilonGreedy(
-            start_e=config["EPSILON_START"],
-            end_e=config["EPSILON_FINISH"],
-            duration=config["EPSILON_ANNEAL_TIME"]
-        )
-
-        ##############################
-        # DEFINE TRAINING LOOP
-        # 1. Take a set in the environment
-        # 2. Update buffer
-        ##############################
-        def _train_step(runner_state: RunnerState, unused):
-
-            # things that will be used/changed
-            rng = runner_state.rng
-            buffer_state = runner_state.buffer_state
-            train_state = runner_state.train_state
-            observer_state = runner_state.observer_state
-            prior_timestep = runner_state.timestep
-            agent_state = runner_state.agent_state
-            buffer_state = runner_state.buffer_state
-
-            ##############################
-            # 1. env step + add to buffer
-            ##############################
-            # prepare rngs for actions and step
-            rng, rng_a, rng_s = jax.random.split(rng, 3)
-
-            x = make_agent_input(prior_timestep)
-            preds, agent_state = agent.apply(
-                train_state.params, agent_state, x)
-
-            action = explorer.choose_actions(
-                preds.q_vals, train_state.timesteps, rng_a)
-
-            # take step in env
-            timestep = vmap_step(rng_s, prior_timestep, action)
-            transition = Transition(
-              timestep,
-              action=action,
-              extras=dict(agent_state=init_agent_state))
-
-            if observer:
-              observer_state = observer.observe(
-                  observer_state=observer_state,
-                  next_timestep=timestep,
-                  predictions=preds,
-                  action=action)
-
-            # update timesteps count
-            train_state = train_state.replace(
-                timesteps=train_state.timesteps + config["NUM_ENVS"]
-            )
-
-            # update buffer with [num_envs, 1, ...]
-            buffer_addition = jax.tree_map(
-                lambda x: x[:, np.newaxis], transition)
-            buffer_state = buffer.add(
-              buffer_state, buffer_addition)
-
-            ##############################
-            # 2. Learner update
-            ##############################
-            def _learn_phase(train_state, rng):
-
-                # (batch_size, timesteps, ...)
-                rng, _rng = jax.random.split(rng)
-                learn_trajectory = buffer.sample(buffer_state, _rng).experience
-
-                # (batch_size, timesteps, ...)
-                (_, metrics), grads = jax.value_and_grad(loss_fn, has_aux=True)(
-                    train_state.params,
-                    train_state.target_network_params,
-                    learn_trajectory,
-                    rng,
-                    train_state.n_updates)
-                train_state = train_state.apply_gradients(grads=grads)
-                train_state = train_state.replace(n_updates=train_state.n_updates + 1)
-                return train_state, metrics
-
-            is_learn_time = (
-                (buffer.can_sample(buffer_state))
-                & (  # enough experience in buffer
-                    train_state.timesteps > config["LEARNING_STARTS"]
-                )
-                & (  # pure exploration phase ended
-                    train_state.timesteps % config["TRAINING_INTERVAL"] == 0
-                )  # training interval
-            )
-
-            rng, _rng = jax.random.split(rng)
-            train_state, learner_metrics = jax.lax.cond(
-                is_learn_time,
-                lambda train_state, rng: _learn_phase(train_state, rng),
-                lambda train_state, rng: (train_state, dummy_metrics),  # do nothing
-                train_state,
-                _rng,
-            )
-
-            # update target network
-            train_state = jax.lax.cond(
-                train_state.timesteps % config["TARGET_UPDATE_INTERVAL"] == 0,
-                lambda train_state: train_state.replace(
-                    target_network_params=optax.incremental_update(
-                        train_state.params,
-                        train_state.target_network_params,
-                        config["TAU"],
-                    )
-                ),
-                lambda train_state: train_state,
-                operand=train_state,
-            )
-
-            ##############################
-            # 3. Logging
-            ##############################
-
-            def log_eval(runner_state, eval_observer_state):
-                ##############################
-                # TODO: isolate this part
-                ##############################
-                """Help function to test greedy policy during training"""
-                def _greedy_env_step(rs: RunnerState, unused):
-                    # things that will be used/changed
-                    rng = rs.rng
-                    prior_timestep = rs.timestep
-                    agent_state = rs.agent_state
-                    observer_state = rs.observer_state
-
-                    # prepare rngs for actions and step
-                    rng, rng_a, rng_s = jax.random.split(rng, 3)
-
-                    x = make_agent_input(prior_timestep)
-                    preds, agent_state = agent.apply(
-                        rs.train_state.params, agent_state, x)
-                    action = preds.q_vals.argmax(-1)
-
-                    # take step in env
-                    timestep = vmap_step(rng_s, prior_timestep, action)
-
-                    observer_state = observer.observe(
-                        observer_state=observer_state,
-                        next_timestep=timestep,
-                        predictions=preds,
-                        action=action)
-
-                    rs = rs._replace(
-                        agent_state=agent_state,
-                        timestep=timestep,
-                        observer_state=observer_state,
-                        rng=rng)
-                    return rs, timestep
-
-                rng = runner_state.rng
-                rng, _rng = jax.random.split(rng)
-                init_timestep = vmap_reset(_rng)
-
-                init_agent_state = agent.apply(
-                    network_params,
-                    init_timestep.observation.shape,
-                    method=agent.initialize_carry)
-
-                eval_runner_state = RunnerState(
-                    train_state=runner_state.train_state,
-                    observer_state=observer.observe_first(
-                       first_timestep=init_timestep,
-                       observer_state=eval_observer_state),
-                    buffer_state=runner_state.buffer_state,
-                    timestep=init_timestep,
-                    agent_state=init_agent_state,
-                    rng=_rng)
-
-                _, _ = jax.lax.scan(
-                    _greedy_env_step, eval_runner_state, None,
-                    config["EVAL_STEPS"]*config["EVAL_EPISODES"]
-                )
-
-            def log_learner(learner_metrics):
-              def callback(metrics):
-                  if wandb.run is not None:
-                    wandb.log(metrics)
-              jax.debug.callback(callback, learner_metrics)
-
-            def log(learner_metrics, runner_state, eval_observer_state):
-                log_learner(learner_metrics)
-                log_eval(runner_state, eval_observer_state)
-
-            is_eval_time = (
-                is_learn_time &
-                train_state.n_updates  % (config["TEST_INTERVAL"] // config["NUM_STEPS"] // config["NUM_ENVS"]) == 0
-              )
-
-            jax.lax.cond(
-                is_eval_time,
-                lambda: log(learner_metrics, runner_state, init_eval_observer_state),
-                lambda: None,
-            )
-
-            ##############################
-            # 4. Creat next runner state
-            ##############################
-            next_runner_state = RunnerState(
-                train_state=train_state,
-                observer_state=observer_state,
-                buffer_state=buffer_state,
-                timestep=timestep,
-                agent_state=agent_state,
-                rng=rng)
-
-            return next_runner_state, {}
-
-        ##############################
-        # TRAINING LOOP DEFINED. NOW RUN
-        ##############################
-        # run loop
-        rng, _rng = jax.random.split(rng)
-        runner_state = RunnerState(
-          train_state=train_state,
-          observer_state=observer_state,
-          buffer_state=buffer_state,
-          timestep=init_timestep,
-          agent_state=init_agent_state,
-          rng=_rng)
-
-        runner_state, _ = jax.lax.scan(
-            _train_step, runner_state, None, config["NUM_UPDATES"]
-        )
-
-        return {"runner_state": runner_state}
-
-    return train
-
+make_train_preloaded = functools.partial(
+   vbb.make_train,
+   make_agent=make_agent,
+   make_optimizer=make_optimizer,
+   make_loss_fn_class=make_loss_fn_class,
+   make_actor=make_actor
+)

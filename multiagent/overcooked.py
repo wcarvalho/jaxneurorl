@@ -84,7 +84,9 @@ def run_single(
         save_params(params, f'{save_path}/{alg_name}.safetensors')
         print(f'Parameters of first batch saved in {save_path}/{alg_name}.safetensors')
 
-def sweep(search: str = 'default'):
+def sweep(search: str = ''):
+  search = search or 'default'
+
   if search == 'default':
     space = [
         {
