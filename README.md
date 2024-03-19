@@ -1,7 +1,7 @@
 
 # Single-agent algorithms
 
-1. [Q-learning](singleagent/q_learning.py)
+1. [Q-learning](singleagent/qlearning.py)
 
 **General structure of algorithms**. Each agent is defined by following functions:
 ```
