@@ -6,10 +6,7 @@
 
 **General structure of algorithms**. Each agent is defined by following functions:
 ```
-import functools
-from singleagent import value_based_basics as vbb
-from gymnax.environments import environment
-import jax
+...import relevant things...
 
 def make_agent(
         config: dict,
