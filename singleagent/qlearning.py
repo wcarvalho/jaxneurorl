@@ -219,12 +219,12 @@ def make_optimizer(config: dict) -> optax.GradientTransformation:
       optax.adam(learning_rate=lr, eps=config['EPS_ADAM'])
   )
 
-def make_loss_fn_class(config):
+def make_loss_fn_class(config) -> vbb.RecurrentLossFn:
   return functools.partial(
      R2D2LossFn,
      discount=config['GAMMA'])
 
-def make_actor(config: dict, agent: Agent):
+def make_actor(config: dict, agent: Agent) -> vbb.Actor:
   explorer = EpsilonGreedy(
       start_e=config["EPSILON_START"],
       end_e=config["EPSILON_FINISH"],
