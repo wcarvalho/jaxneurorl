@@ -53,11 +53,11 @@ class Transition(NamedTuple):
 
 class RunnerState(NamedTuple):
     train_state: TrainState
-    buffer_state: fbx.trajectory_buffer.TrajectoryBufferState
     observer_state: flax.struct.PyTreeNode
     timestep: TimeStep
     agent_state: jax.Array
     rng: jax.random.KeyArray
+    buffer_state: Optional[fbx.trajectory_buffer.TrajectoryBufferState] = None
 
 def batch_to_sequence(values: jax.Array) -> jax.Array:
     return jax.tree_map(
@@ -100,7 +100,6 @@ class RecurrentLossFn:
     """Calculate a loss on a single batch of data."""
 
     unroll = functools.partial(self.network.apply, method=self.network.unroll)
-    # unroll = jax.vmap(unroll, 1, 1)  # vmap over batch dimension
 
     # Get core state & warm it up on observations for a burn-in period.
     # Replay core state.
@@ -120,9 +119,7 @@ class RecurrentLossFn:
     if burn_in_length:
 
       burn_data = jax.tree_map(lambda x: x[:burn_in_length], data)
-
       _, online_state = unroll(params, online_state, burn_data.timestep)
-
       _, target_state = unroll(target_params, target_state, burn_data.timestep)
 
     # Only get data to learn on from after the end of the burn in period.
@@ -131,7 +128,6 @@ class RecurrentLossFn:
     #--------------------------
     # Unroll on sequences to get online and target Q-Values.
     #--------------------------
-
     online_preds, online_state = unroll(
         params, online_state, data.timestep)
     target_preds, target_state = unroll(
@@ -314,21 +310,22 @@ def make_train(
             num_envs=config['NUM_ENVS'],
             log_period=config['EVAL_EPISODES'])
 
-        init_preds, _ = agent.apply(
+        example_predictions, _ = agent.apply(
             train_state.params, init_agent_state, init_timestep)
 
         observer_state = observer.init(
             example_timestep=init_timestep,
             example_action=action,
-            example_predictions=init_preds)
+            example_predictions=example_predictions)
 
         init_eval_observer_state = eval_observer.init(
             example_timestep=init_timestep,
             example_action=action,
-            example_predictions=init_preds)
+            example_predictions=example_predictions)
 
         observer_state = observer.observe_first(
-            first_timestep=init_timestep, observer_state=observer_state)
+            first_timestep=init_timestep,
+            observer_state=observer_state)
 
         ##############################
         # INIT LOSS FN and DUMMY METRICS
@@ -351,17 +348,18 @@ def make_train(
         dummy_metrics = jax.tree_map(lambda x:x*0.0, dummy_metrics)
 
         ##############################
-        # INIT EXPLORATION STRATEGY
+        # INIT Actor
         # will be absorbed into _update_step via closure
         ##############################
         actor = make_actor(config, agent)
 
         ##############################
         # DEFINE TRAINING LOOP
-        # 1. Take a set in the environment
+        # 1. Take a step in the environment
         # 2. Update buffer
         ##############################
         def _train_step(runner_state: RunnerState, unused):
+            del unused
 
             # things that will be used/changed
             rng = runner_state.rng
@@ -386,24 +384,26 @@ def make_train(
 
             # take step in env
             timestep = vmap_step(rng_s, prior_timestep, action)
-            transition = Transition(
-              timestep,
-              action=action,
-              extras=dict(agent_state=init_agent_state))
 
-            if observer:
-              observer_state = observer.observe(
-                  observer_state=observer_state,
-                  next_timestep=timestep,
-                  predictions=preds,
-                  action=action)
+            # update observer with data (used for logging)
+            observer_state = observer.observe(
+                observer_state=observer_state,
+                next_timestep=timestep,
+                predictions=preds,
+                action=action)
 
             # update timesteps count
             train_state = train_state.replace(
                 timesteps=train_state.timesteps + config["NUM_ENVS"]
             )
 
-            # update buffer with [num_envs, 1, ...]
+            # create transition which will be added to buffer
+            transition = Transition(
+              timestep,
+              action=action,
+              extras=dict(agent_state=agent_state))
+
+            # update buffer with data of size [num_envs, 1, ...]
             buffer_addition = jax.tree_map(
                 lambda x: x[:, np.newaxis], transition)
             buffer_state = buffer.add(
@@ -412,18 +412,20 @@ def make_train(
             ##############################
             # 2. Learner update
             ##############################
-            def _learn_phase(train_state, rng):
+            def _learn_phase(train_state: TrainState,
+                             rng: jax.random.KeyArray):
 
                 # (batch_size, timesteps, ...)
                 rng, _rng = jax.random.split(rng)
                 learn_trajectory = buffer.sample(buffer_state, _rng).experience
 
                 # (batch_size, timesteps, ...)
+                rng, _rng = jax.random.split(rng)
                 (_, metrics), grads = jax.value_and_grad(loss_fn, has_aux=True)(
                     train_state.params,
                     train_state.target_network_params,
                     learn_trajectory,
-                    rng,
+                    _rng,
                     train_state.n_updates)
                 train_state = train_state.apply_gradients(grads=grads)
                 train_state = train_state.replace(n_updates=train_state.n_updates + 1)
@@ -463,20 +465,15 @@ def make_train(
             )
 
             ##############################
-            # 3. Logging
+            # 3. Logging learner metrics + evaluation episodes
             ##############################
-
             def log_eval(runner_state, eval_observer_state):
-                ##############################
-                # TODO: isolate this part
-                ##############################
                 """Help function to test greedy policy during training"""
                 def _greedy_env_step(rs: RunnerState, unused):
                     # things that will be used/changed
                     rng = rs.rng
                     prior_timestep = rs.timestep
                     agent_state = rs.agent_state
-                    observer_state = rs.observer_state
 
                     # prepare rngs for actions and step
                     rng, rng_a, rng_s = jax.random.split(rng, 3)
@@ -491,7 +488,7 @@ def make_train(
                     timestep = vmap_step(rng_s, prior_timestep, action)
 
                     observer_state = eval_observer.observe(
-                        observer_state=observer_state,
+                        observer_state=rs.observer_state,
                         next_timestep=timestep,
                         predictions=preds,
                         action=action,
@@ -507,21 +504,26 @@ def make_train(
                         rng=rng)
                     return rs, timestep
 
+                # reset environment
                 rng = runner_state.rng
                 rng, _rng = jax.random.split(rng)
                 init_timestep = vmap_reset(_rng)
 
+                # reset agent state
                 init_agent_state = agent.apply(
                     network_params,
                     init_timestep.observation.shape,
                     method=agent.initialize_carry)
 
+                # create evaluation runner for greedy eva
+                # unnecessary but helps ensure don't accidentally
+                # re-use training information
+                rng, _rng = jax.random.split(rng)
                 eval_runner_state = RunnerState(
                     train_state=runner_state.train_state,
                     observer_state=observer.observe_first(
                        first_timestep=init_timestep,
                        observer_state=eval_observer_state),
-                    buffer_state=runner_state.buffer_state,
                     timestep=init_timestep,
                     agent_state=init_agent_state,
                     rng=_rng)
@@ -543,13 +545,13 @@ def make_train(
                 log_learner(learner_metrics)
                 log_eval(runner_state, eval_observer_state)
 
-            is_eval_time = (
-                is_learn_time &
+            is_log_time = jnp.logical_and(
+                is_learn_time,
                 train_state.n_updates  % (config["LEARNER_LOG_PERIOD"] // config["NUM_STEPS"] // config["NUM_ENVS"]) == 0
-              )
+               )
 
             jax.lax.cond(
-                is_eval_time,
+                is_log_time,
                 lambda: log(learner_metrics, runner_state, init_eval_observer_state),
                 lambda: None,
             )

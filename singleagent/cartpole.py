@@ -89,8 +89,10 @@ def sweep(search: str = ''):
   if search == 'default':
     space = [
         {
-            "group": tune.grid_search(['run-2-qlearning']),
+            "group": tune.grid_search(['run-3-qlearning']),
             "alg": tune.grid_search(['qlearning']),
+            "AGENT_HIDDEN_DIM": tune.grid_search([64, 128]),
+            "AGENT_INIT_SCALE": tune.grid_search([2., .1]),
         }
     ]
   else:

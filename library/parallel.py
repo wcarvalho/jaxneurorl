@@ -315,7 +315,11 @@ def run(
   else:
     raise NotImplementedError
 
-def load_hydra_config(sweep_config, config_path: str, save_path: str, tags=[]):
+def load_hydra_config(
+    sweep_config,
+    config_path: str,
+    save_path: str,
+    tags=[]):
   from omegaconf import OmegaConf
 
   #---------------
