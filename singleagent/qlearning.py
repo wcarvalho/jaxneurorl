@@ -117,10 +117,10 @@ class AgentRNN(nn.Module):
 
         self.q_fn = nn.Dense(self.action_dim, kernel_init=orthogonal(self.init_scale), bias_init=constant(0.0))
 
-    def initialize(self, x: RNNInput):
+    def initialize(self, x: TimeStep):
         """Only used for initialization."""
         # [B, D]
-        rnn_state = self.initialize_carry(x.obs.shape)
+        rnn_state = self.initialize_carry(x.observation.shape)
         return self.__call__(rnn_state, x)
 
     def __call__(self, rnn_state, x: TimeStep):
@@ -203,7 +203,7 @@ def make_agent(
 
     init_agent_state = agent.apply(
         network_params,
-        example_timestep.obs.shape,
+        example_timestep.observation.shape,
         method=agent.initialize_carry)
 
     return agent, network_params, init_agent_state
@@ -231,19 +231,27 @@ def make_actor(config: dict, agent: Agent):
       duration=config["EPSILON_ANNEAL_TIME"]
   )
 
-  def actor_step(train_state, x, rng):
+  def actor_step(
+        train_state: vbb.TrainState,
+        agent_state: jax.Array,
+        timestep: TimeStep,
+        rng: jax.random.KeyArray):
     preds, agent_state = agent.apply(
-        train_state.params, agent_state, x)
+        train_state.params, agent_state, timestep)
 
     action = explorer.choose_actions(
         preds.q_vals, train_state.timesteps, rng)
 
     return preds, action, agent_state
 
-  def eval_step(train_state, x, rng):
+  def eval_step(
+        train_state: vbb.TrainState,
+        agent_state: jax.Array,
+        timestep: TimeStep,
+        rng: jax.random.KeyArray):
     del rng
     preds, agent_state = agent.apply(
-        train_state.params, agent_state, x)
+        train_state.params, agent_state, timestep)
 
     action = preds.q_vals.argmax(-1)
 

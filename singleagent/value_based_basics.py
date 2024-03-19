@@ -293,15 +293,6 @@ def make_train(
         ##############################
         # INIT OPTIMIZER
         ##############################
-        # def linear_schedule(count):
-        #     frac = 1.0 - (count / config["NUM_UPDATES"])
-        #     return config["LR"] * frac
-
-        # lr = linear_schedule if config.get("LR_LINEAR_DECAY", False) else config["LR"]
-        # tx = optax.chain(
-        #     optax.clip_by_global_norm(config["MAX_GRAD_NORM"]),
-        #     optax.adam(learning_rate=lr, eps=config['EPS_ADAM'])
-        # )
         tx = make_optimizer(config)
 
         train_state = CustomTrainState.create(
@@ -388,12 +379,10 @@ def make_train(
             rng, rng_a, rng_s = jax.random.split(rng, 3)
 
             preds, action, agent_state = actor.actor_step(
-               train_state, agent_state, prior_timestep)
-            # agent.apply(
-            #     train_state.params, agent_state, x)
-
-            # action = explorer.choose_actions(
-            #     preds.q_vals, train_state.timesteps, rng_a)
+               train_state,
+               agent_state,
+               prior_timestep,
+               rng_a)
 
             # take step in env
             timestep = vmap_step(rng_s, prior_timestep, action)
@@ -493,10 +482,10 @@ def make_train(
                     rng, rng_a, rng_s = jax.random.split(rng, 3)
 
                     preds, action, agent_state = actor.eval_step(
-                       rs.train_state, agent_state, prior_timestep)
-                    # preds, agent_state = agent.apply(
-                    #     rs.train_state.params, agent_state, x)
-                    # action = preds.q_vals.argmax(-1)
+                       rs.train_state,
+                       agent_state,
+                       prior_timestep,
+                       rng_a)
 
                     # take step in env
                     timestep = vmap_step(rng_s, prior_timestep, action)
