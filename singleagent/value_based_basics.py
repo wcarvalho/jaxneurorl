@@ -63,6 +63,17 @@ def batch_to_sequence(values: jax.Array) -> jax.Array:
     return jax.tree_map(
         lambda x: jnp.transpose(x, axes=(1, 0, *range(2, len(x.shape)))), values)
 
+def maked_mean(x, mask):
+  if len(mask.shape) < len(x.shape):
+    nx = len(x.shape)
+    nd = len(mask.shape)
+    extra = nx - nd
+    dims = list(range(nd, nd+extra))
+    z = jnp.multiply(x, jnp.expand_dims(mask, dims))
+  else:
+    z = jnp.multiply(x, mask)
+  return (z.sum(0))/(mask.sum(0)+1e-5)
+
 class AcmeBatchData(flax.struct.PyTreeNode):
     timestep: TimeStep
     action: jax.Array
@@ -98,7 +109,6 @@ class RecurrentLossFn:
       steps,
     ):
     """Calculate a loss on a single batch of data."""
-
     unroll = functools.partial(self.network.apply, method=self.network.unroll)
 
     # Get core state & warm it up on observations for a burn-in period.
@@ -152,8 +162,6 @@ class RecurrentLossFn:
 
     # TODO: add priorizied replay
 
-    Cls = lambda x: x.__class__.__name__
-    metrics = {f'{Cls(self)}/{k}': v for k,v in metrics.items()}
     batch_loss = batch_loss.mean()
     return batch_loss, metrics
 
@@ -222,7 +230,7 @@ def make_train(
       ObserverCls: observers.BasicObserver = observers.BasicObserver,
       ):
 
-    config["NUM_UPDATES"] = (
+    config["NUM_UPDATES"] = int(
         config["TOTAL_TIMESTEPS"] // config["NUM_ENVS"]
     )
 
@@ -305,7 +313,7 @@ def make_train(
         ##############################
         observer = ObserverCls(
            num_envs=config['NUM_ENVS'],
-           log_period=config['ACTOR_LOG_PERIOD'])
+           log_period=int(config['ACTOR_LOG_PERIOD']//config['NUM_ENVS']))
         eval_observer = ObserverCls(
             num_envs=config['NUM_ENVS'],
             log_period=config['EVAL_EPISODES'])
@@ -343,9 +351,18 @@ def make_train(
             train_state.target_network_params,
             dummy_learn_trajectory,
             dummy_rng,
-            train_state.n_updates
+            train_state.n_updates,
         )
         dummy_metrics = jax.tree_map(lambda x:x*0.0, dummy_metrics)
+        loss_name = loss_fn.__class__.__name__
+        def update_loss_metrics(m, ts):
+          m.update({
+            'learner_steps': ts.n_updates,
+            'actor_steps': ts.timesteps})
+          return {f'{loss_name}/{k}': v for k,v in m.items()}
+
+        dummy_metrics = update_loss_metrics(
+          dummy_metrics, train_state)
 
         ##############################
         # INIT Actor
@@ -385,12 +402,12 @@ def make_train(
             # take step in env
             timestep = vmap_step(rng_s, prior_timestep, action)
 
-            # update observer with data (used for logging)
-            observer_state = observer.observe(
-                observer_state=observer_state,
-                next_timestep=timestep,
-                predictions=preds,
-                action=action)
+            # # update observer with data (used for logging)
+            # observer_state = observer.observe(
+            #     observer_state=observer_state,
+            #     next_timestep=timestep,
+            #     predictions=preds,
+            #     action=action)
 
             # update timesteps count
             train_state = train_state.replace(
@@ -427,6 +444,8 @@ def make_train(
                     learn_trajectory,
                     _rng,
                     train_state.n_updates)
+                metrics = update_loss_metrics(metrics, train_state)
+
                 train_state = train_state.apply_gradients(grads=grads)
                 train_state = train_state.replace(n_updates=train_state.n_updates + 1)
                 return train_state, metrics
@@ -492,9 +511,7 @@ def make_train(
                         next_timestep=timestep,
                         predictions=preds,
                         action=action,
-                        key='evaluator',
                         maybe_flush=False,
-                        maybe_reset=False,
                         )
 
                     rs = rs._replace(
@@ -533,7 +550,10 @@ def make_train(
                     config["EVAL_STEPS"]*config["EVAL_EPISODES"]
                 )
 
-                eval_observer.flush_metrics('evaluator', eval_runner_state.observer_state)
+                eval_observer.flush_metrics(
+                   key='evaluator',
+                   observer_state=eval_runner_state.observer_state,
+                   force=True)
 
             def log_learner(learner_metrics):
               def callback(metrics):

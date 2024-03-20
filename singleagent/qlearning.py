@@ -84,11 +84,15 @@ class R2D2LossFn(vbb.RecurrentLossFn):
         rewards[:-1],        # [T+1] --> [T]
         discounts[:-1])      # [T+1] --> [T]
 
+    mask = data.discount[:-1]  # if 0, episode ending
     batch_loss = 0.5 * jnp.square(batch_td_error).mean(axis=0)
+
+    batch_loss = vbb.maked_mean(batch_loss, mask)
 
     metrics = {
         '0.q_loss': batch_loss.mean(),
         '0.q_td': jnp.abs(batch_td_error).mean(),
+        '1.reward': rewards.mean(),
         'z.q_mean': self.extract_q(online_preds).mean(),
         'z.q_var': self.extract_q(online_preds).var(),
         }

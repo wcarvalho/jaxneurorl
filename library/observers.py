@@ -72,8 +72,9 @@ class BasicObserverState:
   action_buffer: fbx.trajectory_buffer.TrajectoryBufferState
   timestep_buffer: fbx.trajectory_buffer.TrajectoryBufferState
   prediction_buffer: fbx.trajectory_buffer.TrajectoryBufferState
-  episodes: int
-  env_steps: int
+  idx: jax.Array  # iteration
+  episodes: jax.Array
+  env_steps: jax.Array
 
 
 def add_to_buffer(
@@ -127,6 +128,7 @@ class BasicObserver(Observer):
       timestep_buffer=self.buffer.init(get_first(example_timestep)),
       action_buffer=self.buffer.init(get_first(example_action)),
       prediction_buffer=self.buffer.init(get_first(example_predictions)),
+      idx=jnp.array(0, dtype=jnp.int32),
       episodes=jnp.zeros(self.num_envs, dtype=jnp.int32),
       env_steps=jnp.zeros(self.num_envs, dtype=jnp.int32),
       )
@@ -197,11 +199,12 @@ class BasicObserver(Observer):
     )
 
     # update return/length information
-    episode_idx = observer_state.episodes
-    episode_returns = observer_state.episode_returns.at[:, episode_idx].add(next_timestep.reward)
-    episode_lengths = observer_state.episode_lengths.at[:, episode_idx].add(1)
-
+    idx = observer_state.idx
+    episode_returns = observer_state.episode_returns.at[:, idx].add(next_timestep.reward)
+    episode_lengths = observer_state.episode_lengths.at[:, idx].add(1)
     # update observer state
+    is_last = next_timestep.last()
+    is_last_int = is_last.astype(jnp.int32)
     observer_state = observer_state.replace(
       timestep_buffer=timestep_buffer,
       prediction_buffer=prediction_buffer,
@@ -209,6 +212,7 @@ class BasicObserver(Observer):
       episode_returns=episode_returns,
       episode_lengths=episode_lengths,
       env_steps=observer_state.env_steps + 1,
+      episodes=observer_state.episodes + is_last_int
     )
     
     #############
@@ -216,31 +220,31 @@ class BasicObserver(Observer):
     # it's easier to just do 1 env, so will ignore rest...
     # otherwise, having competing conditons when when episode ends
     #############
-    # first_obs_state = jax.tree_map(lambda x: x[0], observer_state)
     first_next_timestep = jax.tree_map(lambda x: x[0], next_timestep)
 
     #-----------------------
     # if final time-step and log-period has been hit, flush the metrics
     #-----------------------
-    flush = jnp.logical_and(
-      observer_state.episodes[0] % self.log_period == 0,
-      first_next_timestep.last(),
-      )
+    if maybe_flush:
+      flush = jnp.logical_and(
+        idx % self.log_period == 0,
+        first_next_timestep.last(),
+        )
 
-    jax.lax.cond(
-        jnp.logical_and(maybe_flush, flush),
-        lambda: self.flush_metrics(key, observer_state),
-        lambda: None,
-    )
+      jax.lax.cond(
+          flush,
+          lambda: self.flush_metrics(key, observer_state),
+          lambda: None,
+      )
 
     #-----------------------
     # if final time-step, reset buffers. only keep around 1.
     #-----------------------
-    observer_state = jax.lax.cond(
-        jnp.logical_and(maybe_reset, first_next_timestep.last()),
-        lambda: self.reset_buffers(observer_state),
-        lambda: observer_state,
-    )
+    if maybe_reset:
+      observer_state = jax.lax.cond(
+          first_next_timestep.last(),
+          lambda: self.reset_buffers(observer_state),
+          lambda: observer_state)
 
     return observer_state
 
@@ -258,16 +262,21 @@ class BasicObserver(Observer):
       timestep_buffer=self.buffer.init(timestep_buffer),
       action_buffer=self.buffer.init(action_buffer),
       prediction_buffer=self.buffer.init(prediction_buffer),
-      episodes=observer_state.episodes + 1,
+      idx=observer_state.idx + 1,
     )
 
   def flush_metrics(
     self,
     key: str,
-    observer_state: BasicObserverState):
+    observer_state: BasicObserverState,
+    force: bool = False):
     def callback(os: BasicObserverState):
         if wandb.run is not None:
-          idx = os.episodes[0]
+          idx = os.idx + 1
+
+          if not force:
+            if not idx % self.log_period == 0: return
+
           metrics = {
             f'{key}/avg_episode_length': os.episode_lengths[0, :idx].mean(),
             f'{key}/avg_episode_return': os.episode_returns[0, :idx].mean(),

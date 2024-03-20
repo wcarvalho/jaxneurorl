@@ -67,33 +67,32 @@ class TimestepWrapper(GymnaxWrapper):
     def step(
         self,
         key: chex.PRNGKey,
-        timestep: TimeStep,
+        prior_timestep: TimeStep,
         action: Union[int, float],
         params: Optional[environment.EnvParams] = None,
     ) -> Tuple[TimeStep, dict]:
 
-        def env_step(timestep_):
+        def env_step(prior_timestep_):
           obs, state, reward, done, info = self._env.step(
-              key, timestep_.state, action, params
+              key, prior_timestep_.state, action, params
           )
           del info
-          timestep = TimeStep(
+          return TimeStep(
               state=state,
               observation=obs,
               discount=1. - done.astype(jnp.float32),
               reward=reward,
-              step_type=jnp.where(done, StepType.LAST,StepType.MID),
+              step_type=jnp.where(done, StepType.LAST, StepType.MID),
           )
-          return timestep
 
         if self._autoreset:
           # if prior was last, reset
           # otherwise, do regular step
           timestep = jax.lax.cond(
-              timestep.last(),
+              prior_timestep.last(),
               lambda: self.reset(key, params),
-              lambda: env_step(timestep),
+              lambda: env_step(prior_timestep),
           )
         else:
-           timestep = env_step()
+           timestep = env_step(prior_timestep)
         return timestep

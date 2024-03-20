@@ -6,6 +6,11 @@ JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue singleagent/cartpole.py \
   --wandb=False \
   --search=default
 
+JAX_DISABLE_JIT=1 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue singleagent/cartpole.py \
+  --debug=True \
+  --wandb=False \
+  --search=default
+
 TESTING SLURM LAUNCH:
 python singleagent/cartpole.py \
   --parallel=sbatch \
@@ -89,7 +94,7 @@ def sweep(search: str = ''):
   if search == 'default':
     space = [
         {
-            "group": tune.grid_search(['run-3-qlearning']),
+            "group": tune.grid_search(['run-5-qlearning']),
             "alg": tune.grid_search(['qlearning']),
             "AGENT_HIDDEN_DIM": tune.grid_search([64, 128]),
             "AGENT_INIT_SCALE": tune.grid_search([2., .1]),

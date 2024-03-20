@@ -9,10 +9,10 @@
 "NUM_STEPS": 256
 "EVAL_STEPS": 100
 "EVAL_EPISODES": 100
-"TOTAL_TIMESTEPS": 10e7
+"TOTAL_TIMESTEPS": int(10e7)
 "VERBOSE": FALSE
 "WANDB_ONLINE_REPORT": TRUE
-"ACTOR_LOG_PERIOD": 500_000  # every this number of steps
+"ACTOR_LOG_PERIOD": 10_000  # every this number of steps
 "LEARNER_LOG_PERIOD": 50_000  # every this number of learner updates
 
 # NEURAL NET PARAMS
