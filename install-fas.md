@@ -62,7 +62,7 @@ pip install -e '.[qlearning]'
 cd $curdir
 ```
 
-**notes**: if you're using IntelliSense (e.g. through vscode), you'll need to add the jaxmarl path to `python.autoComplete.extraPaths`.
+**notes**: if you're using IntelliSense (e.g. through vscode), you'll need to add the jaxmarl path to `python.autoComplete.extraPaths`. you can access it with `echo $jaxmarl_loc`
 
 # Setup conda activate/deactivate
 
