@@ -1,10 +1,13 @@
 # Install
 
+**Recommendation:** Install [mamba](https://mamba.readthedocs.io/en/latest/installation/mamba-installation.html)
+
 **Create and activate conda environment**
 ```
 mamba create -n jaxneurorl python=3.9 pip wheel -y
-mamba env update -f conda_env.yml
-mamba deactivate  # in case a mamba env is already active
+mamba env update -f conda_env.yaml
+# in case a mamba env is already active
+mamba deactivate
 mamba activate jaxneurorl
 ```
 
@@ -19,7 +22,7 @@ see guide at: https://jax.readthedocs.io/en/latest/installation.html
 
 **pip install:**
 ```
-pip install -U "jax"
+pip install -U "jax==0.4.20"  "jaxlib==0.4.20"
 ```
 
 **test jax install**
@@ -46,37 +49,7 @@ pip install -e '.[qlearning]'
 cd $curdir
 ```
 
-**notes**: if you're using IntelliSense (e.g. through vscode), you'll need to add the jaxmarl path to `python.autoComplete.extraPaths`.
-
-# Setup conda activate/deactivate
-
-**ONE TIME CHANGE TO MAKE YOUR LIFE EASIER**. if you want to avoid having to load modules and set environment variables each time you load this environment, you can add loading things to the activation file. Below is how.
-
-```
-# first activate env
-mamba activate jaxneurorl
-
-# make activation/deactivation directories
-activation_dir=$CONDA_PREFIX/etc/conda/activate.d
-mkdir -p $activation_dir
-mkdir -p $CONDA_PREFIX/etc/conda/deactivate.d
-
-# module loading added to activation
-echo 'module load cuda/12.2.0-fasrc01' > $activation_dir/env_vars.sh
-
-# setting PYTHONPATH added to activation
-echo 'export PYTHONPATH=$PYTHONPATH:.' >> $activation_dir/env_vars.sh
-# below makes jaxmarl visible to IDE-like functionality
-echo 'export PYTHONPATH=$PYTHONPATH:$jaxmarl_loc' >> $activation_dir/env_vars.sh
-
-# setting LD_LIBRARY_PATH added to activation
-echo 'export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$CONDA_PREFIX/lib/' >> $activation_dir/env_vars.sh
-echo 'export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/n/sw/helmod-rocky8/apps/Core/cudnn/8.9.2.26_cuda12-fasrc01/lib/' >> $activation_dir/env_vars.sh
-
-# undoing LD_LIBRARY_PATH added to deactivation
-echo 'unset LD_LIBRARY_PATH' >> $CONDA_PREFIX/etc/conda/deactivate.d/env_vars.sh
-```
-
+**notes**: if you're using IntelliSense (e.g. through vscode), you'll need to add the jaxmarl path to `python.autoComplete.extraPaths`. you can access it with `echo $jaxmarl_loc`
 
 
 ## (Optionally) permanently set the results directory

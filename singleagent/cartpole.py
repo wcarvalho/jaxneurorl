@@ -73,9 +73,11 @@ def run_single(
     else:
       raise NotImplementedError(alg_name)
 
+    train_fn = make_train(config, env, env_params)
+    train_vjit = jax.jit(jax.vmap(train_fn))
+
     rng = jax.random.PRNGKey(config["SEED"])
     rngs = jax.random.split(rng, config["NUM_SEEDS"])
-    train_vjit = jax.jit(jax.vmap(make_train(config, env, env_params)))
     outs = jax.block_until_ready(train_vjit(rngs))
 
     if save_path is not None:
