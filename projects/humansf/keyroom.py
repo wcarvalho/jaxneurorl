@@ -8,6 +8,7 @@ Grid features:
 """
 from __future__ import annotations
 
+from functools import partial
 from typing import Optional, Generic, Callable
 import jax
 import jax.numpy as jnp
@@ -149,11 +150,9 @@ def get_room_coordinates(agent_pos, n):
 
     # Calculate the starting and ending coordinates of the room
     start_x = room_x * room_size
-    end_x = start_x + room_size + 1
     start_y = room_y * room_size
-    end_y = start_y + room_size + 1
 
-    return start_x, end_x, start_y, end_y
+    return start_x, start_y
 
 def get_local_agent_position(agent_pos, height, width):
     # Calculate the room size
@@ -221,13 +220,21 @@ def prepare_task_variables(maze_config: struct.PyTreeNode):
   return task_objects, train_w, test_w
 
 def make_observation(state: EnvState):
-  start_x, end_x, start_y, end_y = get_room_coordinates(
-      state.agent.position, state.grid.shape[0])
+  grid_width = state.grid.shape[0]
+  grid_dim = state.grid.shape[-1]
+
+  start_x, start_y = get_room_coordinates(
+      state.agent.position, grid_width)
+  delta = grid_width//3 + 1
+
+  image = jax.lax.dynamic_slice(
+      state.grid, (start_x, start_y, 0), (delta, delta, grid_dim))
+
   return Observation(
-      image=state.grid[start_x: end_x, start_y: end_y],
-      state_features=state.task_state.features,
-      has_occurred=state.task_state.feature_counts >= 1,
-      task_w=state.feature_weights
+      image=image,
+      state_features=state.task_state.features.flatten(),
+      has_occurred=(state.task_state.feature_counts >= 1).flatten(),
+      task_w=state.feature_weights.flatten()
       )
 
 
@@ -392,6 +399,7 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
         )
         return state
 
+    @partial(jax.jit, static_argnums=(0,))
     def reset(self, params: EnvParamsT, key: jax.Array) -> TimeStep[EnvCarryT]:
         state = self._generate_problem(params, key)
 
@@ -404,6 +412,7 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
         )
         return timestep
 
+    @partial(jax.jit, static_argnums=(0,))
     def step(self, params: EnvParamsT, timestep: TimeStep[EnvCarryT], action: IntOrArray) -> TimeStep[EnvCarryT]:
         new_grid, new_agent, _ = take_action(
             timestep.state.grid, timestep.state.agent, action)

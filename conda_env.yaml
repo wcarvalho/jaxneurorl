@@ -9,3 +9,4 @@ dependencies:
     - tqdm
     - rlax
     - "ray[tune]"
+    - jupyterlab

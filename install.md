@@ -4,7 +4,7 @@
 
 **Create and activate conda environment**
 ```
-mamba create -n jaxneurorl python=3.9 pip wheel -y
+mamba create -n jaxneurorl python=3.10 pip wheel -y
 mamba env update -f conda_env.yaml
 # in case a mamba env is already active
 mamba deactivate
