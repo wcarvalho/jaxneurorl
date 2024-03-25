@@ -31,6 +31,14 @@ from projects.humansf.minigrid_common import States
 from projects.humansf.minigrid_common import make_obj as make_task_obj
 # from projects.humansf.minigrid_common import take_action as take_action_new
 
+KEY_IDX = 0
+DOOR_IDX = 1
+TRAIN_OBJECT_IDX = 2
+TEST_OBJECT_IDX = 3
+
+TYPE_IDX = 0
+COLOR_IDX = 1
+
 def make_obj(
         category: int,
         color: int,
@@ -66,12 +74,6 @@ class TaskState(struct.PyTreeNode):
    feature_counts: jax.Array
    features: jax.Array
 
-
-def add_visibility(grid):
-    padding_shape = (*grid.shape[:2], 1)
-    padding = jnp.ones(padding_shape, dtype=grid.dtype)
-    return jnp.concatenate((grid, padding), axis=-1)
-
 class TaskRunner(struct.PyTreeNode):
   """_summary_
 
@@ -98,6 +100,11 @@ class TaskRunner(struct.PyTreeNode):
         visible_grid (GridState): [H, W, 2]
         agent (AgentState): _description_
     """
+    def add_visibility(grid):
+        padding_shape = (*grid.shape[:2], 1)
+        padding = jnp.ones(padding_shape, dtype=grid.dtype)
+        return jnp.concatenate((grid, padding), axis=-1)
+
     # add dimension with all 1s, since each position here is visible to agent
     visible_grid = add_visibility(visible_grid)  
 
@@ -160,7 +167,9 @@ class EnvState(struct.PyTreeNode, Generic[EnvCarryT]):
     step_num: jax.Array
 
     grid: GridState
+    room_grid: GridState
     agent: AgentState
+    local_agent_position: jax.Array
     # task: Task
     carry: EnvCarryT
     feature_weights: jax.Array
@@ -257,14 +266,14 @@ class Observation(struct.PyTreeNode):
    task_w: jax.Array
    state_features: jax.Array
    has_occurred: jax.Array
+   pocket: jax.Array
 
-def render_room(timestep: TimeStep, render_mode: str = "rgb_array", **kwargs):
-  observation: Observation = timestep.observation
-  room_grid = np.asarray(observation.image)
+def render_room(state: EnvState, render_mode: str = "rgb_array", **kwargs):
+  room_grid = np.asarray(state.room_grid)
   local_agent_position = get_local_agent_position(
-     timestep.state.agent.position,
-     *timestep.state.grid.shape[:2])
-  localized_agent = timestep.state.agent.replace(
+     state.agent.position,
+     *state.grid.shape[:2])
+  localized_agent = state.agent.replace(
       position=local_agent_position)
   if render_mode == "rgb_array":
     return render(room_grid, localized_agent, **kwargs)
@@ -282,7 +291,7 @@ def prepare_task_variables(maze_config: struct.PyTreeNode):
   test_w = []
   for room_idx in range(n_task_rooms):
     goal_key = make_task_obj(*keys[room_idx], visible=1, state=States.PICKED_UP)
-    goal_door = make_task_obj(Tiles.DOOR_OPEN, keys[room_idx][1], visible=1)
+    goal_door = make_task_obj(Tiles.DOOR_OPEN, keys[room_idx][COLOR_IDX], visible=1)
 
     obj1, obj2 = pairs[room_idx]
     train_object = make_task_obj(*obj1, visible=1, state=States.PICKED_UP)
@@ -300,11 +309,20 @@ def prepare_task_variables(maze_config: struct.PyTreeNode):
 
 
 def make_observation(state: EnvState, room_grid: GridState):
+  """This converts all inputs into binary vectors. this faciitates processing with a neural network."""
+  binary_room_grid = minigrid_common.make_binary_vector_grid(room_grid)
+  agent_grid = minigrid_common.make_agent_grid(
+      grid_shape=room_grid.shape[:2],  # [H,w]
+      agent_pos=state.local_agent_position,  # [y, x]
+      dir=state.agent.direction,  # [d]
+  )
+
   return Observation(
-      image=room_grid,
+      image=jnp.concatenate((binary_room_grid, agent_grid), axis=-1),
+      pocket=minigrid_common.make_binary_vector(state.agent.pocket),
       state_features=state.task_state.features.flatten(),
       has_occurred=(state.task_state.feature_counts >= 1).flatten(),
-      task_w=state.feature_weights.flatten()
+      task_w=state.feature_weights.flatten(),
       )
 
 class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
@@ -423,7 +441,7 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
           # add door
           #------------------
           add_door_fn = add_door_fns[room_idx]
-          door_color = keys[room_idx][1]
+          door_color = keys[room_idx][COLOR_IDX]
           door = make_obj(
              Tiles.DOOR_LOCKED, door_color,
              visible=1)
@@ -462,6 +480,9 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
             step_num=jnp.asarray(0),
             grid=grid,
             agent=agent,
+            local_agent_position=get_local_agent_position(
+                agent.position, *grid.shape[:2]),
+            room_grid=get_room_grid(grid=grid, agent=agent),
             goal_room_idx=goal_room_idx,
             feature_weights=feature_weights,
             carry=EnvCarry(),
@@ -475,13 +496,12 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
        params: EnvParamsT) -> TimeStep[EnvCarryT]:
         state = self._generate_problem(params, key)
 
-        room_grid = get_room_grid(grid=state.grid, agent=state.agent)
         task_state = self.task_runner.reset(
-            visible_grid=room_grid,
+            visible_grid=state.room_grid,
             agent=state.agent)
         state = state.replace(task_state=task_state)
 
-        observation = make_observation(state, room_grid)
+        observation = make_observation(state, state.room_grid)
         timestep = TimeStep(
             state=state,
             step_type=StepType.FIRST,
@@ -501,15 +521,18 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
         del key
         new_grid, new_agent, _ = take_action(
             timestep.state.grid, timestep.state.agent, action)
-
         new_room_grid = get_room_grid(grid=new_grid, agent=new_agent)
+
         new_task_state = self.task_runner.step(
             prior_state=timestep.state.task_state,
             visible_grid=new_room_grid,
             agent=new_agent)
         new_state = timestep.state.replace(
             grid=new_grid,
+            room_grid=new_room_grid,
             agent=new_agent,
+            local_agent_position=get_local_agent_position(
+                new_agent.position, *new_grid.shape[:2]),
             step_num=timestep.state.step_num + 1,
             task_state=new_task_state,
         )
@@ -526,9 +549,9 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
         terminated = jax.lax.cond(
            params.training,
            # goal object picked up
-           lambda: picked_up(goal_room_objects[2]),
+           lambda: picked_up(goal_room_objects[TRAIN_OBJECT_IDX]),
            # goal key picked up
-           lambda: picked_up(goal_room_objects[0]),
+           lambda: picked_up(goal_room_objects[KEY_IDX]),
         )
         truncated = jnp.equal(new_state.step_num, self.time_limit(params))
 
@@ -540,7 +563,7 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
            # use accomplishment of state features as reward
            lambda: (state_features*new_observation.task_w).sum(),
            # was key for goal object picked up?
-           lambda: picked_up(goal_room_objects[0]).astype(jnp.float32)
+           lambda: picked_up(goal_room_objects[KEY_IDX]).astype(jnp.float32)
         )
 
         step_type = jax.lax.select(

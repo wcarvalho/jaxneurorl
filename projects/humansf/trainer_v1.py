@@ -22,13 +22,14 @@ python projects/humansf/trainer_v1.py \
   --parallel=sbatch \
   --search=default
 """
+from typing import Dict, Union
 
 from absl import flags
 from absl import app
 
 import os
 import jax
-from typing import Dict, Union
+import json
 
 from ray import tune
 
@@ -45,7 +46,8 @@ os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']='false'
 
 import library.flags
 from library import parallel
-# from projects/humansf trainer_v1 qlearning
+from projects.humansf import qlearning
+from projects.humansf import keyroom
 FLAGS = flags.FLAGS
 
 def run_single(
@@ -60,6 +62,10 @@ def run_single(
         tags=[f"jax_{jax.__version__}"]
         )
     wandb.init(**wandb_init)
+
+    # Open the file and load the JSON data
+    with open("maze_pairs.json", "r") as file:
+        maze_config = json.load(file)[0]
 
     basic_env, env_params = gymnax.make("CartPole-v1")
     env = FlattenObservationWrapper(basic_env)
