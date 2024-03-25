@@ -1,5 +1,5 @@
 *slurm*
-*.gif
+analysis_media
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
