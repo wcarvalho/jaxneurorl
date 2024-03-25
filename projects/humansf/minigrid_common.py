@@ -87,7 +87,8 @@ def pick_up(grid: GridState, agent: AgentState) -> ActionOutput:
             grid.at[next_position[0], next_position[1]].set(
                 make_obj(Tiles.FLOOR, Colors.BLACK)),
             agent.replace(
-                pocket=make_obj_arr(*grid[next_position[0], next_position[1]]),
+                pocket=make_obj_arr(*grid[next_position[0], next_position[1], :2],
+                                    visible=1, state=States.PICKED_UP),
             ),
         ),
         lambda: (grid, agent),

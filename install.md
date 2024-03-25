@@ -51,8 +51,25 @@ cd $curdir
 
 **notes**: if you're using IntelliSense (e.g. through vscode), you'll need to add the jaxmarl path to `python.autoComplete.extraPaths`. you can access it with `echo $jaxmarl_loc`
 
+# Setup conda activate/deactivate
 
-## (Optionally) permanently set the results directory
+**first activate env**
+```
+mamba activate jaxneurorl
+```
+
+**Have python path include this library**
+```
+# make activation/deactivation directories
+activation_dir=$CONDA_PREFIX/etc/conda/activate.d
+mkdir -p $activation_dir
+mkdir -p $CONDA_PREFIX/etc/conda/deactivate.d
+
+# setting PYTHONPATH added to activation
+echo 'export PYTHONPATH=$PYTHONPATH:`pwd`' >> $activation_dir/env_vars.sh
+```
+
+**(Optionally) permanently set the results directory**
 ```
 echo 'export RL_RESULTS_DIR=${results_dir}' >> $CONDA_PREFIX/etc/conda/activate.d/env_vars.sh
 ```
@@ -66,7 +83,7 @@ Otherwise, can set each time run experiment
 RL_RESULTS_DIR=${results_dir} python trainer.py
 ```
 
-## (Optional) setup wandb
+**(Optional) setup wandb**
 ```
 wandb login
 ```

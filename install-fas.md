@@ -81,9 +81,7 @@ mkdir -p $CONDA_PREFIX/etc/conda/deactivate.d
 echo 'module load cuda/12.2.0-fasrc01' > $activation_dir/env_vars.sh
 
 # setting PYTHONPATH added to activation
-echo 'export PYTHONPATH=$PYTHONPATH:.' >> $activation_dir/env_vars.sh
-# below makes jaxmarl visible to IDE-like functionality
-echo 'export PYTHONPATH=$PYTHONPATH:$jaxmarl_loc' >> $activation_dir/env_vars.sh
+echo 'export PYTHONPATH=$PYTHONPATH:`pwd`' >> $activation_dir/env_vars.sh
 
 # setting LD_LIBRARY_PATH added to activation
 echo 'export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$CONDA_PREFIX/lib/' >> $activation_dir/env_vars.sh

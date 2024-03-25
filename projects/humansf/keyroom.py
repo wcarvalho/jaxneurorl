@@ -18,6 +18,7 @@ import copy
 
 from xminigrid.core.constants import Colors, Tiles
 from xminigrid.core.goals import EmptyGoal
+from xminigrid.core.actions import take_action
 from xminigrid.core.grid import cartesian_product_1d, nine_rooms, sample_coordinates, sample_direction, free_tiles_mask
 from xminigrid.rendering.rgb_render import render
 from xminigrid.rendering.text_render import render as text_render
@@ -26,8 +27,24 @@ from xminigrid.environment import Environment, EnvParams, EnvParamsT
 from xminigrid.types import AgentState, EnvCarry, State, TimeStep, EnvCarryT, IntOrArray, StepType, GridState
 
 from projects.humansf import minigrid_common
-from projects.humansf.minigrid_common import States, make_obj, take_action, make_obj_arr
+from projects.humansf.minigrid_common import States
+from projects.humansf.minigrid_common import make_obj as make_task_obj
+# from projects.humansf.minigrid_common import take_action as take_action_new
 
+def make_obj(
+        category: int,
+        color: int,
+        visible: int = 0,
+        state: int = States.ON_FLOOR,
+        asarray: bool = False):
+    del visible
+    del state
+    obj = (category, color)
+    if asarray:
+        obj = jnp.asarray(obj, dtype=jnp.uint8)
+    return obj
+
+make_obj_arr = partial(make_obj, asarray=True)
 
 def accomplished(grid, task):
   # [D] [H, W, D]
@@ -49,35 +66,87 @@ class TaskState(struct.PyTreeNode):
    feature_counts: jax.Array
    features: jax.Array
 
+
+def add_visibility(grid):
+    padding_shape = (*grid.shape[:2], 1)
+    padding = jnp.ones(padding_shape, dtype=grid.dtype)
+    return jnp.concatenate((grid, padding), axis=-1)
+
 class TaskRunner(struct.PyTreeNode):
+  """_summary_
+
+  members:
+      task_objects (jax.Array): [num_tasks, num_task_objects, task_object_dim]
+
+  Returns:
+      _type_: _description_
+  """
   task_objects: jax.Array
   first_instance: bool = True
   convert_type: Callable[[jax.Array], jax.Array] = lambda x: x.astype(jnp.int32)
 
-  def reset(self, grid: GridState):
-    acc = accomplished_HW(grid, self.task_objects)
+  def get_features(self, visible_grid: GridState, agent: AgentState):
+    """Get features
+    `task_objects` is  [num_tasks, num_task_objects, task_object_dim]
+    `features` returned will also be [num_tasks, num_task_objects]
+
+    we're doing to look for those task objects in every grid position.
+      if the task object is found in ANY grid position or in agent.pocket,
+      features[task, task_object] = 1, else 0.
+
+    Args:
+        visible_grid (GridState): [H, W, 2]
+        agent (AgentState): _description_
+    """
+    # add dimension with all 1s, since each position here is visible to agent
+    visible_grid = add_visibility(visible_grid)  
+
+    # acc_in_grid is [num_tasks, num_task_objects]
+    acc_in_grid = accomplished_HW(visible_grid, self.task_objects[:, :, 3])
+
+    # look at all task objects and see if they match pocket
+    # acc_in_pocket is [num_tasks, num_task_objects]
+    pocket = make_task_obj(*agent.pocket, visible=1, state=States.PICKED_UP, asarray=True)
+    acc_in_pocket = (pocket[None, None]==self.task_objects).all(axis=-1)
+
+    acc = jnp.logical_or(acc_in_grid, acc_in_pocket)
+
     features = self.convert_type(acc)
+    return features
+
+  def reset(self, visible_grid: GridState, agent: AgentState):
+    """Get initial features.
+
+    Args:
+        visible_grid (GridState): _description_
+        agent (AgentState): _description_
+
+    Returns:
+        _type_: _description_
+    """
+    features = self.get_features(visible_grid, agent)
     return TaskState(
        feature_counts=features,
        features=features
     )
 
-  def step(self, grid: GridState, prior_state: TaskState):
-    acc = accomplished_HW(grid, self.task_objects)
-    features = self.convert_type(acc)
+  def step(self, prior_state: TaskState, visible_grid: GridState, agent: AgentState):
+    features = self.get_features(visible_grid, agent)
     difference = self.convert_type(features - prior_state.features)
     positive_difference = difference*(difference > 0)
 
     feature_counts = prior_state.feature_counts + positive_difference
     if self.first_instance:
       # in 1 setting, state-feature is only active the 1st time the count goes  0 -> +
+      # print('feature_counts == 1', feature_counts == 1)
       is_first = self.convert_type(feature_counts == 1)
       new_features = is_first*positive_difference
     else:
       # in this setting, whenever goes 0 -> +
       new_features = positive_difference
+
     return TaskState(
-        feature_counts=features,
+        feature_counts=feature_counts,
         features=new_features
     )
 
@@ -95,7 +164,8 @@ class EnvState(struct.PyTreeNode, Generic[EnvCarryT]):
     # task: Task
     carry: EnvCarryT
     feature_weights: jax.Array
-    task_state: TaskState
+    goal_room_idx: jax.Array
+    task_state: Optional[TaskState] = None
 
 def convert_dict_to_types(maze_dict):
     # Create a dictionary to map color strings to their corresponding values
@@ -140,9 +210,15 @@ def convert_dict_to_types(maze_dict):
 
     return converted_dict
 
-def get_room_coordinates(agent_pos, n):
+
+def get_room_grid(grid: GridState, agent: AgentState):
+    agent_pos = agent.position
+    grid_width = grid.shape[0]
+    grid_dim = grid.shape[-1]
+
     # Calculate the room size
-    room_size = n // 3
+    # NOTE: ASSUME SQUARE ROOMS
+    room_size = grid_width // 3
 
     # Calculate the room indices
     room_x = agent_pos[0] // room_size
@@ -152,7 +228,10 @@ def get_room_coordinates(agent_pos, n):
     start_x = room_x * room_size
     start_y = room_y * room_size
 
-    return start_x, start_y
+    delta = grid_width//3 + 1
+
+    return jax.lax.dynamic_slice(
+        grid, (start_x, start_y, 0), (delta, delta, grid_dim))
 
 def get_local_agent_position(agent_pos, height, width):
     # Calculate the room size
@@ -202,12 +281,12 @@ def prepare_task_variables(maze_config: struct.PyTreeNode):
   train_w = []
   test_w = []
   for room_idx in range(n_task_rooms):
-    goal_key = make_obj(*keys[room_idx], visible=1, state=States.PICKED_UP)
-    goal_door = make_obj(Tiles.DOOR_OPEN, keys[room_idx][1], visible=1)
+    goal_key = make_task_obj(*keys[room_idx], visible=1, state=States.PICKED_UP)
+    goal_door = make_task_obj(Tiles.DOOR_OPEN, keys[room_idx][1], visible=1)
 
     obj1, obj2 = pairs[room_idx]
-    train_object = make_obj(*obj1, visible=1, state=States.PICKED_UP)
-    test_object = make_obj(*obj2, visible=1, state=States.PICKED_UP)
+    train_object = make_task_obj(*obj1, visible=1, state=States.PICKED_UP)
+    test_object = make_task_obj(*obj2, visible=1, state=States.PICKED_UP)
 
     task_objects.append((goal_key, goal_door, train_object, test_object))
     train_w.append((.1, .25, 1., 0))
@@ -219,24 +298,14 @@ def prepare_task_variables(maze_config: struct.PyTreeNode):
 
   return task_objects, train_w, test_w
 
-def make_observation(state: EnvState):
-  grid_width = state.grid.shape[0]
-  grid_dim = state.grid.shape[-1]
 
-  start_x, start_y = get_room_coordinates(
-      state.agent.position, grid_width)
-  delta = grid_width//3 + 1
-
-  image = jax.lax.dynamic_slice(
-      state.grid, (start_x, start_y, 0), (delta, delta, grid_dim))
-
+def make_observation(state: EnvState, room_grid: GridState):
   return Observation(
-      image=image,
+      image=room_grid,
       state_features=state.task_state.features.flatten(),
       has_occurred=(state.task_state.feature_counts >= 1).flatten(),
       task_w=state.feature_weights.flatten()
       )
-
 
 class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
 
@@ -261,7 +330,7 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
         rng, *rngs = jax.random.split(rng, num=6)
 
         grid = nine_rooms(params.height, params.width)
-        grid = minigrid_common.prepare_grid(grid, extra_dims=2)
+        # grid = minigrid_common.prepare_grid(grid, extra_dims=2)
         roomW, roomH = params.width // 3, params.height // 3
 
         keys = self.maze_config['keys']
@@ -379,8 +448,8 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
             pocket=make_obj_arr(Tiles.EMPTY, Colors.EMPTY),
             )
 
-        goal_room = jax.random.randint(rng, shape=(), minval=0, maxval=len(keys))
-        goal_room = jax.nn.one_hot(goal_room, len(keys))
+        goal_room_idx = jax.random.randint(rng, shape=(), minval=0, maxval=len(keys))
+        goal_room = jax.nn.one_hot(goal_room_idx, len(keys))
 
         feature_weights = jax.lax.cond(
             params.training, 
@@ -393,47 +462,86 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
             step_num=jnp.asarray(0),
             grid=grid,
             agent=agent,
+            goal_room_idx=goal_room_idx,
             feature_weights=feature_weights,
-            task_state=self.task_runner.reset(grid),
             carry=EnvCarry(),
         )
         return state
 
-    @partial(jax.jit, static_argnums=(0,))
-    def reset(self, params: EnvParamsT, key: jax.Array) -> TimeStep[EnvCarryT]:
+    # @partial(jax.jit, static_argnums=(0,))
+    def reset(
+       self, 
+       key: jax.random.KeyArray,
+       params: EnvParamsT) -> TimeStep[EnvCarryT]:
         state = self._generate_problem(params, key)
 
+        room_grid = get_room_grid(grid=state.grid, agent=state.agent)
+        task_state = self.task_runner.reset(
+            visible_grid=room_grid,
+            agent=state.agent)
+        state = state.replace(task_state=task_state)
+
+        observation = make_observation(state, room_grid)
         timestep = TimeStep(
             state=state,
             step_type=StepType.FIRST,
             reward=jnp.asarray(0.0),
             discount=jnp.asarray(1.0),
-            observation=make_observation(state),
+            observation=observation,
         )
         return timestep
 
-    @partial(jax.jit, static_argnums=(0,))
-    def step(self, params: EnvParamsT, timestep: TimeStep[EnvCarryT], action: IntOrArray) -> TimeStep[EnvCarryT]:
+    # @partial(jax.jit, static_argnums=(0,))
+    def step(self,
+             key: jax.random.KeyArray,
+             timestep: TimeStep[EnvCarryT],
+             action: IntOrArray,
+             params: EnvParamsT,
+             ) -> TimeStep[EnvCarryT]:
+        del key
         new_grid, new_agent, _ = take_action(
             timestep.state.grid, timestep.state.agent, action)
 
+        new_room_grid = get_room_grid(grid=new_grid, agent=new_agent)
+        new_task_state = self.task_runner.step(
+            prior_state=timestep.state.task_state,
+            visible_grid=new_room_grid,
+            agent=new_agent)
         new_state = timestep.state.replace(
             grid=new_grid,
             agent=new_agent,
             step_num=timestep.state.step_num + 1,
+            task_state=new_task_state,
         )
-        new_observation = make_observation(new_state)
+        new_observation = make_observation(new_state, room_grid=new_room_grid)
+
         # checking for termination or truncation, choosing step type
+        goal_room_objects = self.task_objects[new_state.goal_room_idx]
+
+        def picked_up(task_object: jax.Array):
+          pocket = make_task_obj(*new_agent.pocket, visible=1,
+                                state=States.PICKED_UP, asarray=True)
+          return (pocket == task_object).all()
+
         terminated = jax.lax.cond(
            params.training,
            # goal object picked up
-           lambda: False,
+           lambda: picked_up(goal_room_objects[2]),
            # goal key picked up
-           lambda: False
+           lambda: picked_up(goal_room_objects[0]),
         )
         truncated = jnp.equal(new_state.step_num, self.time_limit(params))
 
-        reward = (new_observation.state_features*new_observation.task_w).sum()
+        state_features = new_observation.state_features.astype(
+            jnp.float32)
+
+        reward = jax.lax.cond(
+           params.training,
+           # use accomplishment of state features as reward
+           lambda: (state_features*new_observation.task_w).sum(),
+           # was key for goal object picked up?
+           lambda: picked_up(goal_room_objects[0]).astype(jnp.float32)
+        )
 
         step_type = jax.lax.select(
             terminated | truncated, StepType.LAST, StepType.MID)
