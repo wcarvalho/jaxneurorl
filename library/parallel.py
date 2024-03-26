@@ -13,6 +13,7 @@ from pathlib import Path
 import subprocess
 
 from pprint import pprint
+import library.flags
 
 FLAGS = flags.FLAGS
 
@@ -319,15 +320,22 @@ def run(
 def load_hydra_config(
     sweep_config,
     config_path: str,
-    save_path: str,
+    save_path: Optional[str] = None,
+    process_sweep_config: bool = False,
+    verbose: bool = True,
     tags=[]):
   from omegaconf import OmegaConf
 
+  if process_sweep_config:
+    algo_config, env_config = get_agent_env_configs(config=sweep_config)
+    sweep_config['algo_config'] = algo_config
+    sweep_config['env_config'] = env_config
   #---------------
   # load algorithm, config, and env names
   #---------------
-  print("Sweep Config")
-  pprint(sweep_config)
+  if verbose:
+    print("Sweep Config")
+    pprint(sweep_config)
   #---------------
   # split sweep config into algo + env configs
   #---------------
@@ -363,18 +371,25 @@ def load_hydra_config(
   config['env']['ENV_KWARGS'].update(sweep_env_config)
   config['env_name'] = env_name = config["env"].get("ENV_NAME", 'env')
 
-  if FLAGS.debug:
-    config.update(config.pop('debug', {}))
+  try:
+    if FLAGS.debug:
+      config.update(config.pop('debug', {}))
+  except:
+    pass
 
-  print("Final Config")
-  pprint(config)
+  if verbose:
+    print("Final Config")
+    pprint(config)
 
   #---------------
   # create wandb kwargs
   #---------------
   project = config["PROJECT"]
-  if FLAGS.debug:
-    project += "_debug"
+  try:
+    if FLAGS.debug:
+      project += "_debug"
+  except:
+    pass
 
   wandb_init = dict(
     project=project,
@@ -388,7 +403,10 @@ def load_hydra_config(
     # reinit=True,
   )
 
-  if not FLAGS.wandb:
-    wandb_init['mode'] = 'disabled'
+  try:
+    if not FLAGS.wandb:
+      wandb_init['mode'] = 'disabled'
+  except:
+    pass
 
   return config, wandb_init

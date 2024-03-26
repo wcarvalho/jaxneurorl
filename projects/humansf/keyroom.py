@@ -347,8 +347,8 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
         return spaces.Discrete(NUM_ACTIONS)
 
 
-    def default_params(self, **kwargs) -> KeyRoomEnvParams:
-        return KeyRoomEnvParams(height=19, width=19).replace(**kwargs)
+    def default_params(self, height=19, width=19, **kwargs) -> KeyRoomEnvParams:
+        return KeyRoomEnvParams(height=height, width=width).replace(**kwargs)
 
     def time_limit(self, params: EnvParams) -> int:
         return 150
@@ -498,7 +498,7 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
         )
         return state
 
-    # @partial(jax.jit, static_argnums=(0,))
+    @partial(jax.jit, static_argnums=(0,))
     def reset(
        self, 
        key: jax.random.KeyArray,
@@ -520,7 +520,7 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
         )
         return timestep
 
-    # @partial(jax.jit, static_argnums=(0,))
+    @partial(jax.jit, static_argnums=(0,))
     def step(self,
              key: jax.random.KeyArray,
              timestep: TimeStep[EnvCarryT],

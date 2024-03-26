@@ -58,7 +58,7 @@ class R2D2LossFn(vbb.RecurrentLossFn):
   bootstrap_n: int = 5
 
   def error(self, data, online_preds, online_state, target_preds, target_state, **kwargs):
-    """R2D2 learning
+    """R2D2 learning.
     """
     # Get value-selector actions from online Q-values for double Q-learning.
     selector_actions = jnp.argmax(self.extract_q(online_preds), axis=-1)  # [T+1, B]
@@ -84,6 +84,9 @@ class R2D2LossFn(vbb.RecurrentLossFn):
         rewards[1:],        # [T+1] --> [T]
         discounts[1:])      # [T+1] --> [T]
 
+    # NOTE: discount AT terminal state = 0. discount BEFORE terminal state = 1.
+    # AT terminal state, don't want loss from terminal to next because that crosses
+    # episode boundaries. so use discount[:-1] for making mask.
     mask = data.discount[:-1]  # if 0, episode ending
     batch_loss = 0.5 * jnp.square(batch_td_error).mean(axis=0)
 

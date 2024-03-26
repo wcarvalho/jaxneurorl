@@ -4,7 +4,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from keyroom import Observation
+from projects.humansf.keyroom import Observation
 
 class KeyroomObsEncoder(nn.Module):
     """_summary_

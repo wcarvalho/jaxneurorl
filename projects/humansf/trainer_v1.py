@@ -30,6 +30,7 @@ from absl import app
 import os
 import jax
 import json
+import functools
 
 from ray import tune
 
@@ -48,6 +49,8 @@ import library.flags
 from library import parallel
 from projects.humansf import qlearning
 from projects.humansf import keyroom
+from singleagent import value_based_basics as vbb
+
 FLAGS = flags.FLAGS
 
 def run_single(
@@ -75,7 +78,13 @@ def run_single(
 
     alg_name = config['alg']
     if alg_name == 'qlearning':
-      make_train = qlearning.make_train_preloaded
+      make_train = functools.partial(
+          vbb.make_train,
+          make_agent=qlearning.make_agent,
+          make_optimizer=qlearning.make_optimizer,
+          make_loss_fn_class=qlearning.make_loss_fn_class,
+          make_actor=qlearning.make_actor,
+      )
     else:
       raise NotImplementedError(alg_name)
 

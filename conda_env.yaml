@@ -10,3 +10,4 @@ dependencies:
     - rlax
     - "ray[tune]"
     - jupyterlab
+    - ipywidgets

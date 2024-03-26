@@ -290,10 +290,10 @@ def make_train(
         # will be absorbed into _update_step via closure
         ##############################
         rng, _rng = jax.random.split(rng)
-        agent, network_params, reset_fn = make_agent(
+        agent, network_params, agent_reset_fn = make_agent(
            config, env, env_params, init_timestep, _rng)
 
-        init_agent_state = reset_fn(network_params, init_timestep)
+        init_agent_state = agent_reset_fn(network_params, init_timestep)
 
         ##############################
         # INIT BUFFER
@@ -409,8 +409,6 @@ def make_train(
 
         ##############################
         # DEFINE TRAINING LOOP
-        # 1. Take a step in the environment
-        # 2. Update buffer
         ##############################
         def _train_step(runner_state: RunnerState, unused):
             del unused
@@ -564,7 +562,7 @@ def make_train(
                 init_timestep = vmap_reset(_rng)
 
                 # reset agent state
-                init_agent_state = reset_fn(network_params, init_timestep)
+                init_agent_state = agent_reset_fn(network_params, init_timestep)
 
                 # create evaluation runner for greedy eva
                 # unnecessary but helps ensure don't accidentally
