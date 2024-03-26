@@ -15,8 +15,9 @@ import jax.numpy as jnp
 from flax import struct
 import numpy as np
 import copy
+from gymnax.environments import spaces
 
-from xminigrid.core.constants import Colors, Tiles
+from xminigrid.core.constants import Colors, Tiles, NUM_ACTIONS
 from xminigrid.core.goals import EmptyGoal
 from xminigrid.core.actions import take_action
 from xminigrid.core.grid import cartesian_product_1d, nine_rooms, sample_coordinates, sample_direction, free_tiles_mask
@@ -337,6 +338,14 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
            first_instance=True,
         )
         self.name = name
+
+    def action_space(
+        self, params: Optional[EnvParams] = None
+    ) -> spaces.Discrete:
+        """Action space of the environment."""
+        del params
+        return spaces.Discrete(NUM_ACTIONS)
+
 
     def default_params(self, **kwargs) -> KeyRoomEnvParams:
         return KeyRoomEnvParams(height=19, width=19).replace(**kwargs)

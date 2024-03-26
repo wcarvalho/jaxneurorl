@@ -64,14 +64,14 @@ def run_single(
     wandb.init(**wandb_init)
 
     # Open the file and load the JSON data
-    with open("maze_pairs.json", "r") as file:
-        maze_config = json.load(file)[0]
+    maze_path = os.path.join('projects/humansf', "maze_pairs.json")
+    with open(maze_path, "r") as file:
+      maze_config = json.load(file)[0]
 
-    basic_env, env_params = gymnax.make("CartPole-v1")
-    env = FlattenObservationWrapper(basic_env)
-    # converts to using timestep
-    env = TimestepWrapper(env, autoreset=True)
-    # env = LogWrapper(env)
+    num_rooms = config['env'].get('NUM_ROOMS', 4)
+    env = keyroom.KeyRoom(
+        maze_config=keyroom.shorten_maze_config(maze_config, num_rooms))
+    env_params = env.default_params()
 
     alg_name = config['alg']
     if alg_name == 'qlearning':
@@ -104,6 +104,7 @@ def sweep(search: str = ''):
         {
             "group": tune.grid_search(['run-5-qlearning']),
             "alg": tune.grid_search(['qlearning']),
+            "config_name": tune.grid_search(['qlearning']),
             "AGENT_HIDDEN_DIM": tune.grid_search([64, 128]),
             "AGENT_INIT_SCALE": tune.grid_search([2., .1]),
         }
@@ -116,7 +117,7 @@ def sweep(search: str = ''):
 def main(_):
   parallel.run(
       trainer_filename=__file__,
-      config_path='../configs',  # must be relative...
+      config_path='projects/humansf/configs',
       run_fn=run_single,
       sweep_fn=sweep,
       folder=os.environ.get(

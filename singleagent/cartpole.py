@@ -110,7 +110,7 @@ def sweep(search: str = ''):
 def main(_):
   parallel.run(
       trainer_filename=__file__,
-      config_path='../configs',  # must be relative...
+      config_path='configs',
       run_fn=run_single,
       sweep_fn=sweep,
       folder=os.environ.get(

@@ -264,6 +264,7 @@ def run(
   Raises:
       NotImplementedError: _description_
   """
+  config_path = os.path.join("..", config_path)
   if FLAGS.parallel == 'sbatch':
     run_sbatch(
       trainer_filename=trainer_filename,
@@ -335,8 +336,7 @@ def load_hydra_config(
 
   algo_name = sweep_algo_config.get('alg', None)
   assert algo_name is not None, "set algorithm"
-  config_name = sweep_config.get('config_name', algo_name)
-
+  config_name = sweep_algo_config.pop('config_name', algo_name)
 
   #---------------
   # load & update hydra config

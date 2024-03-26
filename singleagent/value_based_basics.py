@@ -246,8 +246,10 @@ class CustomTrainState(TrainState):
     timesteps: int
     n_updates: int
 
+
+ResetFn = Callable[[Params, TimeStep], AgentState]
 MakeAgentFn = Callable[[Config, Env, EnvParams, TimeStep, jax.random.KeyArray],
-                       Tuple[Agent, Params, AgentState]]
+                       Tuple[nn.Module, Params, ResetFn]]
 MakeOptimizerFn = Callable[[Config], optax.GradientTransformation]
 MakeLossFnClass = Callable[[Config], RecurrentLossFn]
 MakeActorFn = Callable[[Config, Agent], Actor]
@@ -288,8 +290,10 @@ def make_train(
         # will be absorbed into _update_step via closure
         ##############################
         rng, _rng = jax.random.split(rng)
-        agent, network_params, init_agent_state = make_agent(
+        agent, network_params, reset_fn = make_agent(
            config, env, env_params, init_timestep, _rng)
+
+        init_agent_state = reset_fn(network_params, init_timestep)
 
         ##############################
         # INIT BUFFER
@@ -560,10 +564,7 @@ def make_train(
                 init_timestep = vmap_reset(_rng)
 
                 # reset agent state
-                init_agent_state = agent.apply(
-                    network_params,
-                    init_timestep.observation.shape,
-                    method=agent.initialize_carry)
+                init_agent_state = reset_fn(network_params, init_timestep)
 
                 # create evaluation runner for greedy eva
                 # unnecessary but helps ensure don't accidentally

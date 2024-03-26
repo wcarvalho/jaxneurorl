@@ -34,6 +34,7 @@ from gymnax.environments import environment
 
 from library.wrappers import TimeStep
 from singleagent import value_based_basics as vbb
+from projects.humansf.networks import KeyroomObsEncoder
 
 def extract_timestep_input(timestep: TimeStep):
   return RNNInput(
@@ -104,15 +105,24 @@ class Predictions(NamedTuple):
     rnn_states: jax.Array
 
 class AgentRNN(nn.Module):
-    # homogenous agent for parameters sharing, assumes all agents have same obs and action dim
+    """_summary_
+
+    - observation encoder: CNN
+    Args:
+        nn (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """
     action_dim: int
     hidden_dim: int
     init_scale: float
     cell_type: nn.RNNCellBase = nn.LSTMCell
 
     def setup(self):
-        self.observation_encoder = nn.Dense(
-            self.hidden_dim, kernel_init=orthogonal(self.init_scale), bias_init=constant(0.0))
+
+        self.observation_encoder = KeyroomObsEncoder(self.hidden_dim)
+
         self.cell = self.cell_type(self.hidden_dim)
 
         self.rnn = vbb.ScannedRNN(
@@ -124,7 +134,8 @@ class AgentRNN(nn.Module):
     def initialize(self, x: TimeStep):
         """Only used for initialization."""
         # [B, D]
-        rnn_state = self.initialize_carry(x.observation.shape)
+        embedding = self.observation_encoder(x.observation)
+        rnn_state = self.initialize_carry(embedding.shape)
         return self.__call__(rnn_state, x)
 
     def __call__(self, rnn_state, x: TimeStep):
@@ -145,13 +156,13 @@ class AgentRNN(nn.Module):
         # x: [T, B]
         x = extract_timestep_input(x)
 
-        embedding = self.observation_encoder(x.obs)
+        embedding = nn.BatchApply(self.observation_encoder)(x.obs)
         embedding = nn.relu(embedding)
 
         rnn_in = x._replace(obs=embedding)
         new_rnn_state, rnn_out = self.rnn.unroll(rnn_state, rnn_in)
 
-        q_vals = self.q_fn(rnn_out)
+        q_vals = nn.BatchApply(self.q_fn)(rnn_out)
 
         return Predictions(q_vals, rnn_out), new_rnn_state
 
@@ -192,10 +203,10 @@ def make_agent(
         env: environment.Environment,
         env_params: environment.EnvParams,
         example_timestep: TimeStep,
-        rng: jax.random.KeyArray) -> Tuple[nn.Module, Params, vbb.ResetFn]:
+        rng: jax.random.KeyArray) -> Tuple[Agent, Params, vbb.ResetFn]:
 
     agent = AgentRNN(
-        action_dim=env.action_space(env_params).n,
+        action_dim=env.num_actions(env_params),
         hidden_dim=config["AGENT_HIDDEN_DIM"],
         init_scale=config['AGENT_INIT_SCALE'],
     )
@@ -205,10 +216,14 @@ def make_agent(
         _rng, example_timestep, method=agent.initialize)
 
     def reset_fn(params, example_timestep):
+      # always true
+      batch_size = example_timestep.reward.shape
+      example_shape = batch_size+(config["AGENT_HIDDEN_DIM"],)
       return agent.apply(
           params,
-          example_timestep.observation.shape,
+          example_shape,
           method=agent.initialize_carry)
+
 
     return agent, network_params, reset_fn
 
