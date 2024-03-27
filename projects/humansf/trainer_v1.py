@@ -72,9 +72,11 @@ def run_single(
       maze_config = json.load(file)[0]
 
     num_rooms = config['env'].get('NUM_ROOMS', 4)
-    env = keyroom.KeyRoom(
-        maze_config=keyroom.shorten_maze_config(maze_config, num_rooms))
-    env_params = env.default_params()
+    maze_config = keyroom.shorten_maze_config(
+       maze_config, num_rooms)
+
+    env = keyroom.KeyRoom()
+    env_params = env.setup(maze_config=maze_config)
 
     alg_name = config['alg']
     if alg_name == 'qlearning':
