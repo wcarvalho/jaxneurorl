@@ -4,14 +4,16 @@ import functools
 import jax
 import jax.numpy as jnp
 from typing_extensions import TypeAlias
+from flax import struct
+import jax.numpy as jnp
 
 from xminigrid.types import AgentState, GridState, IntOrArray
 from xminigrid.core.constants import DIRECTIONS, TILES_REGISTRY, Colors, Tiles, NUM_TILES, NUM_COLORS
 from xminigrid.core.grid import check_can_put, check_pickable, check_walkable, equal
 
-from flax import struct
-import jax.numpy as jnp
 from xminigrid.core.constants import Tiles
+from xminigrid.wrappers import Wrapper
+
 NUM_DIRECTIONS = 4
 
 def make_binary_vector(obj):
@@ -192,3 +194,22 @@ def take_action(grid: GridState, agent: AgentState, action: IntOrArray) -> Actio
 
     return new_grid, new_agent, changed_position
 
+
+# gym and gymnasium style reset (on the same step with termination)
+class AutoResetWrapper(Wrapper):
+    def __auto_reset(self, key, params, timestep):
+        key, key_ = jax.random.split(key)
+        return self._env.reset(key_, params)
+
+
+    # TODO: add last_obs somewhere in the timestep? add extras like in Jumanji?
+    def step(self,
+             key: jax.random.KeyArray,
+             prior_timestep,
+             action,
+             params):
+        return jax.lax.cond(
+            prior_timestep.last(),
+            lambda: self.__auto_reset(params, prior_timestep),
+            lambda: self._env.step(key, prior_timestep, action, params),
+        )

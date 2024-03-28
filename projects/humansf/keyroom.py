@@ -664,27 +664,18 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
         )
         new_observation = make_observation(new_state, room_grid=new_room_grid)
 
-        # checking for termination or truncation, choosing step type
-        goal_room_objects = params.task_objects[new_state.goal_room_idx]
-
+        # checking for termination or truncation
         def picked_up(task_object: jax.Array):
           pocket = make_task_obj(*new_agent.pocket, visible=1,
                                 state=States.PICKED_UP, asarray=True)
           return (pocket == task_object).all()
 
         terminated = picked_up(new_state.termination_object)
-        # jax.lax.cond(
-        #    params.training,
-        #    # goal object picked up
-        #    lambda: picked_up(goal_room_objects[TRAIN_OBJECT_IDX]),
-        #    # goal key picked up
-        #    lambda: picked_up(goal_room_objects[KEY_IDX]),
-        # )
         truncated = jnp.equal(new_state.step_num, self.time_limit(params))
 
         state_features = new_observation.state_features.astype(
             jnp.float32)
-
+        goal_room_objects = params.task_objects[new_state.goal_room_idx]
         reward = jax.lax.cond(
            params.training,
            # use accomplishment of state features as reward

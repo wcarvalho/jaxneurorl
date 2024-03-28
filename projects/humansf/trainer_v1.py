@@ -49,6 +49,7 @@ import library.flags
 from library import parallel
 from projects.humansf import qlearning
 from projects.humansf import keyroom
+from projects.humansf.minigrid_common import AutoResetWrapper
 from singleagent import value_based_basics as vbb
 
 FLAGS = flags.FLAGS
@@ -77,6 +78,12 @@ def run_single(
 
     env = keyroom.KeyRoom()
     env_params = env.setup(maze_config=maze_config)
+    test_env_params = env_params.replace(
+       training=False
+    )
+
+    # auto-reset wrapper
+    env = AutoResetWrapper(env)
 
     alg_name = config['alg']
     if alg_name == 'qlearning':
@@ -90,7 +97,7 @@ def run_single(
     else:
       raise NotImplementedError(alg_name)
 
-    train_fn = make_train(config, env, env_params)
+    train_fn = make_train(config, env, env_params, test_env_params)
     train_vjit = jax.jit(jax.vmap(train_fn))
 
     rng = jax.random.PRNGKey(config["SEED"])
