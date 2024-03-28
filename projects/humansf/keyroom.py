@@ -71,6 +71,16 @@ def shorten_maze_config(maze_config: dict, n: int):
   maze_config['pairs'] = maze_config['pairs'][:n]
   return maze_config
 
+
+def swap_test_pairs(maze_config: dict):
+  maze_config = copy.deepcopy(maze_config)
+  maze_config['pairs'][0][1], maze_config['pairs'][1][1] = maze_config['pairs'][1][1], maze_config['pairs'][0][1]
+  try:
+    maze_config['pairs'][2][1], maze_config['pairs'][3][1] = maze_config['pairs'][3][1], maze_config['pairs'][2][1]
+  except:
+     pass
+  return maze_config
+
 class TaskState(struct.PyTreeNode):
    feature_counts: jax.Array
    features: jax.Array
@@ -159,9 +169,13 @@ class TaskRunner(struct.PyTreeNode):
     )
 
 class KeyRoomEnvParams(EnvParams):
-    # num_objects: int = struct.field(pytree_node=False, default=12)
     random_door_loc: bool = struct.field(pytree_node=False, default=False)
+    train_single: bool = struct.field(pytree_node=False, default=True)
     training: bool = struct.field(pytree_node=False, default=True)
+    maze_config: dict = None
+    task_objects: jax.Array = None
+    train_w: jax.Array = None
+    test_w: jax.Array = None
 
 class EnvState(struct.PyTreeNode, Generic[EnvCarryT]):
     key: jax.Array
@@ -175,6 +189,7 @@ class EnvState(struct.PyTreeNode, Generic[EnvCarryT]):
     carry: EnvCarryT
     feature_weights: jax.Array
     goal_room_idx: jax.Array
+    termination_object: jax.Array
     task_state: Optional[TaskState] = None
 
 def convert_dict_to_types(maze_dict):
@@ -220,7 +235,6 @@ def convert_dict_to_types(maze_dict):
 
     return converted_dict
 
-
 def get_room_grid(grid: GridState, agent: AgentState):
     agent_pos = agent.position
     grid_width = grid.shape[0]
@@ -261,6 +275,49 @@ def get_local_agent_position(agent_pos, height, width):
     local_y = agent_pos[1] - start_y
     
     return jnp.array([local_x, local_y])
+
+###########################
+# helper functions
+###########################
+
+
+def get_x_y(i, j, roomW, roomH):
+  xL = i * roomW
+  yT = j * roomH
+  xR = xL + roomW
+  yB = yT + roomH
+  return xL, yT, xR, yB
+
+
+def sample_coordinates(i, j, rng, grid, roomW=None, roomH=None, off_border=True):
+  assert roomW is not None and roomH is not None
+  xL, yT, xR, yB = get_x_y(i, j, roomW, roomH)
+  width = lambda R, L: R - L
+  height = lambda T, B: B - T
+
+  if off_border:
+      xL += 2
+      yT += 2
+      yB -= 1
+      xR -= 1
+
+  rng, rng_ = jax.random.split(rng)
+  inner_coords = jax.random.choice(
+      key=rng_,
+      shape=(1,),
+      a=jnp.arange(width(xR, xL) * height(yT, yB)),
+      replace=False,
+      p=free_tiles_mask(grid[xL:xR, yT:yB]).flatten(),
+  )
+  inner_coords = jnp.divmod(inner_coords, height(yT, yB))
+  coords = (xL+inner_coords[0], yT+inner_coords[1])
+  return coords, rng
+
+def place_in_room(i, j, rng, grid, obj: tuple, off_border=True, roomW=None, roomH=None):
+  assert roomW is not None and roomH is not None
+  coords, rng = sample_coordinates(i, j, rng, grid, roomW, roomH)
+  grid = grid.at[coords[0], coords[1]].set(obj)
+  return grid, rng
 
 class Observation(struct.PyTreeNode):
    image: jax.Array
@@ -308,7 +365,6 @@ def prepare_task_variables(maze_config: struct.PyTreeNode):
 
   return task_objects, train_w, test_w
 
-
 def make_observation(state: EnvState, room_grid: GridState):
   """This converts all inputs into binary vectors. this faciitates processing with a neural network."""
   binary_room_grid = minigrid_common.make_binary_vector_grid(room_grid)
@@ -328,15 +384,8 @@ def make_observation(state: EnvState, room_grid: GridState):
 
 class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
 
-    def __init__(self, maze_config: dict, name='keyroom'):
+    def __init__(self, name='keyroom'):
         super().__init__()
-        self.maze_config = convert_dict_to_types(maze_config)
-        self.task_objects, self.train_w, self.test_w = prepare_task_variables(
-           self.maze_config)
-        self.task_runner = TaskRunner(
-           task_objects=self.task_objects,
-           first_instance=True,
-        )
         self.name = name
 
     def action_space(
@@ -346,22 +395,112 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
         del params
         return spaces.Discrete(NUM_ACTIONS)
 
+    def default_params(
+          self,
+          maze_config: dict,
+          height=19,
+          width=19,
+          **kwargs) -> KeyRoomEnvParams:
 
-    def default_params(self, height=19, width=19, **kwargs) -> KeyRoomEnvParams:
-        return KeyRoomEnvParams(height=height, width=width).replace(**kwargs)
+        maze_config = convert_dict_to_types(maze_config)
+
+        task_objects, train_w, test_w = prepare_task_variables(
+           maze_config)
+
+        self.task_runner = TaskRunner(
+           task_objects=task_objects,
+           first_instance=True,
+        )
+        return KeyRoomEnvParams(height=height, width=width).replace(
+          maze_config=maze_config,
+          task_objects=task_objects,
+          train_w=train_w,
+          test_w=test_w,
+          **kwargs)
 
     def time_limit(self, params: EnvParams) -> int:
         return 150
 
     def _generate_problem(self, params: KeyRoomEnvParams, rng: jax.Array) -> State[EnvCarry]:
+
+      def single_or_multi(params_, rng_):
+        """Training: either single room or multi-room"""
+        rng_, rng2 = jax.random.split(rng_)
+        single_room = jax.random.bernoulli(rng2)
+        return jax.lax.cond(
+          single_room,
+          lambda: self.singleroom_problem(params_, rng_),
+          lambda: self.multiroom_problem(params_, rng_),
+        )
+
+      return jax.lax.cond(
+         params.training and params.train_single,
+         lambda: single_or_multi(params, rng),
+         lambda: self.multiroom_problem(params, rng),
+      )
+
+    def singleroom_problem(self, params: KeyRoomEnvParams, rng: jax.Array) -> State[EnvCarry]:
+
+        grid = nine_rooms(params.height, params.width)
+
+        roomW, roomH = params.width // 3, params.height // 3
+        place_in_room_p = partial(place_in_room, roomH=roomH, roomW=roomW)
+        sample_coordinates_p = partial(sample_coordinates, roomH=roomH, roomW=roomW)
+
+        pairs = params.maze_config['pairs']
+        #------------------
+        # place key in room
+        #------------------
+        for obj1, obj2 in pairs:
+          # grid, rng = place_in_room(
+          #     1, 1, rng, grid,
+          #     make_obj(*obj1, visible=1))
+          grid, rng = place_in_room_p(
+              1, 1, rng, grid,
+              make_obj(*obj2, visible=1))
+
+        agent_position, rng = sample_coordinates_p(
+            1, 1, rng, grid, off_border=False)
+
+        rng, rng_ = jax.random.split(rng)
+        agent = AgentState(
+            position=jnp.concatenate(agent_position),
+            direction=sample_direction(rng_),
+            pocket=make_obj_arr(Tiles.EMPTY, Colors.EMPTY),
+        )
+
+        goal_room_idx = jax.random.randint(
+            rng, shape=(), minval=0, maxval=len(pairs))
+        goal_room = jax.nn.one_hot(goal_room_idx, len(pairs))
+        feature_weights = params.test_w*goal_room[:, None]
+
+        goal_room_objects = params.task_objects[goal_room_idx]
+        termination_object = goal_room_objects[TEST_OBJECT_IDX]
+
+        state = EnvState(
+            key=rng,
+            step_num=jnp.asarray(0),
+            grid=grid,
+            agent=agent,
+            local_agent_position=get_local_agent_position(
+                agent.position, *grid.shape[:2]),
+            room_grid=get_room_grid(grid=grid, agent=agent),
+            goal_room_idx=goal_room_idx,
+            feature_weights=feature_weights,
+            termination_object=termination_object,
+            carry=EnvCarry(),
+        )
+        return state
+
+    def multiroom_problem(self, params: KeyRoomEnvParams, rng: jax.Array) -> State[EnvCarry]:
         rng, *rngs = jax.random.split(rng, num=6)
 
         grid = nine_rooms(params.height, params.width)
         # grid = minigrid_common.prepare_grid(grid, extra_dims=2)
         roomW, roomH = params.width // 3, params.height // 3
 
-        keys = self.maze_config['keys']
-        pairs = self.maze_config['pairs']
+        keys = params.maze_config['keys']
+        pairs = params.maze_config['pairs']
         nrooms = len(keys)
         # assuming that rooms are square!
         if params.random_door_loc:
@@ -373,55 +512,24 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
         ###########################
         # helper functions
         ###########################
-        def get_x_y(i,j):
-          xL = i * roomW
-          yT = j * roomH
-          xR = xL + roomW
-          yB = yT + roomH
-          return xL, yT, xR, yB
-
-        def sample_coordinates(i, j, rng, grid, off_border=True):
-          xL, yT, xR, yB = get_x_y(i, j)
-          width = lambda R, L: R - L
-          height = lambda T, B: B - T
-
-          if off_border:
-              xL += 2
-              yT += 2
-              yB -= 1
-              xR -= 1
-
-          rng, rng_ = jax.random.split(rng)
-          inner_coords = jax.random.choice(
-              key=rng_,
-              shape=(1,),
-              a=jnp.arange(width(xR, xL) * height(yT, yB)),
-              replace=False,
-              p=free_tiles_mask(grid[xL:xR, yT:yB]).flatten(),
-          )
-          inner_coords = jnp.divmod(inner_coords, height(yT, yB))
-          coords = (xL+inner_coords[0], yT+inner_coords[1])
-          return coords, rng
-
-        def place_in_room(i, j, rng, grid, obj: tuple, off_border=True):
-          coords, rng = sample_coordinates(i, j, rng, grid)
-          grid = grid.at[coords[0], coords[1]].set(obj)
-          return grid, rng
+        get_x_y_p = partial(get_x_y, roomH=roomH, roomW=roomW)
+        place_in_room_p = partial(place_in_room, roomH=roomH, roomW=roomW)
+        sample_coordinates_p = partial(sample_coordinates, roomH=roomH, roomW=roomW)
 
         def add_top_door(grid, door):
-          xL, yT, xR, yB = get_x_y(1, 0)
+          xL, yT, xR, yB = get_x_y_p(1, 0)
           return grid.at[yB, xL + door_coords[room_idx]].set(door)
 
         def add_right_door(grid, door):
-          xL, yT, xR, yB = get_x_y(2, 1)
+          xL, yT, xR, yB = get_x_y_p(2, 1)
           return grid.at[yB - door_coords[room_idx], xL].set(door)
 
         def add_bottom_door(grid, door):
-          xL, yT, xR, yB = get_x_y(1, 1)
+          xL, yT, xR, yB = get_x_y_p(1, 1)
           return grid.at[yB , xL + door_coords[room_idx]].set(door)
 
         def add_left_door(grid, door):
-          xL, yT, xR, yB = get_x_y(1, 0)
+          xL, yT, xR, yB = get_x_y_p(1, 0)
           return grid.at[yB + door_coords[room_idx], xL].set(door)
 
         add_door_fns = [add_right_door, add_bottom_door,
@@ -442,7 +550,7 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
           #------------------
           # place key in room
           #------------------
-          grid, rng = place_in_room(
+          grid, rng = place_in_room_p(
               1, 1, rng, grid,
               make_obj(*keys[room_idx], visible=1))
 
@@ -461,13 +569,13 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
           #------------------
           obj_coords = all_obj_coords[room_idx]
           obj1, obj2 = pairs[room_idx]
-          grid, rng = place_in_room(
+          grid, rng = place_in_room_p(
               *obj_coords, rng, grid, make_obj(*obj1))
 
-          grid, rng = place_in_room(
+          grid, rng = place_in_room_p(
               *obj_coords, rng, grid, make_obj(*obj2))
 
-        agent_position, rng = sample_coordinates(1, 1, rng, grid, off_border=False)
+        agent_position, rng = sample_coordinates_p(1, 1, rng, grid, off_border=False)
 
         agent = AgentState(
             position=jnp.concatenate(agent_position),
@@ -480,10 +588,18 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
 
         feature_weights = jax.lax.cond(
             params.training, 
-            lambda: self.train_w*goal_room[:, None],
-            lambda: self.test_w*goal_room[:, None],
+            lambda: params.train_w*goal_room[:, None],
+            lambda: params.test_w*goal_room[:, None],
         )
 
+        goal_room_objects = params.task_objects[goal_room_idx]
+        termination_object = jnp.where(
+            params.training,
+            # goal object picked up
+            goal_room_objects[TRAIN_OBJECT_IDX],
+            # goal key picked up
+            goal_room_objects[KEY_IDX],
+        )
         state = EnvState(
             key=rng,
             step_num=jnp.asarray(0),
@@ -494,6 +610,7 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
             room_grid=get_room_grid(grid=grid, agent=agent),
             goal_room_idx=goal_room_idx,
             feature_weights=feature_weights,
+            termination_object=termination_object,
             carry=EnvCarry(),
         )
         return state
@@ -547,26 +664,18 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
         )
         new_observation = make_observation(new_state, room_grid=new_room_grid)
 
-        # checking for termination or truncation, choosing step type
-        goal_room_objects = self.task_objects[new_state.goal_room_idx]
-
+        # checking for termination or truncation
         def picked_up(task_object: jax.Array):
           pocket = make_task_obj(*new_agent.pocket, visible=1,
                                 state=States.PICKED_UP, asarray=True)
           return (pocket == task_object).all()
 
-        terminated = jax.lax.cond(
-           params.training,
-           # goal object picked up
-           lambda: picked_up(goal_room_objects[TRAIN_OBJECT_IDX]),
-           # goal key picked up
-           lambda: picked_up(goal_room_objects[KEY_IDX]),
-        )
+        terminated = picked_up(new_state.termination_object)
         truncated = jnp.equal(new_state.step_num, self.time_limit(params))
 
         state_features = new_observation.state_features.astype(
             jnp.float32)
-
+        goal_room_objects = params.task_objects[new_state.goal_room_idx]
         reward = jax.lax.cond(
            params.training,
            # use accomplishment of state features as reward

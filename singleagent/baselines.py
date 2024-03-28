@@ -1,36 +1,34 @@
 """
 
 TESTING:
-JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue projects/humansf/trainer_v1.py \
+JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue singleagent/baselines.py \
   --debug=True \
   --wandb=False \
   --search=default
 
-JAX_DISABLE_JIT=1 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue projects/humansf/trainer_v1.py \
+JAX_DISABLE_JIT=1 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue singleagent/baselines.py \
   --debug=True \
   --wandb=False \
   --search=default
 
 TESTING SLURM LAUNCH:
-python projects/humansf/trainer_v1.py \
+python singleagent/baselines.py \
   --parallel=sbatch \
   --debug_parallel=True \
   --search=default
 
 RUNNING ON SLURM:
-python projects/humansf/trainer_v1.py \
+python singleagent/baselines.py \
   --parallel=sbatch \
   --search=default
 """
-from typing import Dict, Union
 
 from absl import flags
 from absl import app
 
 import os
 import jax
-import json
-import functools
+from typing import Dict, Union
 
 from ray import tune
 
@@ -47,11 +45,7 @@ os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']='false'
 
 import library.flags
 from library import parallel
-from projects.humansf import qlearning
-from projects.humansf import keyroom
-from projects.humansf.minigrid_common import AutoResetWrapper
-from singleagent import value_based_basics as vbb
-
+from singleagent import qlearning
 FLAGS = flags.FLAGS
 
 def run_single(
@@ -67,50 +61,23 @@ def run_single(
         )
     wandb.init(**wandb_init)
 
-    # Open the file and load the JSON data
-    maze_path = os.path.join('projects/humansf', "maze_pairs.json")
-    with open(maze_path, "r") as file:
-      maze_config = json.load(file)[0]
-
-    num_rooms = config['env'].get('NUM_ROOMS', 4)
-    maze_config = keyroom.shorten_maze_config(
-       maze_config, num_rooms)
-
-    env = keyroom.KeyRoom()
-    env_params = env.default_params(maze_config=maze_config)
-    test_env_params = env_params.replace(
-       training=False
+    assert config['ENV_NAME'] in (
+       'CartPole-v1',
+       'Breakout-MinAtar'
     )
-
-    # auto-reset wrapper
-    env = AutoResetWrapper(env)
+    basic_env, env_params = gymnax.make(config['ENV_NAME'])
+    env = FlattenObservationWrapper(basic_env)
+    # converts to using timestep
+    env = TimestepWrapper(env, autoreset=True)
+    # env = LogWrapper(env)
 
     alg_name = config['alg']
     if alg_name == 'qlearning':
-      make_train = functools.partial(
-          vbb.make_train,
-          make_agent=qlearning.make_agent,
-          make_optimizer=qlearning.make_optimizer,
-          make_loss_fn_class=qlearning.make_loss_fn_class,
-          make_actor=qlearning.make_actor,
-      )
-    elif alg_name == 'qlearning_step':
-      make_train = functools.partial(
-          vbb.make_train,
-          make_agent=qlearning.make_agent,
-          make_optimizer=qlearning.make_optimizer,
-          make_loss_fn_class=qlearning.make_loss_fn_class,
-          make_actor=qlearning.make_actor,
-          train_step_type='step',
-      )
+      make_train = qlearning.make_train_preloaded
     else:
       raise NotImplementedError(alg_name)
 
-    train_fn = make_train(
-      config=config,
-      env=env,
-      env_params=env_params,
-      test_env_params=test_env_params)
+    train_fn = make_train(config, env, env_params)
     train_vjit = jax.jit(jax.vmap(train_fn))
 
     rng = jax.random.PRNGKey(config["SEED"])
@@ -133,11 +100,10 @@ def sweep(search: str = ''):
   if search == 'default':
     space = [
         {
-            "group": tune.grid_search(['run-5-qlearning']),
-            "alg": tune.grid_search(['qlearning_step', 'qlearning']),
-            "config_name": tune.grid_search(['qlearning']),
-            "AGENT_HIDDEN_DIM": tune.grid_search([64, 128]),
-            "AGENT_INIT_SCALE": tune.grid_search([2., .1]),
+            "group": tune.grid_search(['baselines-1']),
+            "alg": tune.grid_search(['qlearning']),
+            "NUM_ENVS": tune.grid_search([32, 128, 256, 512, 1024]),
+            "ENV_NAME": tune.grid_search(['Breakout-MinAtar', 'CartPole-v1']),
         }
     ]
   else:
@@ -148,7 +114,7 @@ def sweep(search: str = ''):
 def main(_):
   parallel.run(
       trainer_filename=__file__,
-      config_path='projects/humansf/configs',
+      config_path='configs',
       run_fn=run_single,
       sweep_fn=sweep,
       folder=os.environ.get(
