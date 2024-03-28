@@ -1,5 +1,7 @@
 # WANDB PARAMS
-"PROJECT": "cartpole"
+"PROJECT": "jaxneurorl-testing"
+
+"ENV_NAME": "CartPole-v1"
 
 # RUN PARAMS
 "NUM_ENVS": 8

@@ -364,12 +364,13 @@ def load_hydra_config(
     # put everything in env config in main config
     config.update(hydra_env_config)
 
+  # update hydra config with env config settings from sweep
+  config['env']['ENV_KWARGS'].update(sweep_env_config)
+  config['ENV_NAME'] = env_name = config["env"].get("ENV_NAME")
+ 
   # update hydra config with algo config settings from sweep
   config.update(sweep_algo_config)
 
-  # update hydra config with env config settings from sweep
-  config['env']['ENV_KWARGS'].update(sweep_env_config)
-  config['env_name'] = env_name = config["env"].get("ENV_NAME", 'env')
 
   try:
     if FLAGS.debug:

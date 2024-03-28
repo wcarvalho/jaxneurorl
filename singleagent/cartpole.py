@@ -61,7 +61,7 @@ def run_single(
         )
     wandb.init(**wandb_init)
 
-    basic_env, env_params = gymnax.make("CartPole-v1")
+    basic_env, env_params = gymnax.make(config['ENV_NAME'])
     env = FlattenObservationWrapper(basic_env)
     # converts to using timestep
     env = TimestepWrapper(env, autoreset=True)
@@ -96,10 +96,10 @@ def sweep(search: str = ''):
   if search == 'default':
     space = [
         {
-            "group": tune.grid_search(['run-6-qlearning']),
+            "group": tune.grid_search(['baselines-1']),
             "alg": tune.grid_search(['qlearning']),
             "NUM_ENVS": tune.grid_search([32, 128, 256, 512, 1024]),
-            # "AGENT_INIT_SCALE": tune.grid_search([2., .1]),
+            "ENV_NAME": tune.grid_search(['CartPole-v1', 'Breakout-MinAtar']),
         }
     ]
   else:

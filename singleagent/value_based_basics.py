@@ -96,7 +96,7 @@ def batch_to_sequence(values: jax.Array) -> jax.Array:
     return jax.tree_map(
         lambda x: jnp.transpose(x, axes=(1, 0, *range(2, len(x.shape)))), values)
 
-def maked_mean(x, mask):
+def masked_mean(x, mask):
   if len(mask.shape) < len(x.shape):
     nx = len(x.shape)
     nd = len(mask.shape)
