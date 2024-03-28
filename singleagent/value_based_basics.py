@@ -122,6 +122,18 @@ class CustomTrainState(TrainState):
 # Loss function
 ##############################
 
+
+def masked_mean(x, mask):
+  if len(mask.shape) < len(x.shape):
+    nx = len(x.shape)
+    nd = len(mask.shape)
+    extra = nx - nd
+    dims = list(range(nd, nd+extra))
+    z = jnp.multiply(x, jnp.expand_dims(mask, dims))
+  else:
+    z = jnp.multiply(x, mask)
+  return (z.sum(0))/(mask.sum(0)+1e-5)
+
 def batch_to_sequence(values: jax.Array) -> jax.Array:
     return jax.tree_map(
         lambda x: jnp.transpose(x, axes=(1, 0, *range(2, len(x.shape)))), values)
@@ -899,12 +911,14 @@ def make_train_unroll(
             timesteps = train_state.timesteps + config["NUM_ENVS"]*config["NUM_STEPS"]
             train_state = train_state.replace(timesteps=timesteps)
 
+            num_steps, num_envs = traj_batch.timestep.reward.shape
+            assert num_steps == config["NUM_STEPS"]
+            assert num_envs == config["NUM_ENVS"]
             # [num_steps, num_envs, ...] -> [num_envs, num_steps, ...]
             buffer_traj_batch = jax.tree_util.tree_map(
                 lambda x: jnp.swapaxes(x, 0, 1),
                 traj_batch
             )
-            import ipdb; ipdb.set_trace()
             # update buffer with data of size 
             buffer_state = buffer.add(buffer_state, buffer_traj_batch)
 
@@ -966,7 +980,7 @@ def make_train_unroll(
             ##############################
             # 3. Creat next runner state
             ##############################
-            next_runner_state = RunnerState(
+            next_runner_state = runner_state._replace(
                 train_state=train_state,
                 buffer_state=buffer_state,
                 rng=rng)

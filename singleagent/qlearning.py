@@ -90,7 +90,7 @@ class R2D2LossFn(vbb.RecurrentLossFn):
     mask = data.discount[:-1]  # if 0, episode ending
     batch_loss = 0.5 * jnp.square(batch_td_error).mean(axis=0)
 
-    batch_loss = vbb.maked_mean(batch_loss, mask)
+    batch_loss = vbb.masked_mean(batch_loss, mask)
 
     metrics = {
         '0.q_loss': batch_loss.mean(),

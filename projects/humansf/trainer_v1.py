@@ -77,7 +77,7 @@ def run_single(
        maze_config, num_rooms)
 
     env = keyroom.KeyRoom()
-    env_params = env.setup(maze_config=maze_config)
+    env_params = env.default_params(maze_config=maze_config)
     test_env_params = env_params.replace(
        training=False
     )
@@ -94,10 +94,23 @@ def run_single(
           make_loss_fn_class=qlearning.make_loss_fn_class,
           make_actor=qlearning.make_actor,
       )
+    elif alg_name == 'qlearning_step':
+      make_train = functools.partial(
+          vbb.make_train,
+          make_agent=qlearning.make_agent,
+          make_optimizer=qlearning.make_optimizer,
+          make_loss_fn_class=qlearning.make_loss_fn_class,
+          make_actor=qlearning.make_actor,
+          train_step_type='step',
+      )
     else:
       raise NotImplementedError(alg_name)
 
-    train_fn = make_train(config, env, env_params, test_env_params)
+    train_fn = make_train(
+      config=config,
+      env=env,
+      env_params=env_params,
+      test_env_params=test_env_params)
     train_vjit = jax.jit(jax.vmap(train_fn))
 
     rng = jax.random.PRNGKey(config["SEED"])
@@ -121,7 +134,7 @@ def sweep(search: str = ''):
     space = [
         {
             "group": tune.grid_search(['run-5-qlearning']),
-            "alg": tune.grid_search(['qlearning']),
+            "alg": tune.grid_search(['qlearning_step', 'qlearning']),
             "config_name": tune.grid_search(['qlearning']),
             "AGENT_HIDDEN_DIM": tune.grid_search([64, 128]),
             "AGENT_INIT_SCALE": tune.grid_search([2., .1]),
