@@ -102,10 +102,11 @@ def run_single(
       setting = 'single' if task_info['room_setting'] == 0 else 'multi'
       room_idx = task_info['goal_room_idx']
       idx = task_info['task_object_idx']
+      label = 'train' if idx == 0 else 'test'
 
       category, color = maze_config['pairs'][room_idx][idx]
 
-      return f'{setting} - {color} {category}'
+      return f'{setting} - {label} - {color} {category}'
 
     observer_class = functools.partial(
       observers.TaskObserver,
@@ -165,12 +166,14 @@ def sweep(search: str = ''):
         {
             "group": tune.grid_search(['run-5-qlearning']),
             "alg": tune.grid_search([
-              'qlearning',
               'qlearning_step',
+              'qlearning',
               ]),
             "config_name": tune.grid_search(['qlearning']),
-            #"AGENT_HIDDEN_DIM": tune.grid_search([64, 128]),
-            #"AGENT_INIT_SCALE": tune.grid_search([2., .1]),
+            "AGENT_HIDDEN_DIM": tune.grid_search([128, 256]),
+            "AGENT_INIT_SCALE": tune.grid_search([2., .1]),
+            "SAMPLE_LENGTH": tune.grid_search([40]),
+            "LR": tune.grid_search([0.005, 1e-3, 1e-4]),
         }
     ]
   else:

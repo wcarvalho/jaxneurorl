@@ -76,12 +76,12 @@ class AgentRNN(nn.Module):
 
         self.cell = self.cell_type(self.hidden_dim)
 
-        self.rnn = vbb.ScannedRNN(
-            hidden_dim=self.hidden_dim,
-            cell=self.cell)
+        self.rnn = vbb.ScannedRNN(cell=self.cell)
 
-        self.q_fn = nn.Dense(self.action_dim, kernel_init=orthogonal(
-            self.init_scale), bias_init=constant(0.0))
+        self.q_fn = nn.Dense(
+            self.action_dim,
+            kernel_init=orthogonal(self.init_scale),
+            bias_init=constant(0.0))
 
     def initialize(self, x: TimeStep):
         """Only used for initialization."""

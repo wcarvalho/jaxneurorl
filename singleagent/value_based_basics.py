@@ -221,7 +221,6 @@ class RecurrentLossFn:
 
 class ScannedRNN(nn.Module):
 
-    hidden_dim: int = 128
     cell: nn.RNNCellBase = nn.LSTMCell
 
     def unroll(self, rnn_state, x: RNNInput):
@@ -373,7 +372,9 @@ def log_learner_eval(
             num_steps=config["EVAL_STEPS"]*config["EVAL_EPISODES"],
             actor_step_fn=actor_eval_step_fn,
             env_step_fn=env_step_fn,
-            env_params=env_params)
+            env_params=env_params,
+            observer=observer,
+            )
 
         observer.flush_metrics(
             key='evaluator',
@@ -544,14 +545,12 @@ def make_train_step(
         )
         dummy_metrics = jax.tree_map(lambda x:x*0.0, dummy_metrics)
         loss_name = loss_fn.__class__.__name__
-        #def update_loss_metrics(m, ts):
-        #  m.update({
-        #    'learner_steps': ts.n_updates,
-        #    'actor_steps': ts.timesteps})
-        #  return {f'{loss_name}/{k}': v for k,v in m.items()}
+        loss_name = config.get('LOSS_NAME', loss_name)
+        def update_loss_metrics(m, ts):
+          return {f'{loss_name}/{k}': v for k,v in m.items()}
 
-        #dummy_metrics = update_loss_metrics(
-        #  dummy_metrics, train_state)
+        dummy_metrics = update_loss_metrics(
+          dummy_metrics, train_state)
 
         ##############################
         # DEFINE TRAINING LOOP
@@ -626,7 +625,7 @@ def make_train_step(
                     learn_trajectory,
                     _rng,
                     train_state.n_updates)
-                #metrics = update_loss_metrics(metrics, train_state)
+                metrics = update_loss_metrics(metrics, train_state)
 
                 train_state = train_state.apply_gradients(grads=grads)
                 train_state = train_state.replace(n_updates=train_state.n_updates + 1)
@@ -670,88 +669,11 @@ def make_train_step(
             ##############################
             # 3. Logging learner metrics + evaluation episodes
             ##############################
-            #def log_eval(runner_state, eval_observer_state):
-            #    """Help function to test greedy policy during training"""
-            #    def _greedy_env_step(rs: RunnerState, unused):
-            #        # things that will be used/changed
-            #        rng = rs.rng
-            #        prior_timestep = rs.timestep
-            #        agent_state = rs.agent_state
-
-            #        # prepare rngs for actions and step
-            #        rng, rng_a, rng_s = jax.random.split(rng, 3)
-
-            #        preds, action, agent_state = actor.eval_step(
-            #           rs.train_state,
-            #           agent_state,
-            #           prior_timestep,
-            #           rng_a)
-
-            #        # take step in env
-            #        timestep = vmap_step(rng_s, prior_timestep, action, test_env_params)
-
-            #        observer_state = eval_observer.observe(
-            #            observer_state=rs.observer_state,
-            #            next_timestep=timestep,
-            #            predictions=preds,
-            #            action=action,
-            #            maybe_flush=False,
-            #            )
-
-            #        rs = rs._replace(
-            #            agent_state=agent_state,
-            #            timestep=timestep,
-            #            observer_state=observer_state,
-            #            rng=rng)
-            #        return rs, timestep
-
-            #    # reset environment
-            #    rng = runner_state.rng
-            #    rng, _rng = jax.random.split(rng)
-            #    init_timestep = vmap_reset(_rng, test_env_params)
-
-            #    # reset agent state
-            #    init_agent_state = agent_reset_fn(
-            #       runner_state.train_state.params,
-            #       init_timestep)
-
-            #    # create evaluation runner for greedy eva
-            #    # unnecessary but helps ensure don't accidentally
-            #    # re-use training information
-            #    rng, _rng = jax.random.split(rng)
-            #    eval_runner_state = RunnerState(
-            #        train_state=runner_state.train_state,
-            #        observer_state=observer.observe_first(
-            #           first_timestep=init_timestep,
-            #           observer_state=eval_observer_state),
-            #        timestep=init_timestep,
-            #        agent_state=init_agent_state,
-            #        rng=_rng)
-
-            #    eval_runner_state, _ = jax.lax.scan(
-            #        _greedy_env_step, eval_runner_state, None,
-            #        config["EVAL_STEPS"]*config["EVAL_EPISODES"]
-            #    )
-
-            #    eval_observer.flush_metrics(
-            #       key='evaluator',
-            #       observer_state=eval_runner_state.observer_state,
-            #       force=True)
-
-            #def log_learner(learner_metrics):
-            #  def callback(metrics):
-            #      if wandb.run is not None:
-            #        wandb.log(metrics)
-            #  jax.debug.callback(callback, learner_metrics)
-
-            #def log(learner_metrics, runner_state, eval_observer_state):
-            #    log_learner(learner_metrics)
-            #    log_eval(runner_state, eval_observer_state)
-
+            log_period = max(1, int(
+                    config["LEARNER_LOG_PERIOD"] // config["NUM_STEPS"] // config["NUM_ENVS"]))
             is_log_time = jnp.logical_and(
-                is_learn_time,
-                train_state.n_updates  % (config["LEARNER_LOG_PERIOD"] // config["NUM_STEPS"] // config["NUM_ENVS"]) == 0
-               )
+                is_learn_time, train_state.n_updates % log_period == 0
+            )
 
             jax.lax.cond(
                 is_log_time,
@@ -979,15 +901,12 @@ def make_train_unroll(
         )
         dummy_metrics = jax.tree_map(lambda x: x*0.0, dummy_metrics)
         loss_name = loss_fn.__class__.__name__
+        loss_name = config.get('LOSS_NAME', loss_name)
+        def update_loss_metrics(m, ts):
+          return {f'{loss_name}/{k}': v for k, v in m.items()}
 
-        #def update_loss_metrics(m, ts):
-        #  m.update({
-        #      'learner_steps': ts.n_updates,
-        #      'actor_steps': ts.timesteps})
-        #  return {f'{loss_name}/{k}': v for k, v in m.items()}
-
-        #dummy_metrics = update_loss_metrics(
-        #    dummy_metrics, train_state)
+        dummy_metrics = update_loss_metrics(
+            dummy_metrics, train_state)
 
         ##############################
         # DEFINE TRAINING LOOP
@@ -1047,7 +966,7 @@ def make_train_unroll(
                     learn_trajectory,
                     _rng,
                     train_state.n_updates)
-                #metrics = update_loss_metrics(metrics, train_state)
+                metrics = update_loss_metrics(metrics, train_state)
 
                 train_state = train_state.apply_gradients(grads=grads)
                 train_state = train_state.replace(
@@ -1097,53 +1016,6 @@ def make_train_unroll(
             ##############################
             # 4. Logging learner metrics + evaluation episodes
             ##############################
-            #def log_eval(runner_state, eval_observer_state):
-            #    """Help function to test greedy policy during training"""
-            #    # reset environment
-            #    rng = runner_state.rng
-            #    rng, _rng = jax.random.split(rng)
-            #    init_timestep = vmap_reset(_rng, test_env_params)
-
-            #    # reset agent state
-            #    init_agent_state = agent_reset_fn(
-            #        runner_state.train_state.params,
-            #        init_timestep)
-
-            #    # create evaluation runner for greedy eva
-            #    # unnecessary but helps ensure don't accidentally
-            #    # re-use training information
-            #    rng, _rng = jax.random.split(rng)
-            #    eval_runner_state = RunnerState(
-            #        train_state=runner_state.train_state,
-            #        observer_state=observer.observe_first(
-            #            first_timestep=init_timestep,
-            #            observer_state=eval_observer_state),
-            #        timestep=init_timestep,
-            #        agent_state=init_agent_state,
-            #        rng=_rng)
-
-            #    eval_runner_state, _ = collect_trajectory(
-            #        runner_state=eval_runner_state,
-            #        num_steps=config["EVAL_STEPS"]*config["EVAL_EPISODES"],
-            #        actor_step_fn=actor.eval_step,
-            #        env_step_fn=vmap_step,
-            #        env_params=test_env_params)
-
-            #    eval_observer.flush_metrics(
-            #        key='evaluator',
-            #        observer_state=eval_runner_state.observer_state,
-            #        force=True)
-
-            #def log_learner(learner_metrics):
-            #  def callback(metrics):
-            #      if wandb.run is not None:
-            #        wandb.log(metrics)
-            #  jax.debug.callback(callback, learner_metrics)
-
-            #def log(learner_metrics, runner_state, eval_observer_state):
-            #    log_learner(learner_metrics)
-            #    log_eval(runner_state, eval_observer_state)
-
             log_period = max(1, int(
                     config["LEARNER_LOG_PERIOD"] // config["NUM_STEPS"] // config["NUM_ENVS"]))
             is_log_time = jnp.logical_and(

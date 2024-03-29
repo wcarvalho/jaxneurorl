@@ -21,7 +21,7 @@ flags.DEFINE_integer('max_concurrent', 12, 'number of concurrent jobs')
 
 flags.DEFINE_string('account', '', 'account on slurm servers to use.')
 flags.DEFINE_string('partition', 'kempner', 'account on slurm servers to use.')
-flags.DEFINE_string('time', '0-06:00:00', '6 hours.')
+flags.DEFINE_string('time', '0-01:00:00', '1 hour.')
 
 flags.DEFINE_integer('num_gpus', 1, 'number of gpus.')
 # flags.DEFINE_bool('skip', False, 'whether to skip experiments that have already run.')
