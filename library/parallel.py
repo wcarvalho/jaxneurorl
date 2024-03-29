@@ -366,7 +366,7 @@ def load_hydra_config(
 
   # update hydra config with env config settings from sweep
   config['env']['ENV_KWARGS'].update(sweep_env_config)
-  config['ENV_NAME'] = env_name = config["env"].get("ENV_NAME")
+  config['ENV_NAME'] = env_name = config["env"].get("ENV_NAME", 'env')
  
   # update hydra config with algo config settings from sweep
   config.update(sweep_algo_config)

@@ -9,13 +9,15 @@ from projects.humansf.keyroom import Observation
 class KeyroomObsEncoder(nn.Module):
     """_summary_
 
-    - observation encoder: CNN
+    - observation encoder: CNN over binary inputs
+    - MLP with truncated-normal-initialized Linear layer as initial layer for other inputs
     """
     hidden_dim: int = 128
 
     @nn.compact
     def __call__(self, obs: Observation):
         # [B, H, W, C]
+        obs = jax.tree_map(lambda x: x.astype(jnp.float32), obs)
         image = nn.Sequential(
             [
                 nn.Conv(16, (2, 2), padding="VALID",

@@ -187,8 +187,10 @@ class EnvState(struct.PyTreeNode, Generic[EnvCarryT]):
     local_agent_position: jax.Array
     # task: Task
     carry: EnvCarryT
+    room_setting: int
     feature_weights: jax.Array
     goal_room_idx: jax.Array
+    task_object_idx: jax.Array
     termination_object: jax.Array
     task_state: Optional[TaskState] = None
 
@@ -485,7 +487,9 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
             local_agent_position=get_local_agent_position(
                 agent.position, *grid.shape[:2]),
             room_grid=get_room_grid(grid=grid, agent=agent),
+            room_setting=0,
             goal_room_idx=goal_room_idx,
+            task_object_idx=1,
             feature_weights=feature_weights,
             termination_object=termination_object,
             carry=EnvCarry(),
@@ -608,6 +612,9 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
             local_agent_position=get_local_agent_position(
                 agent.position, *grid.shape[:2]),
             room_grid=get_room_grid(grid=grid, agent=agent),
+            task_object_idx=jnp.where(
+              params.training, 0, 1),
+            room_setting=1,
             goal_room_idx=goal_room_idx,
             feature_weights=feature_weights,
             termination_object=termination_object,

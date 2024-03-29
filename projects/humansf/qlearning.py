@@ -126,7 +126,7 @@ def make_agent(
         env: environment.Environment,
         env_params: environment.EnvParams,
         example_timestep: TimeStep,
-        rng: jax.random.KeyArray) -> Tuple[Agent, Params, vbb.ResetFn]:
+        rng: jax.random.KeyArray) -> Tuple[Agent, Params, vbb.AgentResetFn]:
 
     agent = AgentRNN(
         action_dim=env.num_actions(env_params),

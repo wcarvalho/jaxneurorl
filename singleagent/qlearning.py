@@ -87,7 +87,7 @@ class R2D2LossFn(vbb.RecurrentLossFn):
     # NOTE: discount AT terminal state = 0. discount BEFORE terminal state = 1.
     # AT terminal state, don't want loss from terminal to next because that crosses
     # episode boundaries. so use discount[:-1] for making mask.
-    mask = data.discount[:-1]  # if 0, episode ending
+    mask = data.mask[:-1]  # if 0, episode ending
     batch_loss = 0.5 * jnp.square(batch_td_error).mean(axis=0)
 
     batch_loss = vbb.masked_mean(batch_loss, mask)
@@ -195,7 +195,7 @@ def make_agent(
         env: environment.Environment,
         env_params: environment.EnvParams,
         example_timestep: TimeStep,
-        rng: jax.random.KeyArray) -> Tuple[nn.Module, Params, vbb.ResetFn]:
+        rng: jax.random.KeyArray) -> Tuple[nn.Module, Params, vbb.AgentResetFn]:
 
     agent = AgentRNN(
         action_dim=env.action_space(env_params).n,

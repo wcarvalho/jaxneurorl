@@ -50,6 +50,7 @@ from library import parallel
 from projects.humansf import qlearning
 from projects.humansf import keyroom
 from projects.humansf.minigrid_common import AutoResetWrapper
+from projects.humansf import observers
 from singleagent import value_based_basics as vbb
 
 FLAGS = flags.FLAGS
@@ -76,6 +77,7 @@ def run_single(
     maze_config = keyroom.shorten_maze_config(
        maze_config, num_rooms)
 
+
     env = keyroom.KeyRoom()
     env_params = env.default_params(maze_config=maze_config)
     test_env_params = env_params.replace(
@@ -84,6 +86,32 @@ def run_single(
 
     # auto-reset wrapper
     env = AutoResetWrapper(env)
+
+    ##################
+    # custom observer
+    ##################
+    def extract_task_info(timestep: keyroom.TimeStep):
+      state: keyroom.EnvState = timestep.state
+      return {
+          'room_setting': state.room_setting,
+          'goal_room_idx': state.goal_room_idx,
+          'task_object_idx': state.task_object_idx,
+       }
+    
+    def get_task_name(task_info: dict):
+      setting = 'single' if task_info['room_setting'] == 0 else 'multi'
+      room_idx = task_info['goal_room_idx']
+      idx = task_info['task_object_idx']
+
+      category, color = maze_config['pairs'][room_idx][idx]
+
+      return f'{setting} - {color} {category}'
+
+    observer_class = functools.partial(
+      observers.TaskObserver,
+      extract_task_info=extract_task_info,
+      get_task_name=get_task_name,
+    )
 
     alg_name = config['alg']
     if alg_name == 'qlearning':
@@ -101,7 +129,7 @@ def run_single(
           make_optimizer=qlearning.make_optimizer,
           make_loss_fn_class=qlearning.make_loss_fn_class,
           make_actor=qlearning.make_actor,
-          train_step_type='step',
+          train_step_type='single_step',
       )
     else:
       raise NotImplementedError(alg_name)
@@ -110,7 +138,9 @@ def run_single(
       config=config,
       env=env,
       env_params=env_params,
-      test_env_params=test_env_params)
+      test_env_params=test_env_params,
+      ObserverCls=observer_class,
+      )
     train_vjit = jax.jit(jax.vmap(train_fn))
 
     rng = jax.random.PRNGKey(config["SEED"])
@@ -134,10 +164,13 @@ def sweep(search: str = ''):
     space = [
         {
             "group": tune.grid_search(['run-5-qlearning']),
-            "alg": tune.grid_search(['qlearning_step', 'qlearning']),
+            "alg": tune.grid_search([
+              'qlearning',
+              'qlearning_step',
+              ]),
             "config_name": tune.grid_search(['qlearning']),
-            "AGENT_HIDDEN_DIM": tune.grid_search([64, 128]),
-            "AGENT_INIT_SCALE": tune.grid_search([2., .1]),
+            #"AGENT_HIDDEN_DIM": tune.grid_search([64, 128]),
+            #"AGENT_INIT_SCALE": tune.grid_search([2., .1]),
         }
     ]
   else:
