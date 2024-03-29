@@ -6,13 +6,14 @@ module load cuda/12.2.0-fasrc01
 
 **Create and activate conda environment**
 ```
-mamba create -n jaxneurorl python=3.9 pip wheel -y
-mamba env update -f conda_env.yml
+mamba create -n jaxneurorl python=3.10 pip wheel -y
+mamba env update -f conda_env.yaml
+# in case a mamba env is already active
 mamba deactivate  # in case a mamba env is already active
 mamba activate jaxneurorl
 ```
 
-**test that using correct python version (3.9)**
+**test that using correct python version (3.10)**
 ```
 python -c "import sys; print(sys.version)"
 ```
@@ -42,6 +43,15 @@ pip install -U "jax[cuda12_local]==0.4.20" -f https://storage.googleapis.com/jax
 ```
 TF_CPP_MIN_LOG_LEVEL=0 python -c "import jax; print(f'GPUS: {jax.device_count()}'); jax.random.split(jax.random.PRNGKey(42), 2); print('hello world');"
 ```
+Excpeted is something like
+```
+2024-03-28 16:07:49.978848: I external/tsl/tsl/cuda/cudart_stub.cc:31] Could not find cuda drivers on your machine, GPU will not be used.
+2024-03-28 16:07:57.974045: I external/tsl/tsl/cuda/cudart_stub.cc:31] Could not find cuda drivers on your machine, GPU will not be used.
+2024-03-28 16:07:58.028387: I external/tsl/tsl/cuda/cudart_stub.cc:31] Could not find cuda drivers on your machine, GPU will not be used.
+2024-03-28 16:08:04.962298: I external/tsl/tsl/cuda/cudart_stub.cc:31] Could not find cuda drivers on your machine, GPU will not be used.
+GPUS: 1
+hello world
+```
 
 ## Installing other libraries
 
@@ -59,7 +69,7 @@ git clone https://github.com/FLAIROx/JaxMARL.git $jaxmarl_loc
 cd $jaxmarl_loc
 git checkout cc9f12bb5948c31c478a1d662c56a8d7c5f8c530
 pip install -e '.[qlearning]'
-cd $curdir
+cd $cur_dir
 ```
 
 **notes**: if you're using IntelliSense (e.g. through vscode), you'll need to add the jaxmarl path to `python.autoComplete.extraPaths`. you can access it with `echo $jaxmarl_loc`

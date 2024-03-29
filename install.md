@@ -46,7 +46,7 @@ git clone https://github.com/FLAIROx/JaxMARL.git $jaxmarl_loc
 cd $jaxmarl_loc
 git checkout cc9f12bb5948c31c478a1d662c56a8d7c5f8c530
 pip install -e '.[qlearning]'
-cd $curdir
+cd $cur_dir
 ```
 
 **notes**: if you're using IntelliSense (e.g. through vscode), you'll need to add the jaxmarl path to `python.autoComplete.extraPaths`. you can access it with `echo $jaxmarl_loc`

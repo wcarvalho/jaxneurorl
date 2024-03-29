@@ -73,14 +73,12 @@ def make_obj(
     return obj
 
 
-# gym and gymnasium style reset (on the same step with termination)
 class AutoResetWrapper(Wrapper):
+
     def __auto_reset(self, key, params, timestep):
         key, key_ = jax.random.split(key)
         return self._env.reset(key_, params)
 
-
-    # TODO: add last_obs somewhere in the timestep? add extras like in Jumanji?
     def step(self,
              key: jax.random.KeyArray,
              prior_timestep,
