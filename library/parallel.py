@@ -151,7 +151,7 @@ def run_sbatch(
     log_dir, exp_name = gen_log_dir(
       base_dir=os.path.join(base_path, trainer_filename_dir, group),
       return_kwpath=True,
-      path_skip=['num_steps', 'num_learner_steps', 'group'],
+      path_skip=['num_steps', 'num_learner_steps', 'group', 'config_name'],
       **algo_config,
       **env_config,
       )
