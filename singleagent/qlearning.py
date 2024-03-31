@@ -38,7 +38,7 @@ from singleagent import value_based_basics as vbb
 def extract_timestep_input(timestep: TimeStep):
   return RNNInput(
       obs=timestep.observation,
-      done=timestep.last())
+      reset=timestep.last())
 
 Agent = nn.Module
 Params = flax.core.FrozenDict
@@ -76,6 +76,7 @@ class R2D2LossFn(vbb.RecurrentLossFn):
         in_axes=1,
         out_axes=1)
 
+    # [T, B]
     batch_td_error = batch_td_error_fn(
         self.extract_q(online_preds)[:-1],  # [T+1] --> [T]
         data.action[:-1],    # [T+1] --> [T]
@@ -87,8 +88,12 @@ class R2D2LossFn(vbb.RecurrentLossFn):
     # NOTE: discount AT terminal state = 0. discount BEFORE terminal state = 1.
     # AT terminal state, don't want loss from terminal to next because that crosses
     # episode boundaries. so use discount[:-1] for making mask.
+    
+    # [T, B]
     mask = data.mask[:-1]  # if 0, episode ending
-    batch_loss = 0.5 * jnp.square(batch_td_error).mean(axis=0)
+
+    # [T, B]
+    batch_loss = 0.5 * jnp.square(batch_td_error)
 
     batch_loss = vbb.masked_mean(batch_loss, mask)
 
@@ -152,7 +157,7 @@ class AgentRNN(nn.Module):
         embedding = nn.relu(embedding)
 
         rnn_in = x._replace(obs=embedding)
-        new_rnn_state, rnn_out = self.rnn.unroll(rnn_state, rnn_in)
+        rnn_out, new_rnn_state = self.rnn.unroll(rnn_state, rnn_in)
 
         q_vals = self.q_fn(rnn_out)
 
@@ -221,6 +226,7 @@ def make_optimizer(config: dict) -> optax.GradientTransformation:
       return config["LR"] * frac
 
   lr = linear_schedule if config.get("LR_LINEAR_DECAY", False) else config["LR"]
+
   return optax.chain(
       optax.clip_by_global_norm(config["MAX_GRAD_NORM"]),
       optax.adam(learning_rate=lr, eps=config['EPS_ADAM'])

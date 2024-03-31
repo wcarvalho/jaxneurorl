@@ -74,7 +74,7 @@ EnvStepFn = Callable[[RNGKey, TimeStep, Action, EnvParams],
 
 class RNNInput(NamedTuple):
     obs: jax.Array
-    done: jax.Array
+    reset: jax.Array
 
 class Actor(NamedTuple):
   actor_step: ActorStepFn
@@ -122,15 +122,15 @@ class CustomTrainState(TrainState):
 
 
 def masked_mean(x, mask):
-  if len(mask.shape) < len(x.shape):
-    nx = len(x.shape)
-    nd = len(mask.shape)
-    extra = nx - nd
-    dims = list(range(nd, nd+extra))
-    z = jnp.multiply(x, jnp.expand_dims(mask, dims))
-  else:
+    #  if len(mask.shape) < len(x.shape):
+    #    nx = len(x.shape)
+    #    nd = len(mask.shape)
+    #    extra = nx - nd
+    #    dims = list(range(nd, nd+extra))
+    #    z = jnp.multiply(x, jnp.expand_dims(mask, dims))
+    #  else:
     z = jnp.multiply(x, mask)
-  return (z.sum(0))/(mask.sum(0)+1e-5)
+    return (z.sum(0))/(mask.sum(0)+1e-5)
 
 def batch_to_sequence(values: jax.Array) -> jax.Array:
     return jax.tree_map(
@@ -235,30 +235,34 @@ class ScannedRNN(nn.Module):
         x: [T, B]; however, scan over it
         """
 
-        def body_fn(step, carry, x):
-          y, carry = step(carry, x)
-          return carry, y
+        def body_fn(step, state, x):
+          y, state = step(state, x)
+          return state, y
 
         scan = nn.scan(
           body_fn, variable_broadcast="params",
           split_rngs={"params": False}, in_axes=0, out_axes=0)
 
-        return scan(self, rnn_state, x)
+        final_state, all_outputs = scan(self, rnn_state, x)
+
+        return all_outputs, final_state
 
     @nn.compact
     def __call__(self, rnn_state, x: RNNInput):
         """Applies the module."""
         # [B, D]
 
-        def conditional_update(cond, new, old):
+        def conditional_reset(cond, init, prior):
           # [B, D]
-          return jnp.where(cond[:, np.newaxis], new, old)
+          return jnp.where(cond[:, np.newaxis], init, prior)
 
         # [B, ...]
-        updated_rnn_state = tuple(conditional_update(x.done, new, old) for new, old in zip(self.initialize_carry((x.obs.shape)), rnn_state))
+        init_state = self.initialize_carry(x.obs.shape)
+        input_state = tuple(
+            conditional_reset(x.reset, init, prior) for init, prior in zip(init_state, rnn_state))
 
-        new_rnn_state, y = self.cell(updated_rnn_state, x.obs)
-        return y, new_rnn_state
+        new_rnn_state, output = self.cell(input_state, x.obs)
+        return output, new_rnn_state
 
     def initialize_carry(self, example_shape: Tuple[int]):
         return self.cell.initialize_carry(
@@ -702,11 +706,12 @@ def make_train_step(
             train_state = jax.lax.cond(
                 train_state.n_updates % config["TARGET_UPDATE_INTERVAL"] == 0,
                 lambda train_state: train_state.replace(
-                    target_network_params=optax.incremental_update(
-                        train_state.params,
-                        train_state.target_network_params,
-                        config["TAU"],
-                    )
+                    #target_network_params=optax.incremental_update(
+                    #    train_state.params,
+                    #    train_state.target_network_params,
+                    #    config["TAU"],
+                    #)
+                   target_network_params=jax.tree_map(lambda x: jnp.copy(x), train_state.params)
                 ),
                 lambda train_state: train_state,
                 operand=train_state,
@@ -865,7 +870,7 @@ def make_train_unroll(
         ##############################
         # INIT BUFFER
         ##############################
-        period = config.get("ADDING_PERIOD", config['SAMPLE_LENGTH']-1)
+        period = config.get("SAMPLING_PERIOD", 1)
         buffer = fbx.make_trajectory_buffer(
             max_length_time_axis=config['BUFFER_SIZE']//config['NUM_ENVS'],
             min_length_time_axis=config['BUFFER_BATCH_SIZE'],
@@ -1042,11 +1047,7 @@ def make_train_unroll(
             train_state = jax.lax.cond(
                 train_state.n_updates % config["TARGET_UPDATE_INTERVAL"] == 0,
                 lambda train_state: train_state.replace(
-                    target_network_params=optax.incremental_update(
-                        train_state.params,
-                        train_state.target_network_params,
-                        config["TAU"],
-                    )
+                    target_network_params=jax.tree_map(lambda x: jnp.copy(x), train_state.params)
                 ),
                 lambda train_state: train_state,
                 operand=train_state,

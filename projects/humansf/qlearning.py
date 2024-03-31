@@ -52,7 +52,7 @@ make_actor = qlearning.make_actor
 def extract_timestep_input(timestep: TimeStep):
   return RNNInput(
       obs=timestep.observation,
-      done=timestep.last())
+      reset=timestep.first())
 
 class Block(nn.Module):
   features: int
@@ -75,9 +75,7 @@ class MLP(nn.Module):
       length=self.num_layers)
 
     y, _ = ScanBlock(self.hidden_dim)(x, None)
-    y = nn.Dense(
-       self.out_dim,
-       bias_init=constant(0.0))(y)
+    y = nn.Dense(self.out_dim)(y)
     return y
 
 class AgentRNN(nn.Module):
@@ -115,7 +113,7 @@ class AgentRNN(nn.Module):
         return self.__call__(rnn_state, x)
 
     def __call__(self, rnn_state, x: TimeStep):
-        x = extract_timestep_input(x)
+        x: RNNInput = extract_timestep_input(x)
 
         embedding = self.observation_encoder(x.obs)
         embedding = nn.relu(embedding)
@@ -130,13 +128,13 @@ class AgentRNN(nn.Module):
     def unroll(self, rnn_state, x: TimeStep):
         # rnn_state: [B]
         # x: [T, B]
-        x = extract_timestep_input(x)
+        x: RNNInput = extract_timestep_input(x)
 
         embedding = nn.BatchApply(self.observation_encoder)(x.obs)
         embedding = nn.relu(embedding)
 
         rnn_in = x._replace(obs=embedding)
-        new_rnn_state, rnn_out = self.rnn.unroll(rnn_state, rnn_in)
+        rnn_out, new_rnn_state = self.rnn.unroll(rnn_state, rnn_in)
 
         q_vals = nn.BatchApply(self.q_fn)(rnn_out)
 

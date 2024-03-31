@@ -217,7 +217,7 @@ class TaskObserver(Observer):
     shared_metrics: dict = {}):
     def callback(os: BasicObserverState, sm: dict):
         if wandb.run is not None:
-          end = os.idx + 1
+          end = min(os.idx + 1, self.log_period)
 
           if not force:
             if not end % self.log_period == 0: return
