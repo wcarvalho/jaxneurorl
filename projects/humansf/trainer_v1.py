@@ -20,7 +20,7 @@ python projects/humansf/trainer_v1.py \
 RUNNING ON SLURM:
 python projects/humansf/trainer_v1.py \
   --parallel=sbatch \
-  --time '0-00:15:00' \
+  --time '0-00:20:00' \
   --search=default
 """
 from typing import Dict, Union
@@ -74,7 +74,7 @@ def run_single(
     with open(maze_path, "r") as file:
       maze_config = json.load(file)[0]
 
-    num_rooms = config['env']['ENV_KWARGS'].get('NUM_ROOMS', 4)
+    num_rooms = config['env']['ENV_KWARGS'].pop('NUM_ROOMS', 4)
 
     maze_config = keyroom.shorten_maze_config(
        maze_config, num_rooms)
@@ -116,6 +116,9 @@ def run_single(
       get_task_name=get_task_name,
     )
 
+    ##################
+    # algorithms
+    ##################
     alg_name = config['alg']
     if alg_name == 'qlearning':
       make_train = functools.partial(
@@ -165,26 +168,32 @@ def sweep(search: str = ''):
   search = search or 'default'
   if search == 'default':
     shared = {
-      "config_name": tune.grid_search(['qlearning']),
-      "AGENT_HIDDEN_DIM": tune.grid_search([256]),
-      "EPSILON_ANNEAL_TIME": tune.grid_search([1e6, 1e7]),
-      "EPS_ADAM": tune.grid_search([1e-3, 0.00001]),
-      "MAX_GRAD_NORM": tune.grid_search([10, 80]),
-      "LR": tune.grid_search([1e-3, 1e-4]),
-      "BUFFER_SIZE": tune.grid_search([10_000, 50_000, 100_000]),
+      "config_name": tune.grid_search(['ql_keyroom']),
+      #"AGENT_HIDDEN_DIM": tune.grid_search([256]),
+      #"EPSILON_ANNEAL_TIME": tune.grid_search([1e6, 1e7]),
+      #"LR": tune.grid_search([1e-3, 1e-4]),
       'env.NUM_ROOMS': tune.grid_search([1]),
     }
     space = [
         {
-            "group": tune.grid_search(['qlearning-5']),
+            "group": tune.grid_search(['qlearning-target-update-6']),
             "alg": tune.grid_search(['qlearning',]),
+            "TARGET_UPDATE_INTERVAL": tune.grid_search([500, 1000, 2000]),
             **shared,
         },
         {
-            "group": tune.grid_search(['qlearning_step-5']),
-            "alg": tune.grid_search(['qlearning_step']),
+            "group": tune.grid_search(['qlearning-opt-6']),
+            "alg": tune.grid_search(['qlearning',]),
+            "EPS_ADAM": tune.grid_search([1e-3, 0.00001]),
+            "MAX_GRAD_NORM": tune.grid_search([.5, 5., 10., 80.]),
+            #"TARGET_UPDATE_INTERVAL": tune.grid_search([500, 1000, 2000]),
             **shared,
-        }
+        },
+        #{
+        #    "group": tune.grid_search(['qlearning_step-5']),
+        #    "alg": tune.grid_search(['qlearning_step']),
+        #    **shared,
+        #}
     ]
   else:
     raise NotImplementedError(search)

@@ -147,8 +147,9 @@ def run_sbatch(
 
     # dir will be root_path/folder/group/exp_name
     # exp_name is also name in wandb
+    trainer_filename_dir = os.path.splitext(os.path.basename(trainer_filename))[0]
     log_dir, exp_name = gen_log_dir(
-      base_dir=os.path.join(base_path, trainer_filename, group),
+      base_dir=os.path.join(base_path, trainer_filename_dir, group),
       return_kwpath=True,
       path_skip=['num_steps', 'num_learner_steps', 'group'],
       **algo_config,
@@ -291,9 +292,10 @@ def run(
         save_path=config.get('folder', None),  # load from search config
         )
     else:  # called by this script (i.e. you)
+      trainer_filename_dir = os.path.splitext(os.path.basename(trainer_filename))[0]
       save_path = gen_log_dir(
           base_dir=os.path.join(
-            folder, 'rl_results', trainer_filename, FLAGS.search),
+            folder, trainer_filename_dir, FLAGS.search),
           hourminute=True,
           date=True,
       )
