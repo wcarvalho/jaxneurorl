@@ -20,6 +20,7 @@ python projects/humansf/trainer_v1.py \
 RUNNING ON SLURM:
 python projects/humansf/trainer_v1.py \
   --parallel=sbatch \
+  --time '0-00:15:00' \
   --search=default
 """
 from typing import Dict, Union
@@ -73,7 +74,8 @@ def run_single(
     with open(maze_path, "r") as file:
       maze_config = json.load(file)[0]
 
-    num_rooms = config['env'].get('NUM_ROOMS', 4)
+    num_rooms = config['env']['ENV_KWARGS'].get('NUM_ROOMS', 4)
+
     maze_config = keyroom.shorten_maze_config(
        maze_config, num_rooms)
 
@@ -97,14 +99,14 @@ def run_single(
           'goal_room_idx': state.goal_room_idx,
           'task_object_idx': state.task_object_idx,
        }
-    
+
     def get_task_name(task_info: dict):
       setting = 'single' if task_info['room_setting'] == 0 else 'multi'
       room_idx = task_info['goal_room_idx']
-      idx = task_info['task_object_idx']
-      label = 'train' if idx == 0 else 'test'
+      object_idx = task_info['task_object_idx']
+      label = 'test' if object_idx > 0 else 'train'
 
-      category, color = maze_config['pairs'][room_idx][idx]
+      category, color = maze_config['pairs'][room_idx][object_idx]
 
       return f'{setting} - {label} - {color} {category}'
 
@@ -138,7 +140,7 @@ def run_single(
     train_fn = make_train(
       config=config,
       env=env,
-      env_params=env_params,
+      train_env_params=env_params,
       test_env_params=test_env_params,
       ObserverCls=observer_class,
       )
@@ -162,18 +164,26 @@ def run_single(
 def sweep(search: str = ''):
   search = search or 'default'
   if search == 'default':
+    shared = {
+      "config_name": tune.grid_search(['qlearning']),
+      "AGENT_HIDDEN_DIM": tune.grid_search([256]),
+      "EPSILON_ANNEAL_TIME": tune.grid_search([1e6, 1e7]),
+      "EPS_ADAM": tune.grid_search([1e-3, 0.00001]),
+      "MAX_GRAD_NORM": tune.grid_search([10, 80]),
+      "LR": tune.grid_search([1e-3, 1e-4]),
+      "BUFFER_SIZE": tune.grid_search([10_000, 50_000, 100_000]),
+      'env.NUM_ROOMS': tune.grid_search([1]),
+    }
     space = [
         {
-            "group": tune.grid_search(['run-5-qlearning']),
-            "alg": tune.grid_search([
-              'qlearning_step',
-              'qlearning',
-              ]),
-            "config_name": tune.grid_search(['qlearning']),
-            "AGENT_HIDDEN_DIM": tune.grid_search([128, 256]),
-            "AGENT_INIT_SCALE": tune.grid_search([2., .1]),
-            "SAMPLE_LENGTH": tune.grid_search([40]),
-            "LR": tune.grid_search([0.005, 1e-3, 1e-4]),
+            "group": tune.grid_search(['qlearning-5']),
+            "alg": tune.grid_search(['qlearning',]),
+            **shared,
+        },
+        {
+            "group": tune.grid_search(['qlearning_step-5']),
+            "alg": tune.grid_search(['qlearning_step']),
+            **shared,
         }
     ]
   else:

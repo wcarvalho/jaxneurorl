@@ -443,27 +443,33 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
 
     def singleroom_problem(self, params: KeyRoomEnvParams, rng: jax.Array) -> State[EnvCarry]:
 
+        #------------------
+        # generate grid
+        #------------------
         grid = nine_rooms(params.height, params.width)
-
         roomW, roomH = params.width // 3, params.height // 3
+
+
+        #------------------
+        # helper functions absorb room information
+        #------------------
         place_in_room_p = partial(place_in_room, roomH=roomH, roomW=roomW)
         sample_coordinates_p = partial(sample_coordinates, roomH=roomH, roomW=roomW)
 
+        #------------------
+        # place test objects in room
+        #------------------
         pairs = params.maze_config['pairs']
-        #------------------
-        # place key in room
-        #------------------
-        for obj1, obj2 in pairs:
-          # grid, rng = place_in_room(
-          #     1, 1, rng, grid,
-          #     make_obj(*obj1, visible=1))
+        for _, test_obj in pairs:
           grid, rng = place_in_room_p(
               1, 1, rng, grid,
-              make_obj(*obj2, visible=1))
+              make_obj(*test_obj, visible=1))
 
+        #------------------
+        # create agent
+        #------------------
         agent_position, rng = sample_coordinates_p(
             1, 1, rng, grid, off_border=False)
-
         rng, rng_ = jax.random.split(rng)
         agent = AgentState(
             position=jnp.concatenate(agent_position),
@@ -471,12 +477,18 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
             pocket=make_obj_arr(Tiles.EMPTY, Colors.EMPTY),
         )
 
+        #------------------
+        # define task
+        #------------------
         goal_room_idx = jax.random.randint(
             rng, shape=(), minval=0, maxval=len(pairs))
         goal_room = jax.nn.one_hot(goal_room_idx, len(pairs))
+        goal_room_objects = params.task_objects[goal_room_idx]
+
+        # w-vector
         feature_weights = params.test_w*goal_room[:, None]
 
-        goal_room_objects = params.task_objects[goal_room_idx]
+        # define object which specifies whether 
         termination_object = goal_room_objects[TEST_OBJECT_IDX]
 
         state = EnvState(
@@ -579,24 +591,50 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
           grid, rng = place_in_room_p(
               *obj_coords, rng, grid, make_obj(*obj2))
 
+        #------------------
+        # create agent
+        #------------------
         agent_position, rng = sample_coordinates_p(1, 1, rng, grid, off_border=False)
-
         agent = AgentState(
             position=jnp.concatenate(agent_position),
             direction=sample_direction(rngs[4]),
             pocket=make_obj_arr(Tiles.EMPTY, Colors.EMPTY),
             )
 
+        #------------------
+        # define task
+        #------------------
         goal_room_idx = jax.random.randint(rng, shape=(), minval=0, maxval=len(keys))
         goal_room = jax.nn.one_hot(goal_room_idx, len(keys))
+        goal_room_objects = params.task_objects[goal_room_idx]
 
-        feature_weights = jax.lax.cond(
-            params.training, 
-            lambda: params.train_w*goal_room[:, None],
-            lambda: params.test_w*goal_room[:, None],
+        def get_train_object(rng):
+           feature_weights = params.train_w*goal_room[:, None]
+           task_object_idx = 0
+           return feature_weights, task_object_idx
+
+        def get_test_object(rng):
+           feature_weights = params.test_w*goal_room[:, None]
+           task_object_idx = 1
+           return feature_weights, task_object_idx
+
+        def get_train_or_test(rng):
+           get_train = jax.random.bernoulli(rng)
+           return jax.lax.cond(
+            get_train,
+            get_train_object,
+            get_test_object,
+            rng
+            )
+
+        rng, rng_ = jax.random.split(rng)
+        feature_weights, task_object_idx = jax.lax.cond(
+          params.training,
+          get_train_object,
+          get_train_or_test,
+          rng_,
         )
 
-        goal_room_objects = params.task_objects[goal_room_idx]
         termination_object = jnp.where(
             params.training,
             # goal object picked up
@@ -612,8 +650,7 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
             local_agent_position=get_local_agent_position(
                 agent.position, *grid.shape[:2]),
             room_grid=get_room_grid(grid=grid, agent=agent),
-            task_object_idx=jnp.where(
-              params.training, 0, 1),
+            task_object_idx=task_object_idx,
             room_setting=1,
             goal_room_idx=goal_room_idx,
             feature_weights=feature_weights,

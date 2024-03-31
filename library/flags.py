@@ -17,7 +17,7 @@ flags.DEFINE_bool(
 flags.DEFINE_integer('config_idx', 1, 'number of actors.')
 flags.DEFINE_integer('num_cpus', 16, 'number of cpus.')
 flags.DEFINE_integer('memory', 120_000, 'memory (in mbs).')
-flags.DEFINE_integer('max_concurrent', 12, 'number of concurrent jobs')
+flags.DEFINE_integer('max_concurrent', 16, 'number of concurrent jobs')
 
 flags.DEFINE_string('account', '', 'account on slurm servers to use.')
 flags.DEFINE_string('partition', 'kempner', 'account on slurm servers to use.')
