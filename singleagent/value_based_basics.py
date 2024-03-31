@@ -215,7 +215,6 @@ class RecurrentLossFn:
       key_grad=key_grad)
 
     # TODO: add priorizied replay
-
     batch_loss = batch_loss.mean()
     return batch_loss, metrics
 
@@ -491,7 +490,8 @@ def make_train_step(
         # INIT Actor
         # will be absorbed into _update_step via closure
         ##############################
-        actor = make_actor(config, agent)
+        rng, _rng = jax.random.split(rng)
+        actor = make_actor(config, agent, _rng)
 
         ##############################
         # INIT OPTIMIZER
@@ -850,7 +850,8 @@ def make_train_unroll(
         # INIT Actor
         # will be absorbed into _update_step via closure
         ##############################
-        actor = make_actor(config, agent)
+        rng, _rng = jax.random.split(rng)
+        actor = make_actor(config, agent, _rng)
 
         ##############################
         # INIT OPTIMIZER

@@ -38,7 +38,7 @@ from singleagent import value_based_basics as vbb
 def extract_timestep_input(timestep: TimeStep):
   return RNNInput(
       obs=timestep.observation,
-      reset=timestep.last())
+      reset=timestep.first())
 
 Agent = nn.Module
 Params = flax.core.FrozenDict
@@ -88,7 +88,7 @@ class R2D2LossFn(vbb.RecurrentLossFn):
     # NOTE: discount AT terminal state = 0. discount BEFORE terminal state = 1.
     # AT terminal state, don't want loss from terminal to next because that crosses
     # episode boundaries. so use discount[:-1] for making mask.
-    
+
     # [T, B]
     mask = data.mask[:-1]  # if 0, episode ending
 
@@ -166,7 +166,7 @@ class AgentRNN(nn.Module):
     def initialize_carry(self, example_shape: Tuple[int]):
         return self.rnn.initialize_carry(example_shape)
 
-class EpsilonGreedy:
+class LinearDecayEpsilonGreedy:
     """Epsilon Greedy action selection"""
 
     def __init__(self, start_e: float, end_e: float, duration: int):
@@ -194,6 +194,26 @@ class EpsilonGreedy:
         eps = self.get_epsilon(t)
         rng = jax.random.split(rng, q_vals.shape[0])
         return jax.vmap(explore, in_axes=(0, None, 0))(q_vals, eps, rng)
+
+class FixedEpsilonGreedy:
+    """Epsilon Greedy action selection"""
+
+    def __init__(self, epsilons: float):
+        self.epsilons = epsilons
+
+    @partial(jax.jit, static_argnums=0)
+    def choose_actions(self, q_vals: jnp.ndarray, t: int, rng: chex.PRNGKey):
+
+        def explore(q, eps, key):
+            key_a, key_e   = jax.random.split(key, 2) # a key for sampling random actions and one for picking
+            greedy_actions = jnp.argmax(q, axis=-1) # get the greedy actions 
+            random_actions = jax.random.randint(key_a, shape=greedy_actions.shape, minval=0, maxval=q.shape[-1]) # sample random actions
+            pick_random    = jax.random.uniform(key_e, greedy_actions.shape)<eps # pick which actions should be random
+            chosed_actions = jnp.where(pick_random, random_actions, greedy_actions)
+            return chosed_actions
+
+        rng = jax.random.split(rng, q_vals.shape[0])
+        return jax.vmap(explore, in_axes=(0, 0, 0))(q_vals, self.epsilons, rng)
 
 def make_agent(
         config: dict,
@@ -237,40 +257,53 @@ def make_loss_fn_class(config) -> vbb.RecurrentLossFn:
      R2D2LossFn,
      discount=config['GAMMA'])
 
-def make_actor(config: dict, agent: Agent) -> vbb.Actor:
-  explorer = EpsilonGreedy(
-      start_e=config["EPSILON_START"],
-      end_e=config["EPSILON_FINISH"],
-      duration=config["EPSILON_ANNEAL_TIME"]
-  )
+def make_actor(config: dict, agent: Agent, rng: jax.random.KeyArray) -> vbb.Actor:
 
-  def actor_step(
-        train_state: vbb.TrainState,
-        agent_state: jax.Array,
-        timestep: TimeStep,
-        rng: jax.random.KeyArray):
-    preds, agent_state = agent.apply(
-        train_state.params, agent_state, timestep)
+    if config.get('FIXED_EPSILON', True):
+        # BELOW was copied from ACME
+        vals = np.logspace(
+                start=config.get('EPSILON_MIN', 1),
+                stop=config.get('EPSILON_MAX', 3),
+                num=config.get('NUM_EPSILONS', 256),
+                base=config.get('EPSILON_BASE', .1))
+        epsilons = jax.random.choice(
+            rng, shape=(config['NUM_ENVS'],), a=vals)
+        explorer = FixedEpsilonGreedy(epsilons)
+    else:
+        explorer = LinearDecayEpsilonGreedy(
+            start_e=config["EPSILON_START"],
+            end_e=config["EPSILON_FINISH"],
+            duration=config["EPSILON_ANNEAL_TIME"]
+        )
 
-    action = explorer.choose_actions(
-        preds.q_vals, train_state.timesteps, rng)
 
-    return preds, action, agent_state
+    def actor_step(
+            train_state: vbb.TrainState,
+            agent_state: jax.Array,
+            timestep: TimeStep,
+            rng: jax.random.KeyArray):
+        preds, agent_state = agent.apply(
+            train_state.params, agent_state, timestep)
 
-  def eval_step(
-        train_state: vbb.TrainState,
-        agent_state: jax.Array,
-        timestep: TimeStep,
-        rng: jax.random.KeyArray):
-    del rng
-    preds, agent_state = agent.apply(
-        train_state.params, agent_state, timestep)
+        action = explorer.choose_actions(
+            preds.q_vals, train_state.timesteps, rng)
 
-    action = preds.q_vals.argmax(-1)
+        return preds, action, agent_state
 
-    return preds, action, agent_state
+    def eval_step(
+            train_state: vbb.TrainState,
+            agent_state: jax.Array,
+            timestep: TimeStep,
+            rng: jax.random.KeyArray):
+        del rng
+        preds, agent_state = agent.apply(
+            train_state.params, agent_state, timestep)
 
-  return vbb.Actor(actor_step=actor_step, eval_step=eval_step)
+        action = preds.q_vals.argmax(-1)
+
+        return preds, action, agent_state
+
+    return vbb.Actor(actor_step=actor_step, eval_step=eval_step)
 
 make_train_preloaded = functools.partial(
    vbb.make_train,

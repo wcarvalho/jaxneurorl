@@ -18,11 +18,14 @@ class KeyroomObsEncoder(nn.Module):
         # [B, H, W, C]
         obs = jax.tree_map(lambda x: x.astype(jnp.float32), obs)
         image = nn.Sequential([
-                nn.Conv(128, (4, 4), strides=2),
+                # for symbolic input
+                nn.Conv(64, (1, 1), strides=1, kernel_init=nn.initializers.truncated_normal(stddev=1.0)),
+                # for future outputs
+                nn.Conv(64, (4, 4), strides=2),
                 nn.relu,
-                nn.Conv(128, (2, 2), strides=2),
+                nn.Conv(64, (3, 3), strides=1),
                 nn.relu,
-                nn.Conv(128, (2, 2), strides=2),
+                nn.Conv(64, (3, 3), strides=1),
                 nn.relu,
             ])(obs.image)
         image = image.reshape(image.shape[0], -1)
@@ -30,9 +33,10 @@ class KeyroomObsEncoder(nn.Module):
         # [B, D]
         vector_inputs = (obs.task_w, obs.state_features, obs.has_occurred, obs.pocket)
         vector_inputs = jnp.concatenate(vector_inputs, axis=-1)
+
         vector = nn.Dense(
             self.hidden_dim, kernel_init=nn.initializers.truncated_normal(stddev=1.0))(vector_inputs)
-        vector = nn.Dense(self.hidden_dim)(nn.relu(vector))
+        vector = nn.Dense(self.hidden_dim)(vector)
 
         outputs = jnp.concatenate((image, vector), axis=-1)
 
