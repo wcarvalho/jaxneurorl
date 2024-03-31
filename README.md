@@ -9,7 +9,7 @@
 - the agent's loss function/objective
 - the agent's actor class which selects action in response to observations
 
-These functions are given as input to a `make_train` fn which creates a `train` function that runs the experiment.
+These functions are given as input to a `make_train` function which creates a `train` function that runs the experiment.
 # Install
 
 
