@@ -361,10 +361,11 @@ def load_hydra_config(
     # some setup to make sure env field is populated
     hydra_env_config = config.get('env', {})
     hydra_env_kwargs = hydra_env_config.pop('ENV_KWARGS', {})
-    config['env']['ENV_KWARGS'] = hydra_env_kwargs
 
     # put everything in env config in main config
     config.update(hydra_env_config)
+
+    config['env']['ENV_KWARGS'] = hydra_env_kwargs
 
   # update hydra config with env config settings from sweep
   config['env']['ENV_KWARGS'].update(sweep_env_config)

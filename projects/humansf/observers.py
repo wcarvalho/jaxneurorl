@@ -173,17 +173,6 @@ class TaskObserver(Observer):
     # only use first time-step
     first_next_timestep = get_first(next_timestep)
 
-    def update_episode(os):
-      # within same episode
-
-      # update return/length information
-      idx = os.idx
-      # update observer state
-      return os.replace(
-        episode_lengths=os.episode_lengths.at[idx].add(1),
-        episode_returns=os.episode_returns.at[idx].add(first_next_timestep.reward),
-      )
-
     def advance_episode(os):
       # beginning new episode
       idx = os.idx + 1
@@ -199,6 +188,17 @@ class TaskObserver(Observer):
         episode_lengths=os.episode_lengths.at[idx].add(1),
         episode_returns=os.episode_returns.at[idx].add(first_next_timestep.reward)
         )
+
+    def update_episode(os):
+      # within same episode
+
+      # update return/length information
+      idx = os.idx
+      # update observer state
+      return os.replace(
+        episode_lengths=os.episode_lengths.at[idx].add(1),
+        episode_returns=os.episode_returns.at[idx].add(first_next_timestep.reward),
+      )
 
     observer_state = jax.lax.cond(
       first_next_timestep.first(),

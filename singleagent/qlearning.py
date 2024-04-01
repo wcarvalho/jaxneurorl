@@ -60,6 +60,7 @@ class R2D2LossFn(vbb.RecurrentLossFn):
   def error(self, data, online_preds, online_state, target_preds, target_state, **kwargs):
     """R2D2 learning.
     """
+
     # Get value-selector actions from online Q-values for double Q-learning.
     selector_actions = jnp.argmax(self.extract_q(online_preds), axis=-1)  # [T+1, B]
     # Preprocess discounts & rewards.
@@ -91,11 +92,11 @@ class R2D2LossFn(vbb.RecurrentLossFn):
 
     # [T, B]
     mask = data.mask[:-1]  # if 0, episode ending
-
     # [T, B]
     batch_loss = 0.5 * jnp.square(batch_td_error)
 
-    batch_loss = vbb.masked_mean(batch_loss, mask)
+    # [B]
+    batch_loss = batch_loss*mask
 
     metrics = {
         '0.q_loss': batch_loss.mean(),
@@ -119,15 +120,12 @@ class AgentRNN(nn.Module):
     cell_type: nn.RNNCellBase = nn.LSTMCell
 
     def setup(self):
-        self.observation_encoder = nn.Dense(
-            self.hidden_dim, kernel_init=orthogonal(self.init_scale), bias_init=constant(0.0))
+        self.observation_encoder = nn.Dense(self.hidden_dim)
         self.cell = self.cell_type(self.hidden_dim)
 
-        self.rnn = vbb.ScannedRNN(
-            hidden_dim=self.hidden_dim,
-            cell=self.cell)
+        self.rnn = vbb.ScannedRNN(cell=self.cell)
 
-        self.q_fn = nn.Dense(self.action_dim, kernel_init=orthogonal(self.init_scale), bias_init=constant(0.0))
+        self.q_fn = nn.Dense(self.action_dim)
 
     def initialize(self, x: TimeStep):
         """Only used for initialization."""
@@ -240,6 +238,7 @@ def make_agent(
 
     return agent, network_params, reset_fn
 
+
 def make_optimizer(config: dict) -> optax.GradientTransformation:
   def linear_schedule(count):
       frac = 1.0 - (count / config["NUM_UPDATES"])
@@ -252,10 +251,12 @@ def make_optimizer(config: dict) -> optax.GradientTransformation:
       optax.adam(learning_rate=lr, eps=config['EPS_ADAM'])
   )
 
+
 def make_loss_fn_class(config) -> vbb.RecurrentLossFn:
   return functools.partial(
      R2D2LossFn,
      discount=config['GAMMA'])
+
 
 def make_actor(config: dict, agent: Agent, rng: jax.random.KeyArray) -> vbb.Actor:
 
