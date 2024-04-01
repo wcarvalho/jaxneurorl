@@ -256,8 +256,7 @@ class RlRnnCell(nn.Module):
         input_state = tuple(
             conditional_reset(reset, init, prior) for init, prior in zip(init_state, state))
 
-        new_state, output = self.cell(input_state, x)
-        return output, new_state
+        return self.cell(input_state, x)
 
     def initialize_carry(
         self, rng: PRNGKey, batch_dims: Tuple[int, ...]
@@ -289,16 +288,16 @@ class ScannedRNN(nn.Module):
         self.cell = RlRnnCell(cell_type=self.cell_type,
                               hidden_dim=self.hidden_dim)
 
-    def __call__(self, rnn_state, x: RNNInput, rng: PRNGKey):
+    def __call__(self, state, x: RNNInput, rng: PRNGKey):
         """Applies the module.
 
         rnn_state: [B]
         x: [B]
 
         """
-        return self.cell(state=rnn_state, x=x.obs, reset=x.reset, rng=rng)
+        return self.cell(state=state, x=x.obs, reset=x.reset, rng=rng)
 
-    def unroll(self, rnn_state, xs: RNNInput, rng: PRNGKey):
+    def unroll(self, state, xs: RNNInput, rng: PRNGKey):
         """
         rnn_state: [B]
         x: [T, B]; however, scan over it
@@ -317,10 +316,26 @@ class ScannedRNN(nn.Module):
             out_axes=0
         )
 
-        final_state, all_outputs = scan(cell, rnn_state, (xs.obs, xs.reset))
-        return all_outputs, final_state
+        return scan(cell, state, (xs.obs, xs.reset))
 
 
+
+class DummyRNN(nn.Module):
+    hidden_dim: int = 0
+    cell_type: str = "LSTMCell"
+
+    def __call__(self, state, x: RNNInput, rng: PRNGKey):
+       return state, x.obs
+
+    def unroll(self, state, xs: RNNInput, rng: PRNGKey):
+       return state, xs.obs
+
+    def initialize_carry(
+        self, rng: PRNGKey, batch_dims: Tuple[int, ...]
+    ) -> Tuple[jax.Array, jax.Array]:
+        del rng
+        mem_shape = batch_dims + (self.hidden_dim,)
+        return jnp.zeros(mem_shape), jnp.zeros(mem_shape)
 
 ##############################
 # Train loss

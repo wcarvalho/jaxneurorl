@@ -119,7 +119,7 @@ class AgentRNN(nn.Module):
         embedding = nn.relu(embedding)
 
         rnn_in = x._replace(obs=embedding)
-        rnn_out, new_rnn_state = self.rnn(rnn_state, rnn_in)
+        new_rnn_state, rnn_out = self.rnn(rnn_state, rnn_in)
 
         q_vals = self.q_fn(rnn_out)
 
@@ -134,7 +134,7 @@ class AgentRNN(nn.Module):
         embedding = nn.relu(embedding)
 
         rnn_in = x._replace(obs=embedding)
-        rnn_out, new_rnn_state = self.rnn.unroll(rnn_state, rnn_in)
+        new_rnn_state, rnn_out = self.rnn.unroll(rnn_state, rnn_in)
 
         q_vals = nn.BatchApply(self.q_fn)(rnn_out)
 
