@@ -112,21 +112,17 @@ class Predictions(NamedTuple):
     q_vals: jax.Array
     rnn_states: jax.Array
 
-class AgentRNN(nn.Module):
+class RnnAgent(nn.Module):
     action_dim: int
     hidden_dim: int
     init_scale: float
-    cell_type: str = "LSTMCell"
+    rnn: vbb.ScannedRNN
 
     def setup(self):
         self.observation_encoder = nn.Dense(
             self.hidden_dim,
             kernel_init=orthogonal(self.init_scale),
             bias_init=constant(0.0)
-        )
-        self.rnn = vbb.ScannedRNN(
-            hidden_dim=self.hidden_dim,
-            cell_type=self.cell_type
         )
         self.q_fn = nn.Dense(
             self.action_dim,
@@ -155,7 +151,7 @@ class AgentRNN(nn.Module):
 
         rnn_in = x._replace(obs=embedding)
         rng, _rng = jax.random.split(rng)
-        rnn_out, new_rnn_state = self.rnn(rnn_state, rnn_in, _rng)
+        new_rnn_state, rnn_out = self.rnn(rnn_state, rnn_in, _rng)
 
         q_vals = self.q_fn(rnn_out)
 
@@ -171,7 +167,7 @@ class AgentRNN(nn.Module):
 
         rnn_in = xs._replace(obs=embedding)
         rng, _rng = jax.random.split(rng)
-        rnn_out, new_rnn_state = self.rnn.unroll(rnn_state, rnn_in, _rng)
+        new_rnn_state, rnn_out = self.rnn.unroll(rnn_state, rnn_in, _rng)
 
         q_vals = self.q_fn(rnn_out)
 
@@ -227,17 +223,18 @@ class FixedEpsilonGreedy:
         rng = jax.random.split(rng, q_vals.shape[0])
         return jax.vmap(explore, in_axes=(0, 0, 0))(q_vals, self.epsilons, rng)
 
-def make_agent(
+def make_rnn_agent(
         config: dict,
         env: environment.Environment,
         env_params: environment.EnvParams,
         example_timestep: TimeStep,
         rng: jax.random.KeyArray) -> Tuple[nn.Module, Params, vbb.AgentResetFn]:
 
-    agent = AgentRNN(
+    agent = RnnAgent(
         action_dim=env.action_space(env_params).n,
         hidden_dim=config["AGENT_HIDDEN_DIM"],
         init_scale=config['AGENT_INIT_SCALE'],
+        rnn=vbb.ScannedRNN(hidden_dim=config["AGENT_HIDDEN_DIM"])
     )
 
     rng, _rng = jax.random.split(rng)
@@ -252,6 +249,33 @@ def make_agent(
           batch_dims=batch_dims,
           rng=reset_rng,
           method=agent.initialize_carry)
+
+    return agent, network_params, reset_fn
+
+def make_mlp_agent(
+        config: dict,
+        env: environment.Environment,
+        env_params: environment.EnvParams,
+        example_timestep: TimeStep,
+        rng: jax.random.KeyArray) -> Tuple[nn.Module, Params, vbb.AgentResetFn]:
+
+    agent = RnnAgent(
+        action_dim=env.action_space(env_params).n,
+        hidden_dim=config["AGENT_HIDDEN_DIM"],
+        init_scale=config['AGENT_INIT_SCALE'],
+        rnn=vbb.DummyRNN()
+    )
+
+    rng, _rng = jax.random.split(rng)
+    network_params = agent.init(
+        _rng, example_timestep,
+        method=agent.initialize)
+
+    def reset_fn(params, example_timestep, reset_rng):
+      del params
+      del reset_rng
+      batch_dims = example_timestep.observation.shape[:-1]
+      return jnp.zeros(batch_dims)
 
     return agent, network_params, reset_fn
 
@@ -323,7 +347,7 @@ def make_actor(config: dict, agent: Agent, rng: jax.random.KeyArray) -> vbb.Acto
 
 make_train_preloaded = functools.partial(
    vbb.make_train,
-   make_agent=make_agent,
+   make_agent=make_rnn_agent,
    make_optimizer=make_optimizer,
    make_loss_fn_class=make_loss_fn_class,
    make_actor=make_actor

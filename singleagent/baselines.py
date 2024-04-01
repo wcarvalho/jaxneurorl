@@ -30,6 +30,7 @@ import os
 import jax
 from typing import Dict, Union
 
+from functools import partial
 from ray import tune
 
 import wandb
@@ -46,6 +47,7 @@ os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']='false'
 import library.flags
 from library import parallel
 from singleagent import qlearning
+from singleagent import value_based_basics as vbb
 FLAGS = flags.FLAGS
 
 def run_single(
@@ -62,10 +64,11 @@ def run_single(
     wandb.init(**wandb_init)
 
     assert config['ENV_NAME'] in (
-       'CartPole-v1',
-       'Breakout-MinAtar',
+      # 'CartPole-v1',
+      # 'Breakout-MinAtar',
        'Catch-bsuite'
-    )
+    ), 'only these have been tested so far'
+
     basic_env, env_params = gymnax.make(config['ENV_NAME'])
     env = FlattenObservationWrapper(basic_env)
     # converts to using timestep
@@ -75,6 +78,14 @@ def run_single(
     alg_name = config['alg']
     if alg_name == 'qlearning':
       make_train = qlearning.make_train_preloaded
+    elif alg_name == 'qlearning_mlp':
+      make_train = partial(
+        vbb.make_train,
+        make_agent=qlearning.make_mlp_agent,
+        make_optimizer=qlearning.make_optimizer,
+        make_loss_fn_class=qlearning.make_loss_fn_class,
+        make_actor=qlearning.make_actor
+      )
     else:
       raise NotImplementedError(alg_name)
 
@@ -101,10 +112,11 @@ def sweep(search: str = ''):
   if search == 'default':
     space = [
         {
-            "group": tune.grid_search(['baselines-Catch-6']),
-            "alg": tune.grid_search(['qlearning']),
-            "EPS_ADAM": tune.grid_search([1e-3, 1e-5]),
-            "LR": tune.grid_search([1e-3, 1e-4, 1e-5]),
+            "group": tune.grid_search(['baselines-Catch-7-mlp']),
+            "alg": tune.grid_search(['qlearning_mlp']),
+            "config_name": tune.grid_search(['qlearning']),
+            #"EPS_ADAM": tune.grid_search([1e-3, 1e-5]),
+            "LR": tune.grid_search([0.005, 1e-3, 1e-4, 1e-5]),
             "FIXED_EPSILON": tune.grid_search([True, False]),
             "ENV_NAME": tune.grid_search(['Catch-bsuite']),
         },
