@@ -63,7 +63,8 @@ def run_single(
 
     assert config['ENV_NAME'] in (
        'CartPole-v1',
-       'Breakout-MinAtar'
+       'Breakout-MinAtar',
+       'Catch-bsuite'
     )
     basic_env, env_params = gymnax.make(config['ENV_NAME'])
     env = FlattenObservationWrapper(basic_env)
@@ -100,11 +101,21 @@ def sweep(search: str = ''):
   if search == 'default':
     space = [
         {
-            "group": tune.grid_search(['baselines-1']),
+            "group": tune.grid_search(['baselines-Catch-6']),
             "alg": tune.grid_search(['qlearning']),
-            "NUM_ENVS": tune.grid_search([32, 128, 256, 512, 1024]),
-            "ENV_NAME": tune.grid_search(['Breakout-MinAtar', 'CartPole-v1']),
-        }
+            "EPS_ADAM": tune.grid_search([1e-3, 1e-5]),
+            "LR": tune.grid_search([1e-3, 1e-4, 1e-5]),
+            "FIXED_EPSILON": tune.grid_search([True, False]),
+            "ENV_NAME": tune.grid_search(['Catch-bsuite']),
+        },
+        #{
+        #    "group": tune.grid_search(['baselines-CartPole-6']),
+        #    "alg": tune.grid_search(['qlearning']),
+        #    "EPS_ADAM": tune.grid_search([1e-3, 1e-5]),
+        #    "LR": tune.grid_search([1e-3, 1e-4, 1e-5]),
+        #    "FIXED_EPSILON": tune.grid_search([True, False]),
+        #    "ENV_NAME": tune.grid_search(['CartPole-v1',]),
+        #}
     ]
   else:
     raise NotImplementedError(search)

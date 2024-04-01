@@ -1,3 +1,6 @@
+"PROJECT": "jax-neurorl-baselines"
+
+
 # EXPERIMENT PARAMS
 "NUM_SEEDS": 1
 "SEED": 1
@@ -16,7 +19,7 @@
 "LEARNER_LOG_PERIOD": 50_000  # every this number of learner updates
 
 # NEURAL NET PARAMS
-"AGENT_HIDDEN_DIM": 64
+"AGENT_HIDDEN_DIM": 128
 "AGENT_INIT_SCALE": 2.
 
 # ALGO PARAMS

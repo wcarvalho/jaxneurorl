@@ -599,6 +599,11 @@ def make_train_step(
         def update_loss_metrics(m, ts):
           return {f'{loss_name}/{k}': v for k,v in m.items()}
 
+        dummy_metrics.update({
+            '0.grad_norm': 0.,
+            #'0.update_norm': optax.global_norm(updates),
+            '0.param_norm': 0.,
+        })
         dummy_metrics = update_loss_metrics(
           dummy_metrics, train_state)
 
@@ -662,7 +667,7 @@ def make_train_step(
             ##############################
             # 2. Learner update
             ##############################
-            def _learn_phase(train_state: TrainState,
+            def _learn_phase(train_state: CustomTrainState,
                              rng: jax.random.KeyArray):
 
                 # (batch_size, timesteps, ...)
@@ -677,10 +682,16 @@ def make_train_step(
                     learn_trajectory,
                     _rng,
                     train_state.n_updates)
-                metrics = update_loss_metrics(metrics, train_state)
 
                 train_state = train_state.apply_gradients(grads=grads)
                 train_state = train_state.replace(n_updates=train_state.n_updates + 1)
+
+                metrics.update({
+                    '0.grad_norm': optax.global_norm(grads),
+                    #'0.update_norm': optax.global_norm(updates),
+                    '0.param_norm': optax.global_norm(train_state.params),
+                })
+                metrics = update_loss_metrics(metrics, train_state)
                 return train_state, metrics
 
             is_learn_time = (
@@ -959,6 +970,11 @@ def make_train_unroll(
         def update_loss_metrics(m, ts):
           return {f'{loss_name}/{k}': v for k, v in m.items()}
 
+        dummy_metrics.update({
+            '0.grad_norm': 0.,
+            #'0.update_norm': optax.global_norm(updates),
+            '0.param_norm': 0.,
+        })
         dummy_metrics = update_loss_metrics(
             dummy_metrics, train_state)
 
@@ -1020,11 +1036,13 @@ def make_train_unroll(
                     learn_trajectory,
                     _rng,
                     train_state.n_updates)
-                metrics = update_loss_metrics(metrics, train_state)
 
-                train_state = train_state.apply_gradients(grads=grads)
-                train_state = train_state.replace(
-                    n_updates=train_state.n_updates + 1)
+                metrics.update({
+                    '0.grad_norm': optax.global_norm(grads),
+                    #'0.update_norm': optax.global_norm(updates),
+                    '0.param_norm': optax.global_norm(train_state.params),
+                })
+                metrics = update_loss_metrics(metrics, train_state)
                 return train_state, metrics
 
             is_learn_time = (
