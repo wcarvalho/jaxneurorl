@@ -275,7 +275,7 @@ def get_local_agent_position(agent_pos, height, width):
     # Calculate the local position within the room
     local_x = agent_pos[0] - start_x
     local_y = agent_pos[1] - start_y
-    
+
     return jnp.array([local_x, local_y])
 
 ###########################

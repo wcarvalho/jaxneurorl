@@ -33,7 +33,7 @@ from flax.traverse_util import flatten_dict
 from gymnax.environments import environment
 
 
-from library.wrappers import TimeStep
+from singleagent.basics import TimeStep
 from singleagent import value_based_basics as vbb
 from projects.humansf.networks import KeyroomObsEncoder
 

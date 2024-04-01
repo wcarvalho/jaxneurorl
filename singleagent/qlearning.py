@@ -32,7 +32,7 @@ from flax.traverse_util import flatten_dict
 from gymnax.environments import environment
 
 
-from library.wrappers import TimeStep
+from singleagent.basics import TimeStep
 from singleagent import value_based_basics as vbb
 
 def extract_timestep_input(timestep: TimeStep):
@@ -113,56 +113,70 @@ class Predictions(NamedTuple):
     rnn_states: jax.Array
 
 class AgentRNN(nn.Module):
-    # homogenous agent for parameters sharing, assumes all agents have same obs and action dim
     action_dim: int
     hidden_dim: int
     init_scale: float
-    cell_type: nn.RNNCellBase = nn.LSTMCell
+    cell_type: str = "LSTMCell"
 
     def setup(self):
-        self.observation_encoder = nn.Dense(self.hidden_dim)
-        self.cell = self.cell_type(self.hidden_dim)
-
-        self.rnn = vbb.ScannedRNN(cell=self.cell)
-
-        self.q_fn = nn.Dense(self.action_dim)
+        self.observation_encoder = nn.Dense(
+            self.hidden_dim,
+            kernel_init=orthogonal(self.init_scale),
+            bias_init=constant(0.0)
+        )
+        self.rnn = vbb.ScannedRNN(
+            hidden_dim=self.hidden_dim,
+            cell_type=self.cell_type
+        )
+        self.q_fn = nn.Dense(
+            self.action_dim,
+            kernel_init=orthogonal(self.init_scale),
+            bias_init=constant(0.0)
+        )
 
     def initialize(self, x: TimeStep):
         """Only used for initialization."""
         # [B, D]
-        rnn_state = self.initialize_carry(x.observation.shape)
-        return self.__call__(rnn_state, x)
+        rng = jax.random.PRNGKey(0)
+        batch_dims = x.observation.shape[:-1]
+        rnn_state = self.initialize_carry(rng, batch_dims)
 
-    def __call__(self, rnn_state, x: TimeStep):
+        return self.__call__(rnn_state, x, rng)
+
+    def initialize_carry(self, *args, **kwargs):
+        """Initializes the RNN state."""
+        return self.rnn.initialize_carry(*args, **kwargs)
+
+    def __call__(self, rnn_state, x: TimeStep, rng: jax.random.KeyArray):
         x = extract_timestep_input(x)
 
         embedding = self.observation_encoder(x.obs)
         embedding = nn.relu(embedding)
 
         rnn_in = x._replace(obs=embedding)
-        rnn_out, new_rnn_state = self.rnn(rnn_state, rnn_in)
+        rng, _rng = jax.random.split(rng)
+        rnn_out, new_rnn_state = self.rnn(rnn_state, rnn_in, _rng)
 
         q_vals = self.q_fn(rnn_out)
 
         return Predictions(q_vals, rnn_out), new_rnn_state
 
-    def unroll(self, rnn_state, x: TimeStep):
+    def unroll(self, rnn_state, xs: TimeStep, rng: jax.random.KeyArray):
         # rnn_state: [B]
-        # x: [T, B]
-        x = extract_timestep_input(x)
+        # xs: [T, B]
+        xs = extract_timestep_input(xs)
 
-        embedding = self.observation_encoder(x.obs)
+        embedding = self.observation_encoder(xs.obs)
         embedding = nn.relu(embedding)
 
-        rnn_in = x._replace(obs=embedding)
-        rnn_out, new_rnn_state = self.rnn.unroll(rnn_state, rnn_in)
+        rnn_in = xs._replace(obs=embedding)
+        rng, _rng = jax.random.split(rng)
+        rnn_out, new_rnn_state = self.rnn.unroll(rnn_state, rnn_in, _rng)
 
         q_vals = self.q_fn(rnn_out)
 
         return Predictions(q_vals, rnn_out), new_rnn_state
 
-    def initialize_carry(self, example_shape: Tuple[int]):
-        return self.rnn.initialize_carry(example_shape)
 
 class LinearDecayEpsilonGreedy:
     """Epsilon Greedy action selection"""
@@ -228,12 +242,15 @@ def make_agent(
 
     rng, _rng = jax.random.split(rng)
     network_params = agent.init(
-        _rng, example_timestep, method=agent.initialize)
+        _rng, example_timestep,
+        method=agent.initialize)
 
-    def reset_fn(params, example_timestep):
+    def reset_fn(params, example_timestep, reset_rng):
+      batch_dims = example_timestep.observation.shape[:-1]
       return agent.apply(
           params,
-          example_timestep.observation.shape,
+          batch_dims=batch_dims,
+          rng=reset_rng,
           method=agent.initialize_carry)
 
     return agent, network_params, reset_fn
@@ -277,14 +294,13 @@ def make_actor(config: dict, agent: Agent, rng: jax.random.KeyArray) -> vbb.Acto
             duration=config["EPSILON_ANNEAL_TIME"]
         )
 
-
     def actor_step(
-            train_state: vbb.TrainState,
-            agent_state: jax.Array,
-            timestep: TimeStep,
-            rng: jax.random.KeyArray):
+        train_state: vbb.TrainState,
+        agent_state: jax.Array,
+        timestep: TimeStep,
+        rng: jax.random.KeyArray):
         preds, agent_state = agent.apply(
-            train_state.params, agent_state, timestep)
+            train_state.params, agent_state, timestep, rng)
 
         action = explorer.choose_actions(
             preds.q_vals, train_state.timesteps, rng)
@@ -292,13 +308,12 @@ def make_actor(config: dict, agent: Agent, rng: jax.random.KeyArray) -> vbb.Acto
         return preds, action, agent_state
 
     def eval_step(
-            train_state: vbb.TrainState,
-            agent_state: jax.Array,
-            timestep: TimeStep,
-            rng: jax.random.KeyArray):
-        del rng
+        train_state: vbb.TrainState,
+        agent_state: jax.Array,
+        timestep: TimeStep,
+        rng: jax.random.KeyArray):
         preds, agent_state = agent.apply(
-            train_state.params, agent_state, timestep)
+            train_state.params, agent_state, timestep, rng)
 
         action = preds.q_vals.argmax(-1)
 
