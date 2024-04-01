@@ -26,23 +26,26 @@ for some number of updates:
     periodically log metrics from evaluation actor + learner:
         (set by LEARNER_LOG_PERIOD)
 
+TODO: 
+- add priorizied replay
 """
 
 
 import functools
 import os
+from flax import struct
 import jax
 import jax.numpy as jnp
 import numpy as np
-from functools import partial
-from typing import NamedTuple, Dict, Union, Optional, Tuple, Callable
+from typing import NamedTuple, Dict, Optional, Tuple, Callable, TypeVar
 
 import dataclasses
 
 import optax
 import flax.linen as nn
-from flax.linen.initializers import constant, orthogonal
 from flax.training.train_state import TrainState
+from flax.core import FrozenDict
+
 import flashbax as fbx
 import wandb
 
@@ -50,9 +53,11 @@ import flax
 import rlax
 from gymnax.environments import environment
 
+from singleagent.basics import TimeStep
+
+
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']='false'
 
-from library.wrappers import TimeStep
 from library import observers
 
 ##############################
@@ -61,15 +66,17 @@ from library import observers
 Config = Dict
 Action = flax.struct.PyTreeNode
 Agent = nn.Module
-RNGKey = jax.random.KeyArray
+PRNGKey = jax.random.KeyArray
 Params = flax.core.FrozenDict
 AgentState = flax.struct.PyTreeNode
 Predictions = flax.struct.PyTreeNode
 Env = environment.Environment
 EnvParams = environment.EnvParams
-ActorStepFn = Callable[[TrainState, AgentState, TimeStep, RNGKey],
+
+
+ActorStepFn = Callable[[TrainState, AgentState, TimeStep, PRNGKey],
                   Tuple[Predictions, AgentState]]
-EnvStepFn = Callable[[RNGKey, TimeStep, Action, EnvParams],
+EnvStepFn = Callable[[PRNGKey, TimeStep, Action, EnvParams],
                        TimeStep]
 
 class RNNInput(NamedTuple):
@@ -83,8 +90,7 @@ class Actor(NamedTuple):
 class Transition(NamedTuple):
     timestep: TimeStep
     action: jax.Array
-    extras: Optional[dict] = None
-    info: Optional[dict] = None
+    extras: Optional[FrozenDict[str, jax.Array]] = None
 
 class RunnerState(NamedTuple):
     train_state: TrainState
@@ -98,6 +104,7 @@ class RunnerState(NamedTuple):
 class AcmeBatchData(flax.struct.PyTreeNode):
     timestep: TimeStep
     action: jax.Array
+
 
     @property
     def mask(self):
@@ -122,13 +129,6 @@ class CustomTrainState(TrainState):
 
 
 def masked_mean(x, mask):
-    #  if len(mask.shape) < len(x.shape):
-    #    nx = len(x.shape)
-    #    nd = len(mask.shape)
-    #    extra = nx - nd
-    #    dims = list(range(nd, nd+extra))
-    #    z = jnp.multiply(x, jnp.expand_dims(mask, dims))
-    #  else:
     z = jnp.multiply(x, mask)
     return (z.sum(0))/(mask.sum(0)+1e-5)
 
@@ -152,11 +152,11 @@ class RecurrentLossFn:
 
   def __call__(
       self,
-      params,
-      target_params,
-      batch,
-      key_grad,
-      steps,
+      params: Params,
+      target_params: Params,
+      batch: fbx.trajectory_buffer.BufferSample,
+      key_grad: PRNGKey,
+      steps: int,
     ):
     """Calculate a loss on a single batch of data."""
     unroll = functools.partial(self.network.apply, method=self.network.unroll)
@@ -179,12 +179,15 @@ class RecurrentLossFn:
     if burn_in_length:
 
         burn_data = jax.tree_map(lambda x: x[:burn_in_length], data)
+        key_grad, rng_1, rng_2 = jax.random.split(key_grad, 3)
         _, online_state = unroll(params,
                                  online_state,
-                                 burn_data.timestep)
+                                 burn_data.timestep,
+                                 rng_1)
         _, target_state = unroll(target_params,
                                  target_state,
-                                 burn_data.timestep)
+                                 burn_data.timestep,
+                                 rng_2)
 
         # Only get data to learn on from after the end of the burn in period.
         data = jax.tree_map(lambda seq: seq[burn_in_length:], data)
@@ -192,10 +195,11 @@ class RecurrentLossFn:
     #--------------------------
     # Unroll on sequences to get online and target Q-Values.
     #--------------------------
+    key_grad, rng_1, rng_2 = jax.random.split(key_grad, 3)
     online_preds, online_state = unroll(
-        params, online_state, data.timestep)
+        params, online_state, data.timestep, rng_1)
     target_preds, target_state = unroll(
-        target_params, target_state, data.timestep)
+        target_params, target_state, data.timestep, rng_2)
 
     # -----------------------
     # compute loss
@@ -214,40 +218,30 @@ class RecurrentLossFn:
       steps=steps,
       key_grad=key_grad)
 
-    # TODO: add priorizied replay
     batch_loss = batch_loss.mean()
+    # TODO: support for prioritized replay
+
     return batch_loss, metrics
 
 ##############################
 # Neural Network
 ##############################
 
-class ScannedRNN(nn.Module):
+class RlRnnCell(nn.Module):
+    hidden_dim: int
+    cell_type: str = "LSTMCell"
 
-    cell: nn.RNNCellBase = nn.LSTMCell
+    def setup(self):
+        cell_constructor = getattr(nn, self.cell_type)
+        self.cell = cell_constructor(self.hidden_dim)
 
-    def unroll(self, rnn_state, x: RNNInput):
-        """Applies the module.
-
-        follows example: https://flax.readthedocs.io/en/latest/api_reference/flax.linen/_autosummary/flax.linen.scan.html
-        rnn_state: [B]
-        x: [T, B]; however, scan over it
-        """
-
-        def body_fn(step, state, x):
-          y, state = step(state, x)
-          return state, y
-
-        scan = nn.scan(
-          body_fn, variable_broadcast="params",
-          split_rngs={"params": False}, in_axes=0, out_axes=0)
-
-        final_state, all_outputs = scan(self, rnn_state, x)
-
-        return all_outputs, final_state
-
-    @nn.compact
-    def __call__(self, rnn_state, x: RNNInput):
+    def __call__(
+        self,
+        state: struct.PyTreeNode,
+        x: jax.Array,
+        reset: jax.Array,
+        rng: PRNGKey,
+        ):
         """Applies the module."""
         # [B, D]
 
@@ -256,17 +250,76 @@ class ScannedRNN(nn.Module):
           return jnp.where(cond[:, np.newaxis], init, prior)
 
         # [B, ...]
-        init_state = self.initialize_carry(x.obs.shape)
+        init_state = self.initialize_carry(
+           rng=rng,
+           batch_dims=x.shape[:-1])
         input_state = tuple(
-            conditional_reset(x.reset, init, prior) for init, prior in zip(init_state, rnn_state))
+            conditional_reset(reset, init, prior) for init, prior in zip(init_state, state))
 
-        new_rnn_state, output = self.cell(input_state, x.obs)
-        return output, new_rnn_state
+        new_state, output = self.cell(input_state, x)
+        return output, new_state
 
-    def initialize_carry(self, example_shape: Tuple[int]):
-        return self.cell.initialize_carry(
-            jax.random.PRNGKey(0), example_shape
+    def initialize_carry(
+        self, rng: PRNGKey, batch_dims: Tuple[int, ...]
+    ) -> Tuple[jax.Array, jax.Array]:
+        """Initialize the RNN cell carry.
+
+        Args:
+        rng: random number generator passed to the init_fn.
+        input_shape: a tuple providing the shape of the input to the cell.
+        Returns:
+        An initialized carry for the given RNN cell.
+        """
+        key1, key2 = jax.random.split(rng)
+        mem_shape = batch_dims + (self.hidden_dim,)
+        c = self.cell.carry_init(key1, mem_shape, self.cell.param_dtype)
+        h = self.cell.carry_init(key2, mem_shape, self.cell.param_dtype)
+        return (c, h)
+
+
+class ScannedRNN(nn.Module):
+    hidden_dim: int
+    cell_type: str = "LSTMCell"
+
+    def initialize_carry(self, *args, **kwargs):
+        """Initializes the RNN state."""
+        return self.cell.initialize_carry(*args, **kwargs)
+
+    def setup(self):
+        self.cell = RlRnnCell(cell_type=self.cell_type,
+                              hidden_dim=self.hidden_dim)
+
+    def __call__(self, rnn_state, x: RNNInput, rng: PRNGKey):
+        """Applies the module.
+
+        rnn_state: [B]
+        x: [B]
+
+        """
+        return self.cell(state=rnn_state, x=x.obs, reset=x.reset, rng=rng)
+
+    def unroll(self, rnn_state, xs: RNNInput, rng: PRNGKey):
+        """
+        rnn_state: [B]
+        x: [T, B]; however, scan over it
+        """
+        cell = self.cell
+        def body_fn(cell, state, inputs):
+            x, reset = inputs
+            y, state = cell(state, x, reset, rng)
+            return state, y
+
+        scan = nn.scan(
+            body_fn,
+            variable_broadcast="params",
+            split_rngs={"params": False},
+            in_axes=0,
+            out_axes=0
         )
+
+        final_state, all_outputs = scan(cell, rnn_state, (xs.obs, xs.reset))
+        return all_outputs, final_state
+
 
 
 ##############################
@@ -274,7 +327,7 @@ class ScannedRNN(nn.Module):
 ##############################
 
 AgentResetFn = Callable[[Params, TimeStep], AgentState]
-EnvResetFn = Callable[[RNGKey, EnvParams], TimeStep]
+EnvResetFn = Callable[[PRNGKey, EnvParams], TimeStep]
 MakeAgentFn = Callable[[Config, Env, EnvParams, TimeStep, jax.random.KeyArray],
                        Tuple[nn.Module, Params, AgentResetFn]]
 MakeOptimizerFn = Callable[[Config], optax.GradientTransformation]
@@ -362,9 +415,11 @@ def log_learner_eval(
         init_timestep = env_reset_fn(_rng, test_env_params)
 
         # reset agent state
+        rng, _rng = jax.random.split(rng)
         init_agent_state = agent_reset_fn(
             runner_state.train_state.params,
-            init_timestep)
+            init_timestep,
+            _rng)
 
         # new runner
         rng, _rng = jax.random.split(rng)
@@ -401,9 +456,11 @@ def log_learner_eval(
         init_timestep = env_reset_fn(_rng, train_env_params)
 
         # reset agent state
+        rng, _rng = jax.random.split(rng)
         init_agent_state = agent_reset_fn(
             runner_state.train_state.params,
-            init_timestep)
+            init_timestep,
+            _rng)
         
         # new runner
         rng, _rng = jax.random.split(rng)
@@ -484,7 +541,8 @@ def make_train_step(
         agent, network_params, agent_reset_fn = make_agent(
            config, env, train_env_params, init_timestep, _rng)
 
-        init_agent_state = agent_reset_fn(network_params, init_timestep)
+        rng, _rng = jax.random.split(rng)
+        init_agent_state = agent_reset_fn(network_params, init_timestep, _rng)
 
         ##############################
         # INIT Actor
@@ -559,7 +617,7 @@ def make_train_step(
             log_period=config['EVAL_EPISODES'])
 
         example_predictions, _ = agent.apply(
-            train_state.params, init_agent_state, init_timestep)
+            train_state.params, init_agent_state, init_timestep, dummy_rng)
 
         observer_state = observer.init(
             example_timestep=init_timestep,
@@ -855,7 +913,8 @@ def make_train_unroll(
         agent, network_params, agent_reset_fn = make_agent(
             config, env, train_env_params, init_timestep, _rng)
 
-        init_agent_state = agent_reset_fn(network_params, init_timestep)
+        rng, _rng = jax.random.split(rng)
+        init_agent_state = agent_reset_fn(network_params, init_timestep, _rng)
 
         ##############################
         # INIT Actor
@@ -930,7 +989,7 @@ def make_train_unroll(
             log_period=config['EVAL_EPISODES'])
 
         example_predictions, _ = agent.apply(
-            train_state.params, init_agent_state, init_timestep)
+            train_state.params, init_agent_state, init_timestep, dummy_rng)
 
         init_actor_observer_state = observer.init(
             example_timestep=init_timestep,

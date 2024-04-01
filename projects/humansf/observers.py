@@ -10,7 +10,7 @@ from flax import struct
 import numpy as np
 import wandb
 
-from library.wrappers import TimeStep
+from singleagent.basics import TimeStep
 
 Number = Union[int, float, np.float32, jnp.float32]
 
