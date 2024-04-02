@@ -732,8 +732,8 @@ def make_train_step(
 
             preds, action, agent_state = actor.train_step(
                train_state,
-               agent_state,
                prior_agent_state,
+               prior_timestep,
                rng_a)
 
             # create transition which will be added to buffer
