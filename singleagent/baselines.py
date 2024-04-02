@@ -20,6 +20,7 @@ python singleagent/baselines.py \
 RUNNING ON SLURM:
 python singleagent/baselines.py \
   --parallel=sbatch \
+  --time '0-00:20:00' \
   --search=default
 """
 
@@ -84,7 +85,8 @@ def run_single(
         make_agent=qlearning.make_mlp_agent,
         make_optimizer=qlearning.make_optimizer,
         make_loss_fn_class=qlearning.make_loss_fn_class,
-        make_actor=qlearning.make_actor
+        make_actor=qlearning.make_actor,
+        train_step_type=config.pop("TRAIN_TYPE", 'unroll'),
       )
     else:
       raise NotImplementedError(alg_name)
@@ -112,12 +114,51 @@ def sweep(search: str = ''):
   if search == 'default':
     space = [
         {
-            "group": tune.grid_search(['baselines-Catch-7-mlp']),
+            "group": tune.grid_search(['baselines-Catch-11-rnn--step']),
+            "alg": tune.grid_search(['qlearning']),
+            "config_name": tune.grid_search(['qlearning']),
+            "NUM_ENVS": tune.grid_search([8]),
+            "TRAIN_TYPE": tune.grid_search(['single_step']),
+            "TARGET_UPDATE_INTERVAL": tune.grid_search([200]),
+            #"LR": tune.grid_search([0.005, 1e-3]),
+            "FIXED_EPSILON": tune.grid_search([False, True]),
+            "EPSILON_ANNEAL_TIME": tune.grid_search([1e3]),
+            "ENV_NAME": tune.grid_search(['Catch-bsuite']),
+        },
+        {
+            "group": tune.grid_search(['baselines-Catch-11-rnn']),
+            "alg": tune.grid_search(['qlearning']),
+            "config_name": tune.grid_search(['qlearning']),
+            "NUM_STEPS": tune.grid_search([10]),
+            "NUM_ENVS": tune.grid_search([1]),
+            "TARGET_UPDATE_INTERVAL": tune.grid_search([200]),
+            #"LR": tune.grid_search([0.005, 1e-3]),
+            "FIXED_EPSILON": tune.grid_search([False, True]),
+            "EPSILON_ANNEAL_TIME": tune.grid_search([1e3]),
+            "ENV_NAME": tune.grid_search(['Catch-bsuite']),
+        },
+        {
+            "group": tune.grid_search(['baselines-Catch-11-step']),
             "alg": tune.grid_search(['qlearning_mlp']),
             "config_name": tune.grid_search(['qlearning']),
-            #"EPS_ADAM": tune.grid_search([1e-3, 1e-5]),
-            "LR": tune.grid_search([0.005, 1e-3, 1e-4, 1e-5]),
-            "FIXED_EPSILON": tune.grid_search([True, False]),
+            "NUM_ENVS": tune.grid_search([1]),
+            "TRAIN_TYPE": tune.grid_search(['single_step']),
+            "TARGET_UPDATE_INTERVAL": tune.grid_search([200]),
+            #"LR": tune.grid_search([0.005, 1e-3]),
+            "FIXED_EPSILON": tune.grid_search([False, True]),
+            "EPSILON_ANNEAL_TIME": tune.grid_search([1e3]),
+            "ENV_NAME": tune.grid_search(['Catch-bsuite']),
+        },
+        {
+            "group": tune.grid_search(['baselines-Catch-11']),
+            "alg": tune.grid_search(['qlearning_mlp']),
+            "config_name": tune.grid_search(['qlearning']),
+            "NUM_STEPS": tune.grid_search([10]),
+            "NUM_ENVS": tune.grid_search([1]),
+            "TARGET_UPDATE_INTERVAL": tune.grid_search([200]),
+            #"LR": tune.grid_search([0.005, 1e-3]),
+            "FIXED_EPSILON": tune.grid_search([False, True]),
+            "EPSILON_ANNEAL_TIME": tune.grid_search([1e3]),
             "ENV_NAME": tune.grid_search(['Catch-bsuite']),
         },
         #{

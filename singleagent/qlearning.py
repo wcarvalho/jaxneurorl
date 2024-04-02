@@ -25,6 +25,7 @@ import wandb
 import hydra
 
 import flax
+from flax import struct
 import rlax
 from omegaconf import OmegaConf
 from safetensors.flax import save_file
@@ -45,7 +46,7 @@ Params = flax.core.FrozenDict
 AgentState = flax.struct.PyTreeNode
 RNNInput = vbb.RNNInput
 
-@dataclasses.dataclass
+@struct.dataclass
 class R2D2LossFn(vbb.RecurrentLossFn):
 
   """Loss function of R2D2.
@@ -96,7 +97,7 @@ class R2D2LossFn(vbb.RecurrentLossFn):
     batch_loss = 0.5 * jnp.square(batch_td_error)
 
     # [B]
-    batch_loss = batch_loss*mask
+    batch_loss = vbb.masked_mean(batch_loss, mask)
 
     metrics = {
         '0.q_loss': batch_loss.mean(),
@@ -112,6 +113,29 @@ class Predictions(NamedTuple):
     q_vals: jax.Array
     rnn_states: jax.Array
 
+
+class Block(nn.Module):
+  features: int
+
+  @nn.compact
+  def __call__(self, x, _):
+    x = nn.Dense(self.features)(x)
+    x = jax.nn.relu(x)
+    return x, None
+
+class MLP(nn.Module):
+  hidden_dim: int
+  out_dim: Optional[int] = None
+  num_layers: int = 1
+
+  @nn.compact
+  def __call__(self, x):
+    for _ in range(self.num_layers):
+        x, _ = Block(self.hidden_dim)(x, None)
+
+    x = nn.Dense(self.out_dim or self.hidden_dim)(x)
+    return x
+
 class RnnAgent(nn.Module):
     action_dim: int
     hidden_dim: int
@@ -119,16 +143,9 @@ class RnnAgent(nn.Module):
     rnn: vbb.ScannedRNN
 
     def setup(self):
-        self.observation_encoder = nn.Dense(
-            self.hidden_dim,
-            kernel_init=orthogonal(self.init_scale),
-            bias_init=constant(0.0)
-        )
-        self.q_fn = nn.Dense(
-            self.action_dim,
-            kernel_init=orthogonal(self.init_scale),
-            bias_init=constant(0.0)
-        )
+        self.observation_encoder = MLP(
+           hidden_dim=self.hidden_dim, num_layers=1)
+        self.q_fn = MLP(hidden_dim=512, num_layers=1, out_dim=self.action_dim)
 
     def initialize(self, x: TimeStep):
         """Only used for initialization."""
@@ -309,7 +326,7 @@ def make_actor(config: dict, agent: Agent, rng: jax.random.KeyArray) -> vbb.Acto
                 num=config.get('NUM_EPSILONS', 256),
                 base=config.get('EPSILON_BASE', .1))
         epsilons = jax.random.choice(
-            rng, shape=(config['NUM_ENVS'],), a=vals)
+            rng, vals, shape=(config['NUM_ENVS'],))
         explorer = FixedEpsilonGreedy(epsilons)
     else:
         explorer = LinearDecayEpsilonGreedy(
@@ -343,7 +360,7 @@ def make_actor(config: dict, agent: Agent, rng: jax.random.KeyArray) -> vbb.Acto
 
         return preds, action, agent_state
 
-    return vbb.Actor(actor_step=actor_step, eval_step=eval_step)
+    return vbb.Actor(train_step=actor_step, eval_step=eval_step)
 
 make_train_preloaded = functools.partial(
    vbb.make_train,
