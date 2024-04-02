@@ -13,8 +13,6 @@ from singleagent.basics import TimeStep
 from singleagent.basics import StepType
 
 
-EnvCarryT = TypeVar("EnvCarryT")
-
 class TimestepWrapper(GymnaxWrapper):
     """Flatten the observations of the environment."""
 

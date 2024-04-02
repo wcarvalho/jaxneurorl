@@ -31,6 +31,9 @@ TODO:
 """
 
 
+from pprint import pprint
+import collections
+import copy
 import functools
 import os
 from flax import struct
@@ -38,8 +41,8 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from typing import NamedTuple, Dict, Optional, Tuple, Callable, TypeVar
+import tree
 
-import dataclasses
 
 import optax
 import flax.linen as nn
@@ -84,7 +87,7 @@ class RNNInput(NamedTuple):
     reset: jax.Array
 
 class Actor(NamedTuple):
-  actor_step: ActorStepFn
+  train_step: ActorStepFn
   eval_step: ActorStepFn
 
 class Transition(NamedTuple):
@@ -104,7 +107,6 @@ class RunnerState(NamedTuple):
 class AcmeBatchData(flax.struct.PyTreeNode):
     timestep: TimeStep
     action: jax.Array
-
 
     @property
     def mask(self):
@@ -127,7 +129,6 @@ class CustomTrainState(TrainState):
 # Loss function
 ##############################
 
-
 def masked_mean(x, mask):
     z = jnp.multiply(x, mask)
     return (z.sum(0))/(mask.sum(0)+1e-5)
@@ -136,7 +137,7 @@ def batch_to_sequence(values: jax.Array) -> jax.Array:
     return jax.tree_map(
         lambda x: jnp.transpose(x, axes=(1, 0, *range(2, len(x.shape)))), values)
 
-@dataclasses.dataclass
+@struct.dataclass
 class RecurrentLossFn:
   """Recurrent loss function with burn-in structured modelled after R2D2.
   
@@ -163,6 +164,7 @@ class RecurrentLossFn:
 
     # Get core state & warm it up on observations for a burn-in period.
     # Replay core state.
+    # [B, T, D]
     online_state = batch.extras.get('agent_state')
 
     # get online_state from 0-th time-step
@@ -305,8 +307,7 @@ class ScannedRNN(nn.Module):
         cell = self.cell
         def body_fn(cell, state, inputs):
             x, reset = inputs
-            y, state = cell(state, x, reset, rng)
-            return state, y
+            return cell(state, x, reset, rng)
 
         scan = nn.scan(
             body_fn,
@@ -349,6 +350,16 @@ MakeOptimizerFn = Callable[[Config], optax.GradientTransformation]
 MakeLossFnClass = Callable[[Config], RecurrentLossFn]
 MakeActorFn = Callable[[Config, Agent], Actor]
 
+def log_params(params):
+    size_of_tree = lambda t: sum(tree.flatten(t))
+    # Log how many parameters the network has.
+    sizes = tree.map_structure(jnp.size, params)
+    total_params =  size_of_tree(sizes.values())
+    print("="*50)
+    print(f'Total number of params: {total_params:,}')
+    [print(f"\t{k}: {size_of_tree(v.values()):,}") for k,v in sizes.items()]
+    pprint(jax.tree_map(lambda x:x.shape, params))
+
 def collect_trajectory(
       runner_state: RunnerState,
       num_steps: int,
@@ -358,21 +369,42 @@ def collect_trajectory(
       observer: Optional[observers.BasicObserver] = None,
       ):
 
-    def _env_step(runner_state: RunnerState, unused):
+    def _env_step(rs: RunnerState, unused):
+        """_summary_
+        
+        Buffer is updated with:
+        - input agent state: s_{t-1}
+        - agent obs input: x_t
+        - agent prediction outputs: p_t
+        - agent's action: a_t
+
+        Args:
+            rs (RunnerState): _description_
+            unused (_type_): _description_
+
+        Returns:
+            _type_: _description_
+        """
+        del unused
         # things that will be used/changed
-        rng = runner_state.rng
-        prior_timestep = runner_state.timestep
-        agent_state = runner_state.agent_state
-        observer_state = runner_state.observer_state
+        rng = rs.rng
+        prior_timestep = rs.timestep
+        prior_agent_state = rs.agent_state
+        observer_state = rs.observer_state
 
         # prepare rngs for actions and step
         rng, rng_a, rng_s = jax.random.split(rng, 3)
 
         preds, action, agent_state = actor_step_fn(
-            runner_state.train_state,
-            agent_state,
+            rs.train_state,
+            prior_agent_state,
             prior_timestep,
             rng_a)
+
+        transition = Transition(
+            prior_timestep,
+            action=action,
+            extras=FrozenDict(preds=preds, agent_state=prior_agent_state))
 
         # take step in env
         timestep = env_step_fn(rng_s, prior_timestep, action, env_params)
@@ -385,22 +417,17 @@ def collect_trajectory(
              predictions=preds,
              action=action)
 
-        # create transition which will be added to buffer
-        transition = Transition(
-            timestep,
-            action=action,
-            extras=dict(preds=preds, agent_state=agent_state))
 
-        runner_state = runner_state._replace(
+        rs = rs._replace(
             timestep=timestep,
             agent_state=agent_state,
             observer_state=observer_state,
             rng=rng,
         )
 
-        return runner_state, transition
+        return rs, transition
 
-    return jax.lax.scan(_env_step, runner_state, None, num_steps)
+    return jax.lax.scan(f=_env_step, init=runner_state, xs=None, length=num_steps)
 
 def log_learner_eval(
       config: dict,
@@ -555,6 +582,7 @@ def make_train_step(
         rng, _rng = jax.random.split(rng)
         agent, network_params, agent_reset_fn = make_agent(
            config, env, train_env_params, init_timestep, _rng)
+        log_params(network_params['params'])
 
         rng, _rng = jax.random.split(rng)
         init_agent_state = agent_reset_fn(network_params, init_timestep, _rng)
@@ -587,7 +615,7 @@ def make_train_step(
         period = config.get("SAMPLING_PERIOD", 1)
         buffer = fbx.make_trajectory_buffer(
             max_length_time_axis=config['BUFFER_SIZE']//config['NUM_ENVS'],
-            min_length_time_axis=config['BUFFER_BATCH_SIZE'],
+            min_length_time_axis=config['SAMPLE_LENGTH'],
             sample_batch_size=config['BUFFER_BATCH_SIZE'],
             add_batch_size=config['NUM_ENVS'],
             sample_sequence_length=config['SAMPLE_LENGTH'],
@@ -604,22 +632,22 @@ def make_train_step(
         # use init_transition from 0th env to initialize buffer
         # ---------------
         dummy_rng = jax.random.PRNGKey(0)
-        init_preds, action, _ = actor.actor_step(
+        init_preds, action, _ = actor.train_step(
             train_state, init_agent_state, init_timestep, dummy_rng)
         init_transition = Transition(
             init_timestep,
             action=action,
-            extras=dict(preds=init_preds, agent_state=init_agent_state))
+            extras=FrozenDict(preds=init_preds, agent_state=init_agent_state))
         init_transition_example = jax.tree_map(
           lambda x: x[0], init_transition)
 
         # [num_envs, max_length, ...]
         buffer_state = buffer.init(init_transition_example) 
 
-        buffer_addition = jax.tree_map(
-            lambda x: x[:, np.newaxis], init_transition)
-        buffer_state = buffer.add(
-            buffer_state, buffer_addition)
+        #buffer_addition = jax.tree_map(
+        #    lambda x: x[:, np.newaxis], init_transition)
+        #buffer_state = buffer.add(
+        #    buffer_state, buffer_addition)
 
         ##############################
         # INIT Observer
@@ -653,6 +681,7 @@ def make_train_step(
         ##############################
         loss_fn_class = make_loss_fn_class(config)
         loss_fn = loss_fn_class(network=agent)
+
         dummy_rng = jax.random.PRNGKey(0)
 
         # (batch_size, timesteps, ...)
@@ -692,7 +721,7 @@ def make_train_step(
             train_state = runner_state.train_state
             observer_state = runner_state.observer_state
             prior_timestep = runner_state.timestep
-            agent_state = runner_state.agent_state
+            prior_agent_state = runner_state.agent_state
             buffer_state = runner_state.buffer_state
 
             ##############################
@@ -701,11 +730,18 @@ def make_train_step(
             # prepare rngs for actions and step
             rng, rng_a, rng_s = jax.random.split(rng, 3)
 
-            preds, action, agent_state = actor.actor_step(
+            preds, action, agent_state = actor.train_step(
                train_state,
                agent_state,
-               prior_timestep,
+               prior_agent_state,
                rng_a)
+
+            # create transition which will be added to buffer
+            transition = Transition(
+              prior_timestep,
+              action=action,
+              extras=FrozenDict(preds=preds, agent_state=prior_agent_state))
+
 
             # take step in env
             timestep = vmap_step(rng_s, prior_timestep, action, train_env_params)
@@ -725,11 +761,6 @@ def make_train_step(
 
             shared_metrics['num_learner_updates'] = train_state.n_updates
 
-            # create transition which will be added to buffer
-            transition = Transition(
-              timestep,
-              action=action,
-              extras=dict(preds=preds, agent_state=agent_state))
 
             # update buffer with data of size [num_envs, 1, ...]
             buffer_addition = jax.tree_map(
@@ -763,6 +794,7 @@ def make_train_step(
                     '0.grad_norm': optax.global_norm(grads),
                     #'0.update_norm': optax.global_norm(updates),
                     '0.param_norm': optax.global_norm(train_state.params),
+                    #'0.target_param_norm': optax.global_norm(train_state.target_network_params),
                 })
                 metrics = update_loss_metrics(metrics, train_state)
                 return train_state, metrics
@@ -815,7 +847,7 @@ def make_train_step(
                 lambda: log_learner_eval(
                     config=config,
                     agent_reset_fn=agent_reset_fn,
-                    actor_train_step_fn=actor.actor_step,
+                    actor_train_step_fn=actor.train_step,
                     actor_eval_step_fn=actor.eval_step,
                     env_reset_fn=vmap_reset,
                     env_step_fn=vmap_step,
@@ -901,7 +933,7 @@ def make_train_unroll(
         config["TOTAL_TIMESTEPS"] // config["NUM_ENVS"]
     )
 
-    test_env_params = test_env_params or train_env_params
+    test_env_params = test_env_params or copy.deepcopy(train_env_params)
 
     def vmap_reset(rng, env_params):
       return jax.vmap(env.reset, in_axes=(0, None))(
@@ -918,7 +950,7 @@ def make_train_unroll(
         # INIT ENV
         ##############################
         rng, _rng = jax.random.split(rng)
-        init_timestep = vmap_reset(_rng, train_env_params)
+        init_timestep = vmap_reset(rng=_rng, env_params=train_env_params)
 
         ##############################
         # INIT NETWORK
@@ -926,7 +958,13 @@ def make_train_unroll(
         ##############################
         rng, _rng = jax.random.split(rng)
         agent, network_params, agent_reset_fn = make_agent(
-            config, env, train_env_params, init_timestep, _rng)
+            config=config,
+            env=env,
+            env_params=train_env_params,
+            example_timestep=init_timestep,
+            rng=_rng)
+
+        log_params(network_params['params'])
 
         rng, _rng = jax.random.split(rng)
         init_agent_state = agent_reset_fn(network_params, init_timestep, _rng)
@@ -936,7 +974,10 @@ def make_train_unroll(
         # will be absorbed into _update_step via closure
         ##############################
         rng, _rng = jax.random.split(rng)
-        actor = make_actor(config, agent, _rng)
+        actor = make_actor(
+           config=config,
+           agent=agent,
+           rng=_rng)
 
         ##############################
         # INIT OPTIMIZER
@@ -959,9 +1000,9 @@ def make_train_unroll(
         period = config.get("SAMPLING_PERIOD", 1)
         buffer = fbx.make_trajectory_buffer(
             max_length_time_axis=config['BUFFER_SIZE']//config['NUM_ENVS'],
-            min_length_time_axis=config['BUFFER_BATCH_SIZE'],
-            sample_batch_size=config['BUFFER_BATCH_SIZE'],
+            min_length_time_axis=config['SAMPLE_LENGTH'],
             add_batch_size=config['NUM_ENVS'],
+            sample_batch_size=config['BUFFER_BATCH_SIZE'],
             sample_sequence_length=config['SAMPLE_LENGTH'],
             period=period,
         )
@@ -976,22 +1017,22 @@ def make_train_unroll(
         # use init_transition from 0th env to initialize buffer
         # ---------------
         dummy_rng = jax.random.PRNGKey(0)
-        init_preds, action, _ = actor.actor_step(
+        init_preds, action, _ = actor.train_step(
             train_state, init_agent_state, init_timestep, dummy_rng)
         init_transition = Transition(
             init_timestep,
             action=action,
-            extras=dict(preds=init_preds, agent_state=init_agent_state))
+            extras=FrozenDict(preds=init_preds, agent_state=init_agent_state))
         init_transition_example = jax.tree_map(
           lambda x: x[0], init_transition)
 
         # [num_envs, max_length, ...]
         buffer_state = buffer.init(init_transition_example) 
 
-        buffer_addition = jax.tree_map(
-            lambda x: x[:, np.newaxis], init_transition)
-        buffer_state = buffer.add(
-            buffer_state, buffer_addition)
+        #buffer_addition = jax.tree_map(
+        #    lambda x: x[:, np.newaxis], init_transition)
+        #buffer_state = buffer.add(
+        #    buffer_state, buffer_addition)
 
         ##############################
         # INIT Observers
@@ -1025,6 +1066,7 @@ def make_train_unroll(
         ##############################
         loss_fn_class = make_loss_fn_class(config)
         loss_fn = loss_fn_class(network=agent)
+
         dummy_rng = jax.random.PRNGKey(0)
 
         # (batch_size, timesteps, ...)
@@ -1064,7 +1106,7 @@ def make_train_unroll(
             runner_state, traj_batch = collect_trajectory(
                 runner_state=runner_state,
                 num_steps=config["NUM_STEPS"],
-                actor_step_fn=actor.actor_step,
+                actor_step_fn=actor.train_step,
                 env_step_fn=vmap_step,
                 env_params=train_env_params)
 
@@ -1111,12 +1153,17 @@ def make_train_unroll(
                     _rng,
                     train_state.n_updates)
 
+                train_state = train_state.apply_gradients(grads=grads)
+                train_state = train_state.replace(n_updates=train_state.n_updates + 1)
+
                 metrics.update({
                     '0.grad_norm': optax.global_norm(grads),
                     #'0.update_norm': optax.global_norm(updates),
                     '0.param_norm': optax.global_norm(train_state.params),
+                    #'0.target_param_norm': optax.global_norm(train_state.target_network_params),
                 })
                 metrics = update_loss_metrics(metrics, train_state)
+
                 return train_state, metrics
 
             is_learn_time = (
@@ -1169,7 +1216,7 @@ def make_train_unroll(
                 lambda: log_learner_eval(
                     config=config,
                     agent_reset_fn=agent_reset_fn,
-                    actor_train_step_fn=actor.actor_step,
+                    actor_train_step_fn=actor.train_step,
                     actor_eval_step_fn=actor.eval_step,
                     env_reset_fn=vmap_reset,
                     env_step_fn=vmap_step,
