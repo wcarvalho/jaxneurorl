@@ -90,15 +90,15 @@ class AgentRNN(nn.Module):
     """
     action_dim: int
     hidden_dim: int
-    cell_type: nn.RNNCellBase = nn.LSTMCell
+    cell_type: str = "LSTMCell"
 
     def setup(self):
 
         self.observation_encoder = KeyroomObsEncoder(self.hidden_dim)
 
-        self.cell = self.cell_type(self.hidden_dim)
-
-        self.rnn = vbb.ScannedRNN(cell=self.cell)
+        self.rnn = vbb.ScannedRNN(
+           hidden_dim=self.hidden_dim,
+           cell_type=self.cell_type)
 
         self.q_fn = MLP(
            hidden_dim=self.hidden_dim,
@@ -107,41 +107,46 @@ class AgentRNN(nn.Module):
 
     def initialize(self, x: TimeStep):
         """Only used for initialization."""
-        # [B, D]
-        embedding = self.observation_encoder(x.observation)
-        rnn_state = self.initialize_carry(embedding.shape)
-        return self.__call__(rnn_state, x)
 
-    def __call__(self, rnn_state, x: TimeStep):
-        x: RNNInput = extract_timestep_input(x)
+        rng = jax.random.PRNGKey(0)
+        batch_dims = (x.reward.shape[0],)
+        rnn_state = self.initialize_carry(rng, batch_dims)
+
+        return self.__call__(rnn_state, x, rng)
+
+    def __call__(self, rnn_state, x: TimeStep, rng: jax.random.KeyArray):
+        x = extract_timestep_input(x)
 
         embedding = self.observation_encoder(x.obs)
         embedding = nn.relu(embedding)
 
         rnn_in = x._replace(obs=embedding)
-        new_rnn_state, rnn_out = self.rnn(rnn_state, rnn_in)
+        rng, _rng = jax.random.split(rng)
+        new_rnn_state, rnn_out = self.rnn(rnn_state, rnn_in, _rng)
 
         q_vals = self.q_fn(rnn_out)
 
         return Predictions(q_vals, rnn_out), new_rnn_state
 
-    def unroll(self, rnn_state, x: TimeStep):
+    def unroll(self, rnn_state, xs: TimeStep, rng: jax.random.KeyArray):
         # rnn_state: [B]
-        # x: [T, B]
-        x: RNNInput = extract_timestep_input(x)
+        # xs: [T, B]
+        xs = extract_timestep_input(xs)
 
-        embedding = nn.BatchApply(self.observation_encoder)(x.obs)
+        embedding = nn.BatchApply(self.observation_encoder)(xs.obs)
         embedding = nn.relu(embedding)
 
-        rnn_in = x._replace(obs=embedding)
-        new_rnn_state, rnn_out = self.rnn.unroll(rnn_state, rnn_in)
+        rnn_in = xs._replace(obs=embedding)
+        rng, _rng = jax.random.split(rng)
+        new_rnn_state, rnn_out = self.rnn.unroll(rnn_state, rnn_in, _rng)
 
         q_vals = nn.BatchApply(self.q_fn)(rnn_out)
 
         return Predictions(q_vals, rnn_out), new_rnn_state
 
-    def initialize_carry(self, example_shape: Tuple[int]):
-        return self.rnn.initialize_carry(example_shape)
+    def initialize_carry(self, *args, **kwargs):
+        """Initializes the RNN state."""
+        return self.rnn.initialize_carry(*args, **kwargs)
 
 def make_agent(
         config: dict,
@@ -159,13 +164,12 @@ def make_agent(
     network_params = agent.init(
         _rng, example_timestep, method=agent.initialize)
 
-    def reset_fn(params, example_timestep):
-      # always true
-      batch_size = example_timestep.reward.shape
-      example_shape = batch_size+(config["AGENT_HIDDEN_DIM"],)
+    def reset_fn(params, example_timestep, reset_rng):
+      batch_dims = (example_timestep.reward.shape[0],)
       return agent.apply(
           params,
-          example_shape,
+          batch_dims=batch_dims,
+          rng=reset_rng,
           method=agent.initialize_carry)
 
     return agent, network_params, reset_fn
