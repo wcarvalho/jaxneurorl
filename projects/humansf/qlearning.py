@@ -65,12 +65,16 @@ class AgentRNN(nn.Module):
         _type_: _description_
     """
     action_dim: int
-    hidden_dim: int
     cell_type: str = "LSTMCell"
+    config: dict
 
     def setup(self):
-
-        self.observation_encoder = KeyroomObsEncoder(self.hidden_dim)
+        self.hidden_dim = self.config["AGENT_HIDDEN_DIM"]
+        self.observation_encoder = KeyroomObsEncoder(
+            hidden_dim=self.hidden_dim,
+            init=self.config.get('ENCODER_INIT', 'word_embed'),
+            conv_dim=self.config.get('CONV_DIM', 16)
+            )
 
         self.rnn = vbb.ScannedRNN(
            hidden_dim=self.hidden_dim,
@@ -94,7 +98,6 @@ class AgentRNN(nn.Module):
         x = extract_timestep_input(x)
 
         embedding = self.observation_encoder(x.obs)
-        embedding = nn.relu(embedding)
 
         rnn_in = x._replace(obs=embedding)
         rng, _rng = jax.random.split(rng)
@@ -110,7 +113,6 @@ class AgentRNN(nn.Module):
         xs = extract_timestep_input(xs)
 
         embedding = nn.BatchApply(self.observation_encoder)(xs.obs)
-        embedding = nn.relu(embedding)
 
         rnn_in = xs._replace(obs=embedding)
         rng, _rng = jax.random.split(rng)
@@ -133,7 +135,7 @@ def make_agent(
 
     agent = AgentRNN(
         action_dim=env.num_actions(env_params),
-        hidden_dim=config["AGENT_HIDDEN_DIM"],
+        config=config,
     )
 
     rng, _rng = jax.random.split(rng)

@@ -271,11 +271,10 @@ class RlRnnCell(nn.Module):
         Returns:
         An initialized carry for the given RNN cell.
         """
-        key1, key2 = jax.random.split(rng)
-        mem_shape = batch_dims + (self.hidden_dim,)
-        c = self.cell.carry_init(key1, mem_shape, self.cell.param_dtype)
-        h = self.cell.carry_init(key2, mem_shape, self.cell.param_dtype)
-        return (c, h)
+        # (1,) will be ignored so doesn't matter
+        mem_shape = batch_dims + (1,)
+        return self.cell.initialize_carry(
+           rng, input_shape=jnp.zeros(mem_shape))
 
 
 class ScannedRNN(nn.Module):
