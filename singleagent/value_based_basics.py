@@ -644,11 +644,6 @@ def make_train_step(
         # [num_envs, max_length, ...]
         buffer_state = buffer.init(init_transition_example) 
 
-        #buffer_addition = jax.tree_map(
-        #    lambda x: x[:, np.newaxis], init_transition)
-        #buffer_state = buffer.add(
-        #    buffer_state, buffer_addition)
-
         ##############################
         # INIT Observer
         ##############################
@@ -765,8 +760,7 @@ def make_train_step(
             # update buffer with data of size [num_envs, 1, ...]
             buffer_addition = jax.tree_map(
                 lambda x: x[:, np.newaxis], transition)
-            buffer_state = buffer.add(
-              buffer_state, buffer_addition)
+            buffer_state = buffer.add(buffer_state, buffer_addition)
 
             ##############################
             # 2. Learner update
@@ -822,11 +816,6 @@ def make_train_step(
             train_state = jax.lax.cond(
                 train_state.n_updates % config["TARGET_UPDATE_INTERVAL"] == 0,
                 lambda train_state: train_state.replace(
-                    #target_network_params=optax.incremental_update(
-                    #    train_state.params,
-                    #    train_state.target_network_params,
-                    #    config["TAU"],
-                    #)
                    target_network_params=jax.tree_map(lambda x: jnp.copy(x), train_state.params)
                 ),
                 lambda train_state: train_state,
