@@ -54,30 +54,6 @@ def extract_timestep_input(timestep: TimeStep):
       obs=timestep.observation,
       reset=timestep.first())
 
-class Block(nn.Module):
-  features: int
-
-  @nn.compact
-  def __call__(self, x, _):
-    x = nn.Dense(self.features)(x)
-    x = jax.nn.relu(x)
-    return x, None
-
-class MLP(nn.Module):
-  hidden_dim: int
-  out_dim: int
-  num_layers: int = 1
-
-  @nn.compact
-  def __call__(self, x):
-    ScanBlock = nn.scan(
-      Block, variable_axes={'params': 0}, split_rngs={'params': True},
-      length=self.num_layers)
-
-    y, _ = ScanBlock(self.hidden_dim)(x, None)
-    y = nn.Dense(self.out_dim)(y)
-    return y
-
 class AgentRNN(nn.Module):
     """_summary_
 
@@ -100,9 +76,9 @@ class AgentRNN(nn.Module):
            hidden_dim=self.hidden_dim,
            cell_type=self.cell_type)
 
-        self.q_fn = MLP(
-           hidden_dim=self.hidden_dim,
-           num_layers=2,
+        self.q_fn = qlearning.MLP(
+           hidden_dim=512,
+           num_layers=1,
            out_dim=self.action_dim)
 
     def initialize(self, x: TimeStep):

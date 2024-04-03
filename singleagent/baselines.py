@@ -4,24 +4,24 @@ TESTING:
 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue singleagent/baselines.py \
   --debug=True \
   --wandb=False \
-  --search=default
+  --search=baselines
 
 JAX_DISABLE_JIT=1 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue singleagent/baselines.py \
   --debug=True \
   --wandb=False \
-  --search=default
+  --search=baselines
 
 TESTING SLURM LAUNCH:
 python singleagent/baselines.py \
   --parallel=sbatch \
   --debug_parallel=True \
-  --search=default
+  --search=baselines
 
 RUNNING ON SLURM:
 python singleagent/baselines.py \
   --parallel=sbatch \
   --time '0-00:20:00' \
-  --search=default
+  --search=baselines
 """
 
 from absl import flags
@@ -65,8 +65,8 @@ def run_single(
     wandb.init(**wandb_init)
 
     assert config['ENV_NAME'] in (
-      # 'CartPole-v1',
-      # 'Breakout-MinAtar',
+       'CartPole-v1',
+       'Breakout-MinAtar',
        'Catch-bsuite'
     ), 'only these have been tested so far'
 
@@ -110,65 +110,27 @@ def run_single(
         print(f'Parameters of first batch saved in {save_path}/{alg_name}.safetensors')
 
 def sweep(search: str = ''):
-  search = search or 'default'
-  if search == 'default':
+  search = search or 'baselines'
+  if search == 'baselines':
     space = [
         {
-            "group": tune.grid_search(['baselines-Catch-11-rnn--step']),
+            "group": tune.grid_search(['baselines-Catch-12']),
             "alg": tune.grid_search(['qlearning']),
             "config_name": tune.grid_search(['qlearning']),
-            "NUM_ENVS": tune.grid_search([8]),
-            "TRAIN_TYPE": tune.grid_search(['single_step']),
-            "TARGET_UPDATE_INTERVAL": tune.grid_search([200]),
-            #"LR": tune.grid_search([0.005, 1e-3]),
-            "FIXED_EPSILON": tune.grid_search([False, True]),
-            "EPSILON_ANNEAL_TIME": tune.grid_search([1e3]),
             "ENV_NAME": tune.grid_search(['Catch-bsuite']),
         },
         {
-            "group": tune.grid_search(['baselines-Catch-11-rnn']),
+            "group": tune.grid_search(['baselines-CartPole-12']),
             "alg": tune.grid_search(['qlearning']),
             "config_name": tune.grid_search(['qlearning']),
-            "NUM_STEPS": tune.grid_search([10]),
-            "NUM_ENVS": tune.grid_search([1]),
-            "TARGET_UPDATE_INTERVAL": tune.grid_search([200]),
-            #"LR": tune.grid_search([0.005, 1e-3]),
-            "FIXED_EPSILON": tune.grid_search([False, True]),
-            "EPSILON_ANNEAL_TIME": tune.grid_search([1e3]),
-            "ENV_NAME": tune.grid_search(['Catch-bsuite']),
+            "ENV_NAME": tune.grid_search(['CartPole-v1',]),
         },
         {
-            "group": tune.grid_search(['baselines-Catch-11-step']),
-            "alg": tune.grid_search(['qlearning_mlp']),
+            "group": tune.grid_search(['baselines-Breakout-12']),
+            "alg": tune.grid_search(['qlearning']),
             "config_name": tune.grid_search(['qlearning']),
-            "NUM_ENVS": tune.grid_search([1]),
-            "TRAIN_TYPE": tune.grid_search(['single_step']),
-            "TARGET_UPDATE_INTERVAL": tune.grid_search([200]),
-            #"LR": tune.grid_search([0.005, 1e-3]),
-            "FIXED_EPSILON": tune.grid_search([False, True]),
-            "EPSILON_ANNEAL_TIME": tune.grid_search([1e3]),
-            "ENV_NAME": tune.grid_search(['Catch-bsuite']),
+            "ENV_NAME": tune.grid_search(['Breakout-MinAtar',]),
         },
-        {
-            "group": tune.grid_search(['baselines-Catch-11']),
-            "alg": tune.grid_search(['qlearning_mlp']),
-            "config_name": tune.grid_search(['qlearning']),
-            "NUM_STEPS": tune.grid_search([10]),
-            "NUM_ENVS": tune.grid_search([1]),
-            "TARGET_UPDATE_INTERVAL": tune.grid_search([200]),
-            #"LR": tune.grid_search([0.005, 1e-3]),
-            "FIXED_EPSILON": tune.grid_search([False, True]),
-            "EPSILON_ANNEAL_TIME": tune.grid_search([1e3]),
-            "ENV_NAME": tune.grid_search(['Catch-bsuite']),
-        },
-        #{
-        #    "group": tune.grid_search(['baselines-CartPole-6']),
-        #    "alg": tune.grid_search(['qlearning']),
-        #    "EPS_ADAM": tune.grid_search([1e-3, 1e-5]),
-        #    "LR": tune.grid_search([1e-3, 1e-4, 1e-5]),
-        #    "FIXED_EPSILON": tune.grid_search([True, False]),
-        #    "ENV_NAME": tune.grid_search(['CartPole-v1',]),
-        #}
     ]
   else:
     raise NotImplementedError(search)
