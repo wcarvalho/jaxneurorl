@@ -82,9 +82,7 @@ def run_single(
 
     env = keyroom.KeyRoom()
     env_params = env.default_params(maze_config=maze_config)
-    test_env_params = env_params.replace(
-       training=False
-    )
+    test_env_params = env_params.replace(training=False)
 
     # auto-reset wrapper
     env = AutoResetWrapper(env)
