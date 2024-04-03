@@ -25,8 +25,6 @@ class KeyroomObsEncoder(nn.Module):
                 nn.relu,
                 nn.Conv(64, (3, 3), strides=1),
                 nn.relu,
-                nn.Conv(64, (3, 3), strides=1),
-                nn.relu,
             ])(obs.image)
         image = image.reshape(image.shape[0], -1)
 
