@@ -102,7 +102,7 @@ class R2D2LossFn(vbb.RecurrentLossFn):
     metrics = {
         '0.q_loss': batch_loss.mean(),
         '0.q_td': jnp.abs(batch_td_error).mean(),
-        '1.reward': rewards.mean(),
+        '1.reward': rewards[1:].mean(),
         'z.q_mean': self.extract_q(online_preds).mean(),
         'z.q_var': self.extract_q(online_preds).var(),
         }
