@@ -118,6 +118,7 @@ def sweep(search: str = ''):
             "alg": tune.grid_search(['qlearning']),
             "config_name": tune.grid_search(['qlearning']),
             "ENV_NAME": tune.grid_search(['Catch-bsuite']),
+            "TRAIN_TYPE": tune.grid_search(['single_step']),
         },
         {
             "group": tune.grid_search(['baselines-CartPole-12']),
