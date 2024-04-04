@@ -27,11 +27,15 @@ def default_gradient_logger(
     gradient_metrics.update(
        {f'{key}/1.{k}_min': subtree_min(v) for k, v in gradients.items()})
 
-    def callback(g):
+    def callback(ts, g):
         if wandb.run is not None:
+          g.update({
+              f'{key}/num_actor_steps': ts.timesteps,
+              f'{key}/num_learner_updates': ts.n_updates,
+          })
           wandb.log(g)
 
-    jax.debug.callback(callback, gradient_metrics)
+    jax.debug.callback(callback, train_state, gradient_metrics)
 
 def default_learner_logger(
         train_state: TrainState,
