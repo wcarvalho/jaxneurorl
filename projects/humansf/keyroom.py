@@ -734,11 +734,11 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
         discount = jax.lax.select(
             terminated, jnp.asarray(0.0), jnp.asarray(1.0))
 
-        timestep = TimeStep(
+        new_timestep = TimeStep(
             state=new_state,
             step_type=step_type,
             reward=reward,
             discount=discount,
             observation=new_observation,
         )
-        return timestep
+        return new_timestep
