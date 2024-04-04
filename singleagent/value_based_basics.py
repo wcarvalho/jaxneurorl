@@ -820,7 +820,6 @@ def make_train_step(
                     train_env_params=train_env_params,
                     test_env_params=test_env_params,
                     runner_state=runner_state,
-                    learner_metrics=learner_metrics,
                     observer=eval_observer,
                     observer_state=init_eval_observer_state,
                     logger=logger,

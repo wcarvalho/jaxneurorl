@@ -39,13 +39,13 @@ def default_learner_logger(
         key: str = 'learner'):
 
     def callback(ts: train_state, metrics: dict):
-        if wandb.run is not None:
-          metrics = {f'{key}/{k}': v for k, v in metrics.items()}
+        metrics = {f'{key}/{k}': v for k, v in metrics.items()}
 
-          metrics.update({
-              f'{key}/num_actor_steps': ts.timesteps,
-              f'{key}/num_learner_updates': ts.n_updates,
-          })
+        metrics.update({
+            f'{key}/num_actor_steps': ts.timesteps,
+            f'{key}/num_learner_updates': ts.n_updates,
+        })
+        if wandb.run is not None:
           wandb.log(metrics)
 
     jax.debug.callback(callback, train_state, learner_metrics)
@@ -57,16 +57,15 @@ def default_experience_logger(
         key: str = 'train'):
 
     def callback(ts: train_state, os: BasicObserverState):
+        # main
+        end = min(os.idx + 1, len(os.episode_lengths))
+        metrics = {
+            f'{key}/avg_episode_length': os.episode_lengths[:end].mean(),
+            f'{key}/avg_episode_return': os.episode_returns[:end].mean(),
+            f'{key}/num_actor_steps': ts.timesteps,
+            f'{key}/num_learner_updates': ts.n_updates,
+        }
         if wandb.run is not None:
-
-          # main
-          end = min(os.idx + 1, len(os.episode_lengths))
-          metrics = {
-              f'{key}/avg_episode_length': os.episode_lengths[:end].mean(),
-              f'{key}/avg_episode_return': os.episode_returns[:end].mean(),
-              f'{key}/num_actor_steps': ts.timesteps,
-              f'{key}/num_learner_updates': ts.n_updates,
-          }
           wandb.log(metrics)
 
     jax.debug.callback(callback, train_state, observer_state)
