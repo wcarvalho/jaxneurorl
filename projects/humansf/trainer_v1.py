@@ -186,9 +186,9 @@ def sweep(search: str = ''):
         #    **shared,
         #},
         {
-            "group": tune.grid_search(['qlearning-13-encoder']),
+            "group": tune.grid_search(['qlearning-14-encoder']),
             "alg": tune.grid_search(['qlearning_step',]),
-            "ENCODER_INIT": tune.grid_search(['default', 'word_embed']),
+            "ENCODER_INIT": tune.grid_search(['word_embed', 'default']),
             "CONV_DIM": tune.grid_search([16, 32]),
             #"MAX_GRAD_NORM": tune.grid_search([10., 80.]),
             #"TARGET_UPDATE_INTERVAL": tune.grid_search([500, 1000, 2000]),
