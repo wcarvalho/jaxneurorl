@@ -23,12 +23,11 @@ def default_gradient_logger(
     gradients = gradients['params']
     gradients = jax.tree_map(lambda x: x.mean(), gradients)
     gradient_metrics = {
-        f'{key}/{k}_mean': subtree_mean(v) for k, v in gradients.items()}
+        f'{key}/0.{k}_mean': subtree_mean(v) for k, v in gradients.items()}
     gradient_metrics.update(
-       {f'{key}/{k}_min': subtree_min(v) for k, v in gradients.items()})
+       {f'{key}/1.{k}_min': subtree_min(v) for k, v in gradients.items()})
 
     def callback(g):
-        import ipdb; ipdb.set_trace()
         if wandb.run is not None:
           wandb.log(g)
 
