@@ -91,14 +91,14 @@ class AgentRNN(nn.Module):
         batch_dims = (x.reward.shape[0],)
         rnn_state = self.initialize_carry(rng, batch_dims)
 
-        return self.__call__(rnn_state, x, rng)
+        return self(rnn_state, x, rng)
 
     def __call__(self, rnn_state, x: TimeStep, rng: jax.random.KeyArray):
         x = extract_timestep_input(x)
 
         embedding = self.observation_encoder(x.obs)
 
-        rnn_in = x._replace(obs=embedding)
+        rnn_in = RNNInput(obs=embedding, reset=x.reset)
         rng, _rng = jax.random.split(rng)
         new_rnn_state, rnn_out = self.rnn(rnn_state, rnn_in, _rng)
 
@@ -113,7 +113,7 @@ class AgentRNN(nn.Module):
 
         embedding = nn.BatchApply(self.observation_encoder)(xs.obs)
 
-        rnn_in = xs._replace(obs=embedding)
+        rnn_in = RNNInput(obs=embedding, reset=x.reset)
         rng, _rng = jax.random.split(rng)
         new_rnn_state, rnn_out = self.rnn.unroll(rnn_state, rnn_in, _rng)
 
