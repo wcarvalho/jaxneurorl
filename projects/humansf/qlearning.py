@@ -266,7 +266,7 @@ def make_logger(
 
             state_images = []
             obs_images = []
-            max_len = min(40, d_['data'].timestep.reward[1:])
+            max_len = min(config.get("MAX_EPISODE_LOG_LEN", 40), len(rewards))
             for idx in range(max_len):
                 index = lambda y: jax.tree_map(lambda x: x[idx], y)
                 state_image = rgb_render(
@@ -296,7 +296,7 @@ def make_logger(
             actions_taken = [action_names[int(a)] for a in d_['data'].action]
             fig = plot_frames(task_name,
                         frames=obs_images,
-                        rewards=d_['data'].timestep.reward[1:],
+                        rewards=rewards,
                         actions_taken=actions_taken,
                         W=10)
             if wandb.run is not None:
