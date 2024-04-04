@@ -272,9 +272,8 @@ class RlRnnCell(nn.Module):
         An initialized carry for the given RNN cell.
         """
         # (1,) will be ignored so doesn't matter
-        mem_shape = batch_dims + (1,)
         return self.cell.initialize_carry(
-           rng, input_shape=jnp.zeros(mem_shape))
+           rng, input_shape=batch_dims + (1,))
 
 
 class ScannedRNN(nn.Module):
