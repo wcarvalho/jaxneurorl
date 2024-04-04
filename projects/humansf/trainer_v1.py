@@ -125,6 +125,9 @@ def run_single(
           make_optimizer=qlearning.make_optimizer,
           make_loss_fn_class=qlearning.make_loss_fn_class,
           make_actor=qlearning.make_actor,
+          make_logger=functools.partial(
+            qlearning.make_logger,
+            maze_config=maze_config),
       )
     elif alg_name == 'qlearning_step':
       make_train = functools.partial(
@@ -133,6 +136,9 @@ def run_single(
           make_optimizer=qlearning.make_optimizer,
           make_loss_fn_class=qlearning.make_loss_fn_class,
           make_actor=qlearning.make_actor,
+          make_logger=functools.partial(
+            qlearning.make_logger,
+            maze_config=maze_config),
           train_step_type='single_step',
       )
     else:
