@@ -1,8 +1,12 @@
+"ALG": 'qlearning'
+
 # EXPERIMENT PARAMS
 "NUM_SEEDS": 1
 "SEED": 1
 
-"ALG": 'qlearning'
+# logggin
+"MAX_EPISODE_LOG_LEN": 40
+
 
 # RUN PARAMS
 "NUM_ENVS": 32
