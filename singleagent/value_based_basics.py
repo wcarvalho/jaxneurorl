@@ -288,8 +288,10 @@ class ScannedRNN(nn.Module):
         return self.cell.initialize_carry(*args, **kwargs)
 
     def setup(self):
-        self.cell = RlRnnCell(cell_type=self.cell_type,
-                              hidden_dim=self.hidden_dim)
+        self.cell = RlRnnCell(
+           cell_type=self.cell_type,
+           hidden_dim=self.hidden_dim,
+           name=self.cell_type)
 
     def __call__(self, state, x: RNNInput, rng: PRNGKey):
         """Applies the module.
