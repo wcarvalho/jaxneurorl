@@ -367,7 +367,6 @@ def make_mlp_agent(
 
     return agent, network_params, reset_fn
 
-
 def make_optimizer(config: dict) -> optax.GradientTransformation:
   def linear_schedule(count):
       frac = 1.0 - (count / config["NUM_UPDATES"])
@@ -380,12 +379,10 @@ def make_optimizer(config: dict) -> optax.GradientTransformation:
       optax.adam(learning_rate=lr, eps=config['EPS_ADAM'])
   )
 
-
 def make_loss_fn_class(config) -> vbb.RecurrentLossFn:
   return functools.partial(
      R2D2LossFn,
      discount=config['GAMMA'])
-
 
 def make_actor(config: dict, agent: Agent, rng: jax.random.KeyArray) -> vbb.Actor:
 
