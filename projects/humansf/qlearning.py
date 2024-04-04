@@ -65,8 +65,8 @@ class AgentRNN(nn.Module):
         _type_: _description_
     """
     action_dim: int
-    cell_type: str = "LSTMCell"
     config: dict
+    cell_type: str = "LSTMCell"
 
     def setup(self):
         self.hidden_dim = self.config["AGENT_HIDDEN_DIM"]

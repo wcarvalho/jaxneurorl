@@ -20,7 +20,7 @@ python projects/humansf/trainer_v1.py \
 RUNNING ON SLURM:
 python projects/humansf/trainer_v1.py \
   --parallel=sbatch \
-  --time '0-00:20:00' \
+  --time '0-00:30:00' \
   --search=default
 """
 from typing import Dict, Union
