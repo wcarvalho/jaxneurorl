@@ -62,6 +62,7 @@ from singleagent.basics import TimeStep
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']='false'
 
 from library import observers
+from library import loggers
 
 ##############################
 # Data types
@@ -101,7 +102,6 @@ class RunnerState(NamedTuple):
     timestep: TimeStep
     agent_state: jax.Array
     rng: jax.random.KeyArray
-    shared_metrics: Optional[dict] = None
     buffer_state: Optional[fbx.trajectory_buffer.TrajectoryBufferState] = None
 
 class AcmeBatchData(flax.struct.PyTreeNode):
@@ -150,6 +150,7 @@ class RecurrentLossFn:
   burn_in_length: int = None
 
   data_wrapper: flax.struct.PyTreeNode = AcmeBatchData
+  logger: loggers.Logger = loggers.Logger
 
   def __call__(
       self,
@@ -349,6 +350,7 @@ MakeAgentFn = Callable[[Config, Env, EnvParams, TimeStep, jax.random.KeyArray],
 MakeOptimizerFn = Callable[[Config], optax.GradientTransformation]
 MakeLossFnClass = Callable[[Config], RecurrentLossFn]
 MakeActorFn = Callable[[Config, Agent], Actor]
+MakeLoggerFn = Callable[[Config, Env, EnvParams, Agent], loggers.Logger]
 
 def log_params(params):
     size_of_tree = lambda t: sum(tree.flatten(t))
@@ -429,7 +431,39 @@ def collect_trajectory(
 
     return jax.lax.scan(f=_env_step, init=runner_state, xs=None, length=num_steps)
 
-def log_learner_eval(
+
+def learn_step(
+        train_state: CustomTrainState,
+        rng: jax.random.KeyArray,
+        buffer,
+        buffer_state,
+        loss_fn,
+        ):
+
+    # (batch_size, timesteps, ...)
+    rng, _rng = jax.random.split(rng)
+    learn_trajectory = buffer.sample(buffer_state, _rng).experience
+
+    # (batch_size, timesteps, ...)
+    rng, _rng = jax.random.split(rng)
+    (_, metrics), grads = jax.value_and_grad(loss_fn, has_aux=True)(
+        train_state.params,
+        train_state.target_network_params,
+        learn_trajectory,
+        _rng,
+        train_state.n_updates)
+
+    train_state = train_state.apply_gradients(grads=grads)
+    train_state = train_state.replace(n_updates=train_state.n_updates + 1)
+
+    metrics.update({
+        '0.grad_norm': optax.global_norm(grads),
+        '0.param_norm': optax.global_norm(train_state.params),
+    })
+
+    return train_state, metrics, grads
+
+def log_performance(
       config: dict,
       agent_reset_fn: AgentResetFn,
       actor_train_step_fn: ActorStepFn,
@@ -439,106 +473,91 @@ def log_learner_eval(
       train_env_params: EnvParams,
       test_env_params: EnvParams,
       runner_state: RunnerState,
-      learner_metrics: dict,
+      logger: loggers.Logger,
       observer: Optional[observers.BasicObserver] = None,
       observer_state: Optional[observers.BasicObserverState] = None,
-      shared_metrics: dict = {},
       ):
 
-    def log_eval(runner_state: RunnerState,
-                 os: observers.BasicObserverState):
-        """Help function to test greedy policy during training"""
-        ########################
-        # TESTING
-        ########################
-        # reset environment
-        rng = runner_state.rng
-        rng, _rng = jax.random.split(rng)
-        init_timestep = env_reset_fn(_rng, test_env_params)
+    ########################
+    # TESTING PERFORMANCE
+    ########################
+    # reset environment
+    rng = runner_state.rng
+    rng, _rng = jax.random.split(rng)
+    init_timestep = env_reset_fn(_rng, test_env_params)
 
-        # reset agent state
-        rng, _rng = jax.random.split(rng)
-        init_agent_state = agent_reset_fn(
-            runner_state.train_state.params,
-            init_timestep,
-            _rng)
+    # reset agent state
+    rng, _rng = jax.random.split(rng)
+    init_agent_state = agent_reset_fn(
+        runner_state.train_state.params,
+        init_timestep,
+        _rng)
 
-        # new runner
-        rng, _rng = jax.random.split(rng)
-        eval_runner_state = RunnerState(
-            train_state=runner_state.train_state,
-            observer_state=observer.observe_first(
-                first_timestep=init_timestep,
-                observer_state=os),
-            timestep=init_timestep,
-            agent_state=init_agent_state,
-            rng=_rng)
+    # new runner
+    rng, _rng = jax.random.split(rng)
+    eval_runner_state = RunnerState(
+        train_state=runner_state.train_state,
+        observer_state=observer.observe_first(
+            first_timestep=init_timestep,
+            observer_state=observer_state),
+        timestep=init_timestep,
+        agent_state=init_agent_state,
+        rng=_rng)
 
-        final_eval_runner_state, _ = collect_trajectory(
-            runner_state=eval_runner_state,
-            num_steps=config["EVAL_STEPS"]*config["EVAL_EPISODES"],
-            actor_step_fn=actor_eval_step_fn,
-            env_step_fn=env_step_fn,
-            env_params=test_env_params,
-            observer=observer,
-            )
+    final_eval_runner_state, _ = collect_trajectory(
+        runner_state=eval_runner_state,
+        num_steps=config["EVAL_STEPS"]*config["EVAL_EPISODES"],
+        actor_step_fn=actor_eval_step_fn,
+        env_step_fn=env_step_fn,
+        env_params=test_env_params,
+        observer=observer,
+        )
 
-        observer.flush_metrics(
-            key='evaluator_performance',
-            observer_state=final_eval_runner_state.observer_state,
-            shared_metrics=shared_metrics,
-            force=True)
+    logger.experience_logger(
+        runner_state.train_state,
+        final_eval_runner_state.observer_state,
+        'evaluator_performance')
 
-        ########################
-        # TRAINING
-        ########################
-        # reset environment
-        rng = runner_state.rng
-        rng, _rng = jax.random.split(rng)
-        init_timestep = env_reset_fn(_rng, train_env_params)
+    ########################
+    # TRAINING PERFORMANCE
+    ########################
+    # reset environment
+    rng = runner_state.rng
+    rng, _rng = jax.random.split(rng)
+    init_timestep = env_reset_fn(_rng, train_env_params)
 
-        # reset agent state
-        rng, _rng = jax.random.split(rng)
-        init_agent_state = agent_reset_fn(
-            runner_state.train_state.params,
-            init_timestep,
-            _rng)
-        
-        # new runner
-        rng, _rng = jax.random.split(rng)
-        eval_runner_state = RunnerState(
-            train_state=runner_state.train_state,
-            observer_state=observer.observe_first(
-                first_timestep=init_timestep,
-                observer_state=os),
-            timestep=init_timestep,
-            agent_state=init_agent_state,
-            rng=_rng)
+    # reset agent state
+    rng, _rng = jax.random.split(rng)
+    init_agent_state = agent_reset_fn(
+        runner_state.train_state.params,
+        init_timestep,
+        _rng)
+    
+    # new runner
+    rng, _rng = jax.random.split(rng)
+    eval_runner_state = RunnerState(
+        train_state=runner_state.train_state,
+        observer_state=observer.observe_first(
+            first_timestep=init_timestep,
+            observer_state=observer_state),
+        timestep=init_timestep,
+        agent_state=init_agent_state,
+        rng=_rng)
 
-        final_eval_runner_state, _ = collect_trajectory(
-            runner_state=eval_runner_state,
-            num_steps=config["EVAL_STEPS"]*config["EVAL_EPISODES"],
-            actor_step_fn=actor_train_step_fn,
-            env_step_fn=env_step_fn,
-            env_params=train_env_params,
-            observer=observer,
-            )
+    final_eval_runner_state, _ = collect_trajectory(
+        runner_state=eval_runner_state,
+        num_steps=config["EVAL_STEPS"]*config["EVAL_EPISODES"],
+        actor_step_fn=actor_train_step_fn,
+        env_step_fn=env_step_fn,
+        env_params=train_env_params,
+        observer=observer,
+        )
 
-        observer.flush_metrics(
-            key='actor_performance',
-            observer_state=final_eval_runner_state.observer_state,
-            shared_metrics=shared_metrics,
-            force=True)
-
-    def log_learner(learner_metrics):
-        def callback(metrics):
-            if wandb.run is not None:
-                wandb.log(metrics)
-        jax.debug.callback(callback, learner_metrics)
-
-    #learner_metrics.update({f'general/{k}': v for k, v in shared_metrics.items()})
-    log_learner(learner_metrics)
-    log_eval(runner_state, observer_state)
+    logger.experience_logger(
+        runner_state.train_state,
+        final_eval_runner_state.observer_state,
+        'actor_performance'
+    )
 
 def make_train_step(
         config: dict,
@@ -548,6 +567,7 @@ def make_train_step(
         make_optimizer: MakeOptimizerFn,
         make_loss_fn_class: MakeLossFnClass,
         make_actor: MakeActorFn,
+        make_logger: MakeLoggerFn = loggers.default_make_logger,
         test_env_params: Optional[environment.EnvParams] = None,
         ObserverCls: observers.BasicObserver = observers.BasicObserver,
         ):
@@ -568,6 +588,8 @@ def make_train_step(
 
 
     def train(rng: jax.random.KeyArray):
+
+        logger = make_logger(config, env, train_env_params)
 
         ##############################
         # INIT ENV
@@ -675,34 +697,18 @@ def make_train_step(
         # INIT LOSS FN
         ##############################
         loss_fn_class = make_loss_fn_class(config)
-        loss_fn = loss_fn_class(network=agent)
+        loss_fn = loss_fn_class(network=agent, logger=logger)
 
         dummy_rng = jax.random.PRNGKey(0)
 
-        # (batch_size, timesteps, ...)
-        dummy_learn_trajectory = buffer.sample(
-            buffer_state, dummy_rng).experience
-
-        _, dummy_metrics = loss_fn(
-            train_state.params,
-            train_state.target_network_params,
-            dummy_learn_trajectory,
-            dummy_rng,
-            train_state.n_updates,
-        )
-        dummy_metrics = jax.tree_map(lambda x:x*0.0, dummy_metrics)
-        loss_name = loss_fn.__class__.__name__
-        loss_name = config.get('LOSS_NAME', loss_name)
-        def update_loss_metrics(m, ts):
-          return {f'{loss_name}/{k}': v for k,v in m.items()}
-
-        dummy_metrics.update({
-            '0.grad_norm': 0.,
-            #'0.update_norm': optax.global_norm(updates),
-            '0.param_norm': 0.,
-        })
-        dummy_metrics = update_loss_metrics(
-          dummy_metrics, train_state)
+        # need this for when don't compute loss metrics later on
+        # this happens when you skip doing learning updates
+        _, dummy_metrics, dummy_grads = learn_step(
+            train_state=train_state,
+            rng=dummy_rng,
+            buffer=buffer,
+            buffer_state=buffer_state,
+            loss_fn=loss_fn)
 
         ##############################
         # DEFINE TRAINING LOOP
@@ -741,20 +747,10 @@ def make_train_step(
             # take step in env
             timestep = vmap_step(rng_s, prior_timestep, action, train_env_params)
 
-            # # update observer with data (used for logging)
-            # observer_state = observer.observe(
-            #     observer_state=observer_state,
-            #     next_timestep=timestep,
-            #     predictions=preds,
-            #     action=action)
-
             # update timesteps count
             train_state = train_state.replace(
                 timesteps=train_state.timesteps + config["NUM_ENVS"]
             )
-            shared_metrics['num_actor_steps'] = train_state.timesteps
-
-            shared_metrics['num_learner_updates'] = train_state.n_updates
 
 
             # update buffer with data of size [num_envs, 1, ...]
@@ -765,34 +761,6 @@ def make_train_step(
             ##############################
             # 2. Learner update
             ##############################
-            def _learn_phase(train_state: CustomTrainState,
-                             rng: jax.random.KeyArray):
-
-                # (batch_size, timesteps, ...)
-                rng, _rng = jax.random.split(rng)
-                learn_trajectory = buffer.sample(buffer_state, _rng).experience
-
-                # (batch_size, timesteps, ...)
-                rng, _rng = jax.random.split(rng)
-                (_, metrics), grads = jax.value_and_grad(loss_fn, has_aux=True)(
-                    train_state.params,
-                    train_state.target_network_params,
-                    learn_trajectory,
-                    _rng,
-                    train_state.n_updates)
-
-                train_state = train_state.apply_gradients(grads=grads)
-                train_state = train_state.replace(n_updates=train_state.n_updates + 1)
-
-                metrics.update({
-                    '0.grad_norm': optax.global_norm(grads),
-                    #'0.update_norm': optax.global_norm(updates),
-                    '0.param_norm': optax.global_norm(train_state.params),
-                    #'0.target_param_norm': optax.global_norm(train_state.target_network_params),
-                })
-                metrics = update_loss_metrics(metrics, train_state)
-                return train_state, metrics
-
             is_learn_time = (
                 (buffer.can_sample(buffer_state))
                 & (  # enough experience in buffer
@@ -802,12 +770,18 @@ def make_train_step(
                     train_state.timesteps % config["TRAINING_INTERVAL"] == 0
                 )  # training interval
             )
-
             rng, _rng = jax.random.split(rng)
-            train_state, learner_metrics = jax.lax.cond(
+
+            train_state, learner_metrics, grads = jax.lax.cond(
                 is_learn_time,
-                lambda train_state, rng: _learn_phase(train_state, rng),
-                lambda train_state, rng: (train_state, dummy_metrics),  # do nothing
+                lambda train_state_, rng_: learn_step(
+                    train_state=train_state_,
+                    rng=rng_,
+                    buffer=buffer,
+                    buffer_state=buffer_state,
+                    loss_fn=loss_fn),
+                # do nothing
+                lambda train_state_, rng_: (train_state_, dummy_metrics, dummy_grads),
                 train_state,
                 _rng,
             )
@@ -825,6 +799,9 @@ def make_train_step(
             ##############################
             # 3. Logging learner metrics + evaluation episodes
             ##############################
+            # ------------------------
+            # log performance information
+            # ------------------------
             log_period = max(1, int(
                     config["LEARNER_LOG_PERIOD"] // config["NUM_STEPS"] // config["NUM_ENVS"]))
             is_log_time = jnp.logical_and(
@@ -833,7 +810,7 @@ def make_train_step(
 
             jax.lax.cond(
                 is_log_time,
-                lambda: log_learner_eval(
+                lambda: log_performance(
                     config=config,
                     agent_reset_fn=agent_reset_fn,
                     actor_train_step_fn=actor.train_step,
@@ -846,8 +823,32 @@ def make_train_step(
                     learner_metrics=learner_metrics,
                     observer=eval_observer,
                     observer_state=init_eval_observer_state,
-                    shared_metrics=shared_metrics,
+                    logger=logger,
                     ),
+                lambda: None,
+            )
+
+            #------------------------
+            # log learner information
+            # ------------------------
+            loss_name = loss_fn.__class__.__name__
+            jax.lax.cond(
+                is_log_time,
+                lambda: logger.learner_logger(
+                    runner_state.train_state, learner_metrics, key=loss_name),
+                lambda: None,
+            )
+
+            # ------------------------
+            # log gradient information
+            # ------------------------
+            log_period = max(1, int(
+                config.get("GRADIENT_LOG_PERIOD", 50_000) // config["NUM_STEPS"] // config["NUM_ENVS"]))
+            is_log_time = train_state.n_updates % log_period == 0
+
+            jax.lax.cond(
+                is_log_time,
+                lambda: logger.gradient_logger(train_state, grads),
                 lambda: None,
             )
 
@@ -868,10 +869,7 @@ def make_train_step(
         # TRAINING LOOP DEFINED. NOW RUN
         ##############################
         # run loop
-        shared_metrics = {
-           'num_actor_steps': 0,
-           'num_learner_updates': 0,
-        }
+
         rng, _rng = jax.random.split(rng)
         runner_state = RunnerState(
           train_state=train_state,
@@ -879,7 +877,6 @@ def make_train_step(
           buffer_state=buffer_state,
           timestep=init_timestep,
           agent_state=init_agent_state,
-        #  shared_metrics=shared_metrics,
           rng=_rng)
 
         runner_state, _ = jax.lax.scan(
@@ -898,6 +895,7 @@ def make_train_unroll(
         make_optimizer: MakeOptimizerFn,
         make_loss_fn_class: MakeLossFnClass,
         make_actor: MakeActorFn,
+        make_logger: MakeLoggerFn = loggers.default_make_logger,
         test_env_params: Optional[environment.EnvParams] = None,
         ObserverCls: observers.BasicObserver = observers.BasicObserver,
         ):
@@ -934,6 +932,8 @@ def make_train_unroll(
            jax.random.split(rng, config["NUM_ENVS"]), env_state, action, env_params)
 
     def train(rng: jax.random.KeyArray):
+
+        logger = make_logger(config, env, train_env_params)
 
         ##############################
         # INIT ENV
@@ -1018,11 +1018,6 @@ def make_train_unroll(
         # [num_envs, max_length, ...]
         buffer_state = buffer.init(init_transition_example) 
 
-        #buffer_addition = jax.tree_map(
-        #    lambda x: x[:, np.newaxis], init_transition)
-        #buffer_state = buffer.add(
-        #    buffer_state, buffer_addition)
-
         ##############################
         # INIT Observers
         ##############################
@@ -1054,34 +1049,16 @@ def make_train_unroll(
         # INIT LOSS FN
         ##############################
         loss_fn_class = make_loss_fn_class(config)
-        loss_fn = loss_fn_class(network=agent)
+        loss_fn = loss_fn_class(network=agent, logger=logger)
 
         dummy_rng = jax.random.PRNGKey(0)
 
-        # (batch_size, timesteps, ...)
-        dummy_learn_trajectory = buffer.sample(
-            buffer_state, dummy_rng).experience
-
-        _, dummy_metrics = loss_fn(
-            train_state.params,
-            train_state.target_network_params,
-            dummy_learn_trajectory,
-            dummy_rng,
-            train_state.n_updates,
-        )
-        dummy_metrics = jax.tree_map(lambda x: x*0.0, dummy_metrics)
-        loss_name = loss_fn.__class__.__name__
-        loss_name = config.get('LOSS_NAME', loss_name)
-        def update_loss_metrics(m, ts):
-          return {f'{loss_name}/{k}': v for k, v in m.items()}
-
-        dummy_metrics.update({
-            '0.grad_norm': 0.,
-            #'0.update_norm': optax.global_norm(updates),
-            '0.param_norm': 0.,
-        })
-        dummy_metrics = update_loss_metrics(
-            dummy_metrics, train_state)
+        _, dummy_metrics, dummy_grads = learn_step(
+            train_state=train_state,
+            rng=dummy_rng,
+            buffer=buffer,
+            buffer_state=buffer_state,
+            loss_fn=loss_fn)
 
         ##############################
         # DEFINE TRAINING LOOP
@@ -1104,11 +1081,11 @@ def make_train_unroll(
             buffer_state = runner_state.buffer_state
             train_state = runner_state.train_state
             buffer_state = runner_state.buffer_state
-            shared_metrics = runner_state.shared_metrics
+            #shared_metrics = runner_state.shared_metrics
 
             # update timesteps count
             timesteps = train_state.timesteps + config["NUM_ENVS"]*config["NUM_STEPS"]
-            shared_metrics['num_actor_steps'] = timesteps
+            #shared_metrics['num_actor_steps'] = timesteps
 
             train_state = train_state.replace(timesteps=timesteps)
 
@@ -1126,35 +1103,6 @@ def make_train_unroll(
             ##############################
             # 2. Learner update
             ##############################
-            def _learn_phase(train_state: TrainState,
-                             rng: jax.random.KeyArray):
-
-                # (batch_size, timesteps, ...)
-                rng, _rng = jax.random.split(rng)
-                learn_trajectory = buffer.sample(buffer_state, _rng).experience
-
-                # (batch_size, timesteps, ...)
-                rng, _rng = jax.random.split(rng)
-                (_, metrics), grads = jax.value_and_grad(loss_fn, has_aux=True)(
-                    train_state.params,
-                    train_state.target_network_params,
-                    learn_trajectory,
-                    _rng,
-                    train_state.n_updates)
-
-                train_state = train_state.apply_gradients(grads=grads)
-                train_state = train_state.replace(n_updates=train_state.n_updates + 1)
-
-                metrics.update({
-                    '0.grad_norm': optax.global_norm(grads),
-                    #'0.update_norm': optax.global_norm(updates),
-                    '0.param_norm': optax.global_norm(train_state.params),
-                    #'0.target_param_norm': optax.global_norm(train_state.target_network_params),
-                })
-                metrics = update_loss_metrics(metrics, train_state)
-
-                return train_state, metrics
-
             is_learn_time = (
                 (buffer.can_sample(buffer_state))
                 & (  # enough experience in buffer
@@ -1162,15 +1110,19 @@ def make_train_unroll(
                 ))
 
             rng, _rng = jax.random.split(rng)
-            train_state, learner_metrics = jax.lax.cond(
+            train_state, learner_metrics, grads = jax.lax.cond(
                 is_learn_time,
-                lambda train_state, rng: _learn_phase(train_state, rng),
+                lambda train_state_, rng_: learn_step(
+                    train_state=train_state_,
+                    rng=rng_,
+                    buffer=buffer,
+                    buffer_state=buffer_state,
+                    loss_fn=loss_fn),
                 lambda train_state, rng: (
-                    train_state, dummy_metrics),  # do nothing
+                    train_state, dummy_metrics, dummy_grads),  # do nothing
                 train_state,
                 _rng,
             )
-            shared_metrics['num_learner_updates'] = train_state.n_updates
 
             # update target network
             train_state = jax.lax.cond(
@@ -1188,21 +1140,23 @@ def make_train_unroll(
             next_runner_state = runner_state._replace(
                 train_state=train_state,
                 buffer_state=buffer_state,
-                shared_metrics=shared_metrics,
                 rng=rng)
 
             ##############################
             # 4. Logging learner metrics + evaluation episodes
             ##############################
+            # ------------------------
+            # log performance information
+            # ------------------------
             log_period = max(1, int(
-                    config["LEARNER_LOG_PERIOD"] // config["NUM_STEPS"] // config["NUM_ENVS"]))
+                config["LEARNER_LOG_PERIOD"] // config["NUM_STEPS"] // config["NUM_ENVS"]))
             is_log_time = jnp.logical_and(
                 is_learn_time, train_state.n_updates % log_period == 0
             )
 
             jax.lax.cond(
                 is_log_time,
-                lambda: log_learner_eval(
+                lambda: log_performance(
                     config=config,
                     agent_reset_fn=agent_reset_fn,
                     actor_train_step_fn=actor.train_step,
@@ -1212,22 +1166,42 @@ def make_train_unroll(
                     train_env_params=train_env_params,
                     test_env_params=test_env_params,
                     runner_state=runner_state,
-                    learner_metrics=learner_metrics,
                     observer=eval_observer,
                     observer_state=init_eval_observer_state,
-                    shared_metrics=shared_metrics,
-                    ),
+                    logger=logger,
+                ),
                 lambda: None,
             )
+
+            # ------------------------
+            # log learner information
+            # ------------------------
+            loss_name = loss_fn.__class__.__name__
+            jax.lax.cond(
+                is_log_time,
+                lambda: logger.learner_logger(
+                    runner_state.train_state, learner_metrics, key=loss_name),
+                lambda: None,
+            )
+
+            # ------------------------
+            # log gradient information
+            # ------------------------
+            log_period = max(1, int(
+                config.get("GRADIENT_LOG_PERIOD", 50_000) // config["NUM_STEPS"] // config["NUM_ENVS"]))
+            is_log_time = train_state.n_updates % log_period == 0
+
+            jax.lax.cond(
+                is_log_time,
+                lambda: logger.gradient_logger(train_state, grads),
+                lambda: None,
+            )
+
             return next_runner_state, {}
 
         ##############################
         # TRAINING LOOP DEFINED. NOW RUN
         ##############################
-        shared_metrics = {
-           'num_actor_steps': 0,
-           'num_learner_updates': 0,
-        }
         # run loop
         rng, _rng = jax.random.split(rng)
         runner_state = RunnerState(
@@ -1236,7 +1210,6 @@ def make_train_unroll(
             buffer_state=buffer_state,
             timestep=init_timestep,
             agent_state=init_agent_state,
-            shared_metrics=shared_metrics,
             rng=_rng)
 
         runner_state, _ = jax.lax.scan(
@@ -1248,6 +1221,9 @@ def make_train_unroll(
     return train
 
 def make_train(*args, train_step_type: str = 'unroll', **kwargs):
+   print("="*50)
+   print("\t", train_step_type)
+   print("="*50)
    if train_step_type == 'unroll':
     return make_train_unroll(*args, **kwargs)
    elif train_step_type == 'single_step':
