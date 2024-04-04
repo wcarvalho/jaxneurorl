@@ -29,7 +29,7 @@ class KeyroomObsEncoder(nn.Module):
             kernel_init = nn.initializers.truncated_normal(stddev=1.0)
             image = nn.Conv(
                 self.conv_dim, (1, 1), strides=1,
-                kernel_init=kernel_init)
+                kernel_init=kernel_init)(image)
         elif self.init == 'default':
             kernel_init = nn.initializers.lecun_normal()
         else:
