@@ -295,6 +295,7 @@ class BasicObserver(Observer):
       log_period: int = 50_000,
       max_episode_length: int = 200,
       max_num_episodes: int = 200,
+      logger: Optional = None,
       **kwargs,
       ):
 
