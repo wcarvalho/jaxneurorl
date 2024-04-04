@@ -15,7 +15,7 @@ from library.observers import BasicObserverState
 def default_gradient_logger(
     train_state: TrainState,
     gradients: dict,
-    key: str = ' gradients'):
+    key: str = 'gradients'):
 
     subtree_mean = lambda t: jnp.array(tree.flatten(t)).mean()
     subtree_min = lambda t: jnp.array(tree.flatten(t)).min()
@@ -42,13 +42,11 @@ def default_learner_logger(
     def callback(ts: train_state, metrics: dict):
         if wandb.run is not None:
           metrics = {f'{key}/{k}': v for k, v in metrics.items()}
-          # extra
-          extra = {
-              'num_actor_steps': train_state.timesteps,
-              'num_learner_updates': train_state.n_updates,
-          }
-          metrics.update(
-              {f'{key}/{k}': v for k, v in extra.items()})
+
+          metrics.update({
+              f'{key}/num_actor_steps': ts.timesteps,
+              f'{key}/num_learner_updates': ts.n_updates,
+          })
           wandb.log(metrics)
 
     jax.debug.callback(callback, train_state, learner_metrics)
@@ -63,19 +61,13 @@ def default_experience_logger(
         if wandb.run is not None:
 
           # main
-          idx = min(os.idx + 1, len(os.episode_lengths))
+          end = min(os.idx + 1, len(os.episode_lengths))
           metrics = {
-              f'{key}/avg_episode_length': os.episode_lengths[:idx].mean(),
-              f'{key}/avg_episode_return': os.episode_returns[:idx].mean(),
+              f'{key}/avg_episode_length': os.episode_lengths[:end].mean(),
+              f'{key}/avg_episode_return': os.episode_returns[:end].mean(),
+              f'{key}/num_actor_steps': ts.timesteps,
+              f'{key}/num_learner_updates': ts.n_updates,
           }
-
-          # extra
-          extra = {
-              'num_actor_steps': train_state.timesteps,
-              'num_learner_updates': train_state.n_updates,
-          }
-          metrics.update(
-              {f'{key}/{k}': v for k, v in extra.items()})
           wandb.log(metrics)
 
     jax.debug.callback(callback, train_state, observer_state)
