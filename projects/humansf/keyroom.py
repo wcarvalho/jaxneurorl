@@ -316,7 +316,7 @@ def sample_coordinates(y, x, rng, grid, roomW=None, roomH=None, off_border=True)
       p=free_tiles_mask(grid[yT:yB, xL:xR]).flatten(),
   )
   inner_coords = jnp.divmod(inner_coords, width(xR, xL))
-  coords = (yT+inner_coords[1], xL+inner_coords[0])
+  coords = (yT+inner_coords[0], xL+inner_coords[1])
   return coords, rng
 
 def place_in_room(y, x, rng, grid, obj: tuple, off_border=True, roomW=None, roomH=None):
@@ -549,12 +549,8 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
         place_in_room_p = partial(place_in_room, roomH=roomH, roomW=roomW)
         sample_coordinates_p = partial(sample_coordinates, roomH=roomH, roomW=roomW)
 
-        def add_top_door(grid, door):
-          xL, yT, xR, yB = get_x_y_p(1, 0)
-          return grid.at[yB, xL + door_coords[room_idx]].set(door)
-
         def add_right_door(grid, door):
-          xL, yT, xR, yB = get_x_y_p(2, 1)
+          xL, yT, xR, yB = get_x_y_p(1, 2)
           return grid.at[yB - door_coords[room_idx], xL].set(door)
 
         def add_bottom_door(grid, door):
@@ -562,8 +558,12 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
           return grid.at[yB , xL + door_coords[room_idx]].set(door)
 
         def add_left_door(grid, door):
-          xL, yT, xR, yB = get_x_y_p(1, 0)
+          xL, yT, xR, yB = get_x_y_p(0, 1)
           return grid.at[yB + door_coords[room_idx], xL].set(door)
+
+        def add_top_door(grid, door):
+          xL, yT, xR, yB = get_x_y_p(0, 1)
+          return grid.at[yB, xL + door_coords[room_idx]].set(door)
 
         add_door_fns = [add_right_door, add_bottom_door,
                         add_left_door, add_top_door]
@@ -676,7 +676,7 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
         )
         return state
 
-    #@partial(jax.jit, static_argnums=(0,))
+    @partial(jax.jit, static_argnums=(0,))
     def reset(
        self, 
        key: jax.random.KeyArray,
@@ -698,7 +698,7 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
         )
         return timestep
 
-    #@partial(jax.jit, static_argnums=(0,))
+    @partial(jax.jit, static_argnums=(0,))
     def step(self,
              key: jax.random.KeyArray,
              timestep: TimeStep[EnvCarryT],
