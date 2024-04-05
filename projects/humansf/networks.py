@@ -36,10 +36,22 @@ class KeyroomObsEncoder(nn.Module):
         vector = jnp.concatenate(vector_inputs, axis=-1)
         if self.init == 'word_embed':
             kernel_init = nn.initializers.truncated_normal(stddev=1.0)
+            bias_init = constant(0.0)
+            use_bias=True
+        elif self.init == 'word_embed2':
+            kernel_init = nn.initializers.variance_scaling(
+                1.0, 'fan_in', 'normal', out_axis=0
+            )
+            bias_init = constant(0.0)
+            use_bias=False
         elif self.init == 'jaxrl':
             kernel_init = nn.initializers.orthogonal(math.sqrt(2))
+            bias_init = constant(0.0)
+            use_bias=True
         elif self.init == 'default':
             kernel_init = nn.initializers.lecun_normal()
+            bias_init = constant(0.0)
+            use_bias=True
         else:
             raise NotImplementedError(self.init)
 
@@ -54,10 +66,12 @@ class KeyroomObsEncoder(nn.Module):
 
         image = nn.Dense(self.image_hidden_dim,
                          kernel_init=kernel_init,
-                         bias_init=constant(0.0))(image)
+                         bias_init=bias_init,
+                         use_bias=use_bias)(image)
         vector = nn.Dense(self.hidden_dim,
                           kernel_init=kernel_init,
-                          bias_init=constant(0.0))(vector)
+                          bias_init=bias_init,
+                          use_bias=use_bias)(vector)
 
         outputs = jnp.concatenate((image, vector), axis=-1)
 
