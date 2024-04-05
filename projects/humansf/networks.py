@@ -2,8 +2,10 @@ import flax.linen as nn
 from flax.linen.initializers import constant, orthogonal
 import jax
 import jax.numpy as jnp
+import math
 
 from projects.humansf.keyroom import Observation
+
 
 class KeyroomObsEncoder(nn.Module):
     """_summary_
@@ -12,7 +14,7 @@ class KeyroomObsEncoder(nn.Module):
     - MLP with truncated-normal-initialized Linear layer as initial layer for other inputs
     """
     hidden_dim: int = 128
-    conv_dim: int = 16
+    image_hidden_dim: int = 512
     init: str = 'word_embed'
 
     @nn.compact
@@ -21,30 +23,42 @@ class KeyroomObsEncoder(nn.Module):
 
         # [B, H, W, C]
         image = obs.image
+        assert image.ndim == 4
         # [B, D]
-        vector_inputs = (obs.task_w, obs.state_features, obs.has_occurred, obs.pocket)
+        #vector_inputs = (obs.task_w, obs.state_features, obs.has_occurred, obs.pocket)
+        vector_inputs = (
+            obs.task_w,
+            obs.direction,
+            obs.local_position,
+            obs.position,
+            obs.pocket,
+        )
         vector = jnp.concatenate(vector_inputs, axis=-1)
-
         if self.init == 'word_embed':
             kernel_init = nn.initializers.truncated_normal(stddev=1.0)
-            image = nn.Conv(
-                self.conv_dim, (1, 1), strides=1,
-                kernel_init=kernel_init)(image)
+        elif self.init == 'jaxrl':
+            kernel_init = nn.initializers.orthogonal(math.sqrt(2))
         elif self.init == 'default':
             kernel_init = nn.initializers.lecun_normal()
         else:
             raise NotImplementedError(self.init)
 
-        image = nn.Sequential([
-                # for future outputs
-                nn.Conv(self.conv_dim, (4, 4), strides=2),
-                nn.relu,
-                nn.Conv(self.conv_dim, (3, 3), strides=1),
-            ])(image)
-
-        vector = nn.Dense(self.hidden_dim, kernel_init=kernel_init)(vector)
-
+        #image = nn.Sequential([
+        #    nn.Conv(128, (3, 3), strides=2, kernel_init=kernel_init, padding="VALID"),
+        #    nn.relu,
+        #    nn.Conv(128, (3, 3), strides=2, kernel_init=kernel_init, padding="VALID"),
+        #    nn.relu,
+        #])(image)
+        assert image.shape[1] > 0, f'shape: {image.shape}!'
         image = image.reshape(image.shape[0], -1)
+
+        image = nn.Dense(self.image_hidden_dim,
+                         kernel_init=kernel_init,
+                         bias_init=constant(0.0))(image)
+        vector = nn.Dense(self.hidden_dim,
+                          kernel_init=kernel_init,
+                          bias_init=constant(0.0))(vector)
+
         outputs = jnp.concatenate((image, vector), axis=-1)
 
         return outputs
