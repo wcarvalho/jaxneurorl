@@ -248,8 +248,8 @@ def get_room_grid(grid: GridState, agent: AgentState):
     room_size = grid_width // 3
 
     # Calculate the room indices
-    room_x = agent_pos[0] // room_size
-    room_y = agent_pos[1] // room_size
+    room_y = agent_pos[0] // room_size
+    room_x = agent_pos[1] // room_size
 
     # Calculate the starting and ending coordinates of the room
     start_x = room_x * room_size
@@ -258,7 +258,7 @@ def get_room_grid(grid: GridState, agent: AgentState):
     delta = grid_width//3 + 1
 
     return jax.lax.dynamic_slice(
-        grid, (start_x, start_y, 0), (delta, delta, grid_dim))
+        grid, (start_y, start_x, 0), (delta, delta, grid_dim))
 
 def get_local_agent_position(agent_pos, height, width):
     # Calculate the room size
@@ -266,35 +266,38 @@ def get_local_agent_position(agent_pos, height, width):
     room_width = width // 3
     
     # Calculate the room indices
-    room_x = agent_pos[0] // room_width
-    room_y = agent_pos[1] // room_height
+    room_y = agent_pos[0] // room_height
+    room_x = agent_pos[1] // room_width
     
     # Calculate the starting coordinates of the room
     start_x = room_x * room_width
     start_y = room_y * room_height
     
     # Calculate the local position within the room
-    local_x = agent_pos[0] - start_x
-    local_y = agent_pos[1] - start_y
+    local_y = agent_pos[0] - start_y
+    local_x = agent_pos[1] - start_x
 
-    return jnp.array([local_x, local_y])
+    return jnp.array([local_y, local_x])
 
 ###########################
 # helper functions
 ###########################
 
 
-def get_x_y(i, j, roomW, roomH):
-  xL = i * roomW
-  yT = j * roomH
+def get_x_y(y, x, roomH, roomW):
+  xL = x * roomW
   xR = xL + roomW
+
+  yT = y * roomH
   yB = yT + roomH
+
   return xL, yT, xR, yB
 
 
-def sample_coordinates(i, j, rng, grid, roomW=None, roomH=None, off_border=True):
+def sample_coordinates(y, x, rng, grid, roomW=None, roomH=None, off_border=True):
   assert roomW is not None and roomH is not None
-  xL, yT, xR, yB = get_x_y(i, j, roomW, roomH)
+  xL, yT, xR, yB = get_x_y(y=y, x=x, roomW=roomW, roomH=roomH)
+
   width = lambda R, L: R - L
   height = lambda T, B: B - T
 
@@ -308,17 +311,17 @@ def sample_coordinates(i, j, rng, grid, roomW=None, roomH=None, off_border=True)
   inner_coords = jax.random.choice(
       key=rng_,
       shape=(1,),
-      a=jnp.arange(width(xR, xL) * height(yT, yB)),
+      a=jnp.arange(height(yT, yB) * width(xR, xL)),
       replace=False,
-      p=free_tiles_mask(grid[xL:xR, yT:yB]).flatten(),
+      p=free_tiles_mask(grid[yT:yB, xL:xR]).flatten(),
   )
-  inner_coords = jnp.divmod(inner_coords, height(yT, yB))
-  coords = (xL+inner_coords[0], yT+inner_coords[1])
+  inner_coords = jnp.divmod(inner_coords, width(xR, xL))
+  coords = (yT+inner_coords[1], xL+inner_coords[0])
   return coords, rng
 
-def place_in_room(i, j, rng, grid, obj: tuple, off_border=True, roomW=None, roomH=None):
+def place_in_room(y, x, rng, grid, obj: tuple, off_border=True, roomW=None, roomH=None):
   assert roomW is not None and roomH is not None
-  coords, rng = sample_coordinates(i, j, rng, grid, roomW, roomH)
+  coords, rng = sample_coordinates(y=y, x=x, rng=rng, grid=grid, roomW=roomW, roomH=roomH)
   grid = grid.at[coords[0], coords[1]].set(obj)
   return grid, rng
 
@@ -673,7 +676,7 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
         )
         return state
 
-    @partial(jax.jit, static_argnums=(0,))
+    #@partial(jax.jit, static_argnums=(0,))
     def reset(
        self, 
        key: jax.random.KeyArray,
@@ -695,7 +698,7 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
         )
         return timestep
 
-    @partial(jax.jit, static_argnums=(0,))
+    #@partial(jax.jit, static_argnums=(0,))
     def step(self,
              key: jax.random.KeyArray,
              timestep: TimeStep[EnvCarryT],
