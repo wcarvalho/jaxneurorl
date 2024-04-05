@@ -68,6 +68,7 @@ class RnnAgent(nn.Module):
         self.observation_encoder = KeyroomObsEncoder(
             hidden_dim=self.hidden_dim,
             init=self.config.get('ENCODER_INIT', 'word_embed'),
+            image_hidden_dim=self.config.get('IMAGE_HIDDEN', 512),
             )
 
         self.q_fn = qlearning.MLP(
@@ -92,7 +93,7 @@ class RnnAgent(nn.Module):
         rng, _rng = jax.random.split(rng)
         new_rnn_state, rnn_out = self.rnn(rnn_state, rnn_in, _rng)
 
-        q_vals = self.q_fn(nn.relu(rnn_out))
+        q_vals = self.q_fn(rnn_out)
 
         return Predictions(q_vals, rnn_out), new_rnn_state
 
@@ -106,7 +107,7 @@ class RnnAgent(nn.Module):
         rng, _rng = jax.random.split(rng)
         new_rnn_state, rnn_out = self.rnn.unroll(rnn_state, rnn_in, _rng)
 
-        q_vals = nn.BatchApply(self.q_fn)(nn.relu(rnn_out))
+        q_vals = nn.BatchApply(self.q_fn)(rnn_out)
 
         return Predictions(q_vals, rnn_out), new_rnn_state
 
@@ -146,7 +147,7 @@ def make_agent(
 
     return agent, network_params, reset_fn
 
-def plot_frames(task_name, frames, rewards, actions_taken, W, max_frames=1e10):
+def plot_frames(task_name, frames, rewards, discounts, actions_taken, W, max_frames=1e10):
     """
     Dynamically plots frames in a single figure based on the number of columns (W) and maximum number of frames.
     
@@ -173,7 +174,7 @@ def plot_frames(task_name, frames, rewards, actions_taken, W, max_frames=1e10):
         ax.axis('off')  # Hide the axis
 
         if i < len(actions_taken) and i < len(rewards):
-            ax.set_title(f"{actions_taken[i]}, r={rewards[i]}")
+            ax.set_title(f"{actions_taken[i]}, r={rewards[i]}, $\\gamma={discounts[i]}$")
 
     # Hide unused subplots
     for i in range(T, H * W):
@@ -193,117 +194,121 @@ def make_logger(
 
     def qlearner_logger(data: dict):
         def callback(d):
-            pass
-            #n_updates = d.pop('n_updates')
+            n_updates = d.pop('n_updates')
 
-            ## Extract the relevant data
-            ## only use data from batch dim = 0
-            ## [T, B, ...] --> # [T, ...]
-            #d_ = jax.tree_map(lambda x: x[:, 0], d)
+            # Extract the relevant data
+            # only use data from batch dim = 0
+            # [T, B, ...] --> # [T, ...]
+            d_ = jax.tree_map(lambda x: x[:, 0], d)
 
-            #rewards = d_['data'].timestep.reward[1:]
-            #discounts = d_['data'].timestep.discount[1:]
-            #actions = d_['data'].action[:-1]
-            #q_values = d_['q_values'][:-1]
-            #q_values_taken = np.take_along_axis(
-            #    q_values, actions[..., None], axis=-1).squeeze(-1)
-            #td_errors = d_['td_errors']
-            #q_loss = d_['q_loss']
+            rewards = d_['data'].timestep.reward[1:]
+            discounts = d_['data'].timestep.discount[1:]
+            actions = d_['data'].action[:-1]
+            q_values = d_['q_values'][:-1]
+            q_values_taken = np.take_along_axis(
+                q_values, actions[..., None], axis=-1).squeeze(-1)
+            td_errors = d_['td_errors']
+            q_loss = d_['q_loss']
 
-            ## Create a figure with three subplots
-            #width = .4
-            #nT = len(rewards)  # e.g. 20 --> 8
-            #fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(int(width*nT), 12))
+            # Create a figure with three subplots
+            width = .4
+            nT = len(rewards)  # e.g. 20 --> 8
+            fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(int(width*nT), 12))
 
-            ## Plot rewards and q-values in the top subplot
-            #def format(ax):
-            #    ax.set_xlabel('Time')
-            #    ax.grid(True)
-            #    ax.set_xticks(range(0, len(rewards), 1))
-            #ax1.plot(rewards, label='Rewards')
-            #ax1.plot(discounts, label='Discounts')
-            #ax1.plot(q_values_taken, label='Q-Values')
-            #ax1.set_title('Rewards and Q-Values')
-            #format(ax1)
-            #ax1.legend()
+            # Plot rewards and q-values in the top subplot
+            def format(ax):
+                ax.set_xlabel('Time')
+                ax.grid(True)
+                ax.set_xticks(range(0, len(rewards), 1))
+            ax1.plot(rewards, label='Rewards')
+            ax1.plot(discounts, label='Discounts')
+            ax1.plot(q_values_taken, label='Q-Values')
+            ax1.set_title('Rewards and Q-Values')
+            format(ax1)
+            ax1.legend()
 
-            ## Plot TD errors in the middle subplot
-            #ax2.plot(td_errors)
-            #format(ax2)
-            #ax2.set_title('TD Errors')
+            # Plot TD errors in the middle subplot
+            ax2.plot(td_errors)
+            format(ax2)
+            ax2.set_title('TD Errors')
 
-            ## Plot Q-loss in the bottom subplot
-            #ax3.plot(q_loss)
-            #format(ax3)
-            #ax3.set_title('Q-Loss')
+            # Plot Q-loss in the bottom subplot
+            ax3.plot(q_loss)
+            format(ax3)
+            ax3.set_title('Q-Loss')
 
-            ## Adjust the spacing between subplots
-            #plt.tight_layout()
-            ## log
-            #if wandb.run is not None:
-            #    wandb.log({f"learner_example/q-values": wandb.Image(fig)})
-            #plt.close(fig)
+            # Adjust the spacing between subplots
+            plt.tight_layout()
+            # log
+            if wandb.run is not None:
+                wandb.log({f"learner_example/q-values": wandb.Image(fig)})
+            plt.close(fig)
 
-            ###############################
-            ## plot images of env
-            ###############################
-            #action_names = {
-            #    0: 'forward',
-            #    1: 'right',
-            #    2: 'left',
-            #    3: 'pickup',
-            #    4: 'put_down',
-            #    5: 'toggle'}
+            ##############################
+            # plot images of env
+            ##############################
+            action_names = {
+                0: 'forward',
+                1: 'right',
+                2: 'left',
+                3: 'pickup',
+                4: 'put_down',
+                5: 'toggle'}
 
-            ##timestep = jax.tree_map(lambda x: jnp.array(x), d_['data'].timestep)
-            #timestep = d_['data'].timestep
+            #timestep = jax.tree_map(lambda x: jnp.array(x), d_['data'].timestep)
+            timestep: TimeStep = d_['data'].timestep
 
-            ## ------------
-            ## get images
-            ## ------------
+            # ------------
+            # get images
+            # ------------
 
-            #state_images = []
-            #obs_images = []
-            #max_len = min(config.get("MAX_EPISODE_LOG_LEN", 40), len(rewards))
-            #for idx in range(max_len):
-            #    index = lambda y: jax.tree_map(lambda x: x[idx], y)
-            #    state_image = rgb_render(
-            #        timestep.state.grid[idx],
-            #        index(timestep.state.agent),
-            #        env_params.view_size,
-            #        tile_size=8)
-            #    obs_image = keyroom.render_room(
-            #        index(d_['data'].timestep.state),
-            #        tile_size=8)
-            #    state_images.append(state_image)
-            #    obs_images.append(obs_image)
+            state_images = []
+            obs_images = []
+            max_len = min(config.get("MAX_EPISODE_LOG_LEN", 40), len(rewards))
+            for idx in range(max_len):
+                index = lambda y: jax.tree_map(lambda x: x[idx], y)
+                state_image = rgb_render(
+                    timestep.state.grid[idx],
+                    index(timestep.state.agent),
+                    env_params.view_size,
+                    tile_size=8)
+                obs_image = keyroom.render_room(
+                    index(d_['data'].timestep.state),
+                    tile_size=8)
+                state_images.append(state_image)
+                obs_images.append(obs_image)
 
-            ## ------------
-            ## task name
-            ## ------------
-            #room_setting = int(timestep.state.room_setting[0])
-            #task_room = int(timestep.state.goal_room_idx[0])
-            #task_object = int(timestep.state.task_object_idx[0])
-            #setting = 'single' if room_setting == 0 else 'multi'
-            #category, color = maze_config['pairs'][task_room][task_object]
-            #task_name = f'{setting} - {color} {category}'
+                #if timestep.last()[idx]:
+                #    import ipdb; ipdb.set_trace()
+                #    assert timestep.discount[idx] < 1e-4, f'bug?, discount={timestep.discount[idx]}'
 
-            ## ------------
-            ## plot
-            ## ------------
-            #actions_taken = [action_names[int(a)] for a in d_['data'].action]
-            #fig = plot_frames(task_name,
-            #    frames=obs_images,
-            #    rewards=rewards,
-            #    actions_taken=actions_taken,
-            #    W=6)
-            #if wandb.run is not None:
-            #    wandb.log({f"learner_example/trajecotry": wandb.Image(fig)})
-            #plt.close(fig)
+            # ------------
+            # task name
+            # ------------
+            room_setting = int(timestep.state.room_setting[0])
+            task_room = int(timestep.state.goal_room_idx[0])
+            task_object = int(timestep.state.task_object_idx[0])
+            setting = 'single' if room_setting == 0 else 'multi'
+            category, color = maze_config['pairs'][task_room][task_object]
+            task_name = f'{setting} - {color} {category}'
 
+            # ------------
+            # plot
+            # ------------
+            actions_taken = [action_names[int(a)] for a in d_['data'].action]
+            fig = plot_frames(task_name,
+                frames=obs_images,
+                rewards=rewards,
+                actions_taken=actions_taken,
+                discounts=discounts,
+                W=6)
+            if wandb.run is not None:
+                wandb.log({f"learner_example/trajecotry": wandb.Image(fig)})
+            plt.close(fig)
 
+        log_period = max(1, int(config["LEARNER_LOG_PERIOD"])) == 0
         jax.lax.cond(
-            data['n_updates'] % config.get("LEARNER_LOG_PERIOD", 10_000) == 0,
+            jnp.logical_and(data['n_updates'] > 0, log_period),
             lambda d: jax.debug.callback(callback, d),
             lambda d: None,
             data)

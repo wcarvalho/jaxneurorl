@@ -18,13 +18,8 @@ def default_gradient_logger(
     gradients: dict,
     key: str = 'gradients'):
 
-    subtree_mean = lambda t: jnp.array(tree.flatten(t)).mean()
     gradients = gradients['params']
-    gradients_ = jax.tree_map(lambda x: x.mean(), gradients)
-    gradient_metrics = {
-        f'{key}/0.{k}_mean': subtree_mean(v) for k, v in gradients_.items()}
-    gradient_metrics.update(
-       {f'{key}/1.{k}_norm': optax.global_norm(v) for k, v in gradients.items()})
+    gradient_metrics = {f'{key}/{k}_norm': optax.global_norm(v) for k, v in gradients.items()}
 
     def callback(ts, g):
         if wandb.run is not None:

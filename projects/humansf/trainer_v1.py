@@ -183,57 +183,13 @@ def sweep(search: str = ''):
       'env.NUM_ROOMS': tune.grid_search([1]),
     }
     space = [
-        #{
-        #    "group": tune.grid_search(['qlearning-target-update-9']),
-        #    "alg": tune.grid_search(['qlearning',]),
-        #    "TARGET_UPDATE_INTERVAL": tune.grid_search([500, 1000, 2000]),
-        #    **shared,
-        #},
         {
-            "group": tune.grid_search(['qlearning-32-lr']),
+            "group": tune.grid_search(['qlearning-37-working!!!']),
             "alg": tune.grid_search(['qlearning']),
-            "ENCODER_INIT": tune.grid_search(['jaxrl', 'default']),
-            "TRAIN_TYPE": tune.grid_search(['unroll']),
-            "env.train_multi_probs": tune.grid_search([0.]),
-            #"EPS_ADAM": tune.grid_search([1e-3, 1e-5]),
-            "TARGET_UPDATE_INTERVAL": tune.grid_search([1_000]),
-            "RNN_CELL_TYPE": tune.grid_search(['none']),
-            "LR": tune.grid_search([1e-4, 1e-5]),
-            #"SAMPLE_LENGTH": tune.grid_search([20]),
-            "FIXED_EPSILON": tune.grid_search([1]),
+            "LR": tune.grid_search([1e-3, 5e-3]),
+            "FIXED_EPSILON": tune.grid_search([0, 2]),
             **shared,
         },
-        #{
-        #    "group": tune.grid_search(['qlearning-interval-12']),
-        #    "alg": tune.grid_search(['qlearning_step',]),
-        #    "NUM_STEPS": tune.grid_search([10, 100]),
-        #    #"TARGET_UPDATE_INTERVAL": tune.grid_search([500, 1000, 2000]),
-        #    "FIXED_EPSILON": tune.grid_search([True, False]),
-        #    **shared,
-        #},
-        #{
-        #    "group": tune.grid_search(['q-step--epsilon-7']),
-        #    "alg": tune.grid_search(['qlearning_step',]),
-        #    "FIXED_EPSILON": tune.grid_search([False]),
-        #    **shared,
-        #},
-        #{
-        #    "group": tune.grid_search(['q-step--target-update-8']),
-        #    "alg": tune.grid_search(['qlearning_step',]),
-        #    "TARGET_UPDATE_INTERVAL": tune.grid_search([1000, 2000]),
-        #    "TRAINING_INTERVAL": tune.grid_search([4, 10, 100]),
-        #    "FIXED_EPSILON": tune.grid_search([True, False]),
-        #    **shared,
-        #},
-        #{
-        #    "group": tune.grid_search(['q-step--opt-8']),
-        #    "alg": tune.grid_search(['qlearning_step',]),
-        #    "EPS_ADAM": tune.grid_search([1e-3, 0.00001]),
-        #    "MAX_GRAD_NORM": tune.grid_search([10., 80.]),
-        #    "FIXED_EPSILON": tune.grid_search([True, False]),
-        #    #"TARGET_UPDATE_INTERVAL": tune.grid_search([500, 1000, 2000]),
-        #    **shared,
-        #},
       ]
   else:
     raise NotImplementedError(search)

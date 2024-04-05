@@ -189,7 +189,7 @@ class Block(nn.Module):
 
   @nn.compact
   def __call__(self, x, _):
-    x = nn.Dense(self.features, bias_init=constant(0.0))(x)
+    x = nn.Dense(self.features, use_bias=False)(x)
     x = jax.nn.relu(x)
     return x, None
 
@@ -203,7 +203,7 @@ class MLP(nn.Module):
     for _ in range(self.num_layers):
         x, _ = Block(self.hidden_dim)(x, None)
 
-    x = nn.Dense(self.out_dim or self.hidden_dim, bias_init=constant(0.0))(x)
+    x = nn.Dense(self.out_dim or self.hidden_dim, use_bias=False)(x)
     return x
 
 class RnnAgent(nn.Module):

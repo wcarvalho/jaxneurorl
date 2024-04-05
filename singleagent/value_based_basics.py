@@ -806,8 +806,7 @@ def make_train_step(
             # ------------------------
             # log performance information
             # ------------------------
-            log_period = max(1, int(
-                    config["LEARNER_LOG_PERIOD"] // config["NUM_STEPS"] // config["NUM_ENVS"]))
+            log_period = max(1, int(config["LEARNER_LOG_PERIOD"]))
             is_log_time = jnp.logical_and(
                 is_learn_time, train_state.n_updates % log_period == 0
             )
@@ -845,8 +844,7 @@ def make_train_step(
             # ------------------------
             # log gradient information
             # ------------------------
-            log_period = max(1, int(
-                config.get("GRADIENT_LOG_PERIOD", 50_000) // config["NUM_STEPS"] // config["NUM_ENVS"]))
+            log_period = max(1, int(config.get("GRADIENT_LOG_PERIOD", 50_000)))
             is_log_time = jnp.logical_and(
                 is_learn_time, train_state.n_updates % log_period == 0)
 
@@ -1067,15 +1065,15 @@ def make_train_unroll(
         ##############################
         # DEFINE TRAINING LOOP
         ##############################
-        def _train_step(runner_state: RunnerState, unused):
+        def _train_step(old_runner_state: RunnerState, unused):
             del unused
 
             ##############################
             # 1. unroll for K steps + add to buffer
             ##############################
             runner_state, traj_batch = collect_trajectory(
-                runner_state=runner_state,
-                num_steps=config["NUM_STEPS"],
+                runner_state=old_runner_state,
+                num_steps=config["TRAINING_INTERVAL"],
                 actor_step_fn=actor.train_step,
                 env_step_fn=vmap_step,
                 env_params=train_env_params)
@@ -1088,13 +1086,13 @@ def make_train_unroll(
             #shared_metrics = runner_state.shared_metrics
 
             # update timesteps count
-            timesteps = train_state.timesteps + config["NUM_ENVS"]*config["NUM_STEPS"]
+            timesteps = train_state.timesteps + config["NUM_ENVS"]*config["TRAINING_INTERVAL"]
             #shared_metrics['num_actor_steps'] = timesteps
 
             train_state = train_state.replace(timesteps=timesteps)
 
             num_steps, num_envs = traj_batch.timestep.reward.shape
-            assert num_steps == config["NUM_STEPS"]
+            assert num_steps == config["TRAINING_INTERVAL"]
             assert num_envs == config["NUM_ENVS"]
             # [num_steps, num_envs, ...] -> [num_envs, num_steps, ...]
             buffer_traj_batch = jax.tree_util.tree_map(
@@ -1152,8 +1150,7 @@ def make_train_unroll(
             # ------------------------
             # log performance information
             # ------------------------
-            log_period = max(1, int(
-                config["LEARNER_LOG_PERIOD"] // config["NUM_STEPS"] // config["NUM_ENVS"]))
+            log_period = max(1, int(config["LEARNER_LOG_PERIOD"]))
             is_log_time = jnp.logical_and(
                 is_learn_time, train_state.n_updates % log_period == 0
             )
@@ -1191,8 +1188,7 @@ def make_train_unroll(
             # ------------------------
             # log gradient information
             # ------------------------
-            log_period = max(1, int(
-                config.get("GRADIENT_LOG_PERIOD", 50_000) // config["NUM_STEPS"] // config["NUM_ENVS"]))
+            log_period = max(1, int(config.get("GRADIENT_LOG_PERIOD", 50_000)))
             is_log_time = jnp.logical_and(
                 is_learn_time, train_state.n_updates % log_period == 0)
 
