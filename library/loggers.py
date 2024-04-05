@@ -9,6 +9,7 @@ import jax
 import jax.numpy as jnp
 import tree
 import wandb
+import optax
 
 from library.observers import BasicObserverState
 
@@ -18,14 +19,12 @@ def default_gradient_logger(
     key: str = 'gradients'):
 
     subtree_mean = lambda t: jnp.array(tree.flatten(t)).mean()
-    subtree_min = lambda t: jnp.array(tree.flatten(t)).min()
-
     gradients = gradients['params']
-    gradients = jax.tree_map(lambda x: x.mean(), gradients)
+    gradients_ = jax.tree_map(lambda x: x.mean(), gradients)
     gradient_metrics = {
-        f'{key}/0.{k}_mean': subtree_mean(v) for k, v in gradients.items()}
+        f'{key}/0.{k}_mean': subtree_mean(v) for k, v in gradients_.items()}
     gradient_metrics.update(
-       {f'{key}/1.{k}_min': subtree_min(v) for k, v in gradients.items()})
+       {f'{key}/1.{k}_norm': optax.global_norm(v) for k, v in gradients.items()})
 
     def callback(ts, g):
         if wandb.run is not None:

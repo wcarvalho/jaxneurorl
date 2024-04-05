@@ -64,12 +64,14 @@ class R2D2LossFn(vbb.RecurrentLossFn):
     """R2D2 learning.
     """
 
+    float = lambda x: x.astype(jnp.float32)
     # Get value-selector actions from online Q-values for double Q-learning.
     selector_actions = jnp.argmax(self.extract_q(online_preds), axis=-1)  # [T+1, B]
+
     # Preprocess discounts & rewards.
-    discounts = (data.discount * self.discount).astype(self.extract_q(online_preds).dtype)
-    rewards = data.reward
-    rewards = rewards.astype(self.extract_q(online_preds).dtype)
+    discounts = float(data.discount)*self.discount
+    rewards = float(data.reward)
+    mask = float(data.mask[:-1])  # if 0, episode ending
 
     # Get N-step transformed TD error and loss.
     batch_td_error_fn = jax.vmap(
@@ -89,12 +91,8 @@ class R2D2LossFn(vbb.RecurrentLossFn):
         rewards[1:],        # [T+1] --> [T]
         discounts[1:])      # [T+1] --> [T]
 
-    # NOTE: discount AT terminal state = 0. discount BEFORE terminal state = 1.
-    # AT terminal state, don't want loss from terminal to next because that crosses
-    # episode boundaries. so use discount[:-1] for making mask.
+    batch_td_error = batch_td_error*mask
 
-    # [T, B]
-    mask = data.mask[:-1]  # if 0, episode ending
     # [T, B]
     batch_loss = 0.5 * jnp.square(batch_td_error)
 
@@ -104,7 +102,7 @@ class R2D2LossFn(vbb.RecurrentLossFn):
     metrics = {
         '0.q_loss': batch_loss.mean(),
         '0.q_td': jnp.abs(batch_td_error).mean(),
-        '1.reward': rewards[1:].mean(),
+        '1.reward': (rewards[1:]*mask).mean(),
         'z.q_mean': self.extract_q(online_preds).mean(),
         'z.q_var': self.extract_q(online_preds).var(),
         }
@@ -191,7 +189,7 @@ class Block(nn.Module):
 
   @nn.compact
   def __call__(self, x, _):
-    x = nn.Dense(self.features)(x)
+    x = nn.Dense(self.features, bias_init=constant(0.0))(x)
     x = jax.nn.relu(x)
     return x, None
 
@@ -205,7 +203,7 @@ class MLP(nn.Module):
     for _ in range(self.num_layers):
         x, _ = Block(self.hidden_dim)(x, None)
 
-    x = nn.Dense(self.out_dim or self.hidden_dim)(x)
+    x = nn.Dense(self.out_dim or self.hidden_dim, bias_init=constant(0.0))(x)
     return x
 
 class RnnAgent(nn.Module):
@@ -385,16 +383,26 @@ def make_loss_fn_class(config) -> vbb.RecurrentLossFn:
      discount=config['GAMMA'])
 
 def make_actor(config: dict, agent: Agent, rng: jax.random.KeyArray) -> vbb.Actor:
-
-    if config.get('FIXED_EPSILON', True):
-        # BELOW was copied from ACME
-        vals = np.logspace(
-                start=config.get('EPSILON_MIN', 1),
-                stop=config.get('EPSILON_MAX', 3),
-                num=config.get('NUM_EPSILONS', 256),
-                base=config.get('EPSILON_BASE', .1))
+    fixed_epsilon = config.get('FIXED_EPSILON', 1)
+    assert fixed_epsilon in (0, 1, 2)
+    if fixed_epsilon:
+        ## BELOW was copied from ACME
+        if fixed_epsilon == 1: 
+            vals = np.logspace(
+                    start=config.get('EPSILON_MIN', 1),
+                    stop=config.get('EPSILON_MAX', 3),
+                    num=config.get('NUM_EPSILONS', 256),
+                    base=config.get('EPSILON_BASE', .1))
+        else:
+            # BELOW is in range of ~(.9,.1) 
+            vals = np.logspace(
+                    num=config.get('NUM_EPSILONS', 256),
+                    start=config.get('EPSILON_MIN', .05),
+                    stop=config.get('EPSILON_MAX', .9),
+                    base=config.get('EPSILON_BASE', .1))
         epsilons = jax.random.choice(
             rng, vals, shape=(config['NUM_ENVS'],))
+
         explorer = FixedEpsilonGreedy(epsilons)
     else:
         explorer = LinearDecayEpsilonGreedy(

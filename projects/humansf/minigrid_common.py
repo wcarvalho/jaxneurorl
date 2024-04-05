@@ -31,6 +31,20 @@ def make_binary_vector(obj):
 
 make_binary_vector_grid = jax.vmap(jax.vmap(make_binary_vector))
 
+def position_to_two_hot(local_agent_position, grid_shape):
+    # Extract the position and grid dimensions
+    y, x = local_agent_position
+    max_y, max_x = grid_shape
+
+    # Initialize one-hot vectors
+    one_hot_x = jnp.zeros(max_x)
+    one_hot_y = jnp.zeros(max_y)
+    
+    # Set the corresponding positions to 1
+    one_hot_x = one_hot_x.at[x].set(1)
+    one_hot_y = one_hot_y.at[y].set(1)
+    
+    return jnp.concatenate((one_hot_x, one_hot_y))
 
 def make_agent_grid(grid_shape, agent_pos, dir):
     height, width = grid_shape

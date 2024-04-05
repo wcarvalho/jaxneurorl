@@ -170,7 +170,8 @@ class TaskRunner(struct.PyTreeNode):
 
 class KeyRoomEnvParams(EnvParams):
     random_door_loc: bool = struct.field(pytree_node=False, default=False)
-    train_single: bool = struct.field(pytree_node=False, default=True)
+    #train_single: bool = struct.field(pytree_node=False, default=True)
+    train_multi_probs: float = struct.field(pytree_node=False, default=.5)
     training: bool = struct.field(pytree_node=False, default=True)
     maze_config: dict = None
     task_objects: jax.Array = None
@@ -327,6 +328,9 @@ class Observation(struct.PyTreeNode):
    state_features: jax.Array
    has_occurred: jax.Array
    pocket: jax.Array
+   direction: jax.Array
+   local_position: jax.Array
+   position: jax.Array
 
 def render_room(state: EnvState, render_mode: str = "rgb_array", **kwargs):
   room_grid = np.asarray(state.room_grid)
@@ -367,22 +371,32 @@ def prepare_task_variables(maze_config: struct.PyTreeNode):
 
   return task_objects, train_w, test_w
 
-def make_observation(state: EnvState, room_grid: GridState):
+def make_observation(state: EnvState):
   """This converts all inputs into binary vectors. this faciitates processing with a neural network."""
-  binary_room_grid = minigrid_common.make_binary_vector_grid(room_grid)
-  agent_grid = minigrid_common.make_agent_grid(
-      grid_shape=room_grid.shape[:2],  # [H,w]
-      agent_pos=state.local_agent_position,  # [y, x]
-      dir=state.agent.direction,  # [d]
-  )
 
-  return Observation(
-      image=jnp.concatenate((binary_room_grid, agent_grid), axis=-1),
+  binary_room_grid = minigrid_common.make_binary_vector_grid(state.room_grid)
+  direction = jnp.zeros((minigrid_common.NUM_DIRECTIONS))
+  direction.at[state.agent.direction].set(1)
+
+  local_position = minigrid_common.position_to_two_hot(
+    state.local_agent_position, state.room_grid.shape[:2])
+
+  global_position = minigrid_common.position_to_two_hot(
+    state.agent.position, state.grid.shape[:2])
+
+  observation = Observation(
+      image=binary_room_grid,
       pocket=minigrid_common.make_binary_vector(state.agent.pocket),
-      state_features=state.task_state.features.flatten(),
-      has_occurred=(state.task_state.feature_counts >= 1).flatten(),
-      task_w=state.feature_weights.flatten(),
+      state_features=state.task_state.features.reshape(-1),
+      has_occurred=(state.task_state.feature_counts > 0).reshape(-1),
+      task_w=state.feature_weights.reshape(-1),
+      direction=direction,
+      local_position=local_position,
+      position=global_position,
       )
+  # just to be safe?
+  observation = jax.tree_map(lambda x: jax.lax.stop_gradient(x), observation)
+  return observation
 
 class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
 
@@ -428,15 +442,15 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
       def single_or_multi(params_, rng_):
         """Training: either single room or multi-room"""
         rng_, rng2 = jax.random.split(rng_)
-        single_room = jax.random.bernoulli(rng2)
+        train_multi = jax.random.bernoulli(rng2, params_.train_multi_probs)
         return jax.lax.cond(
-          single_room,
-          lambda: self.singleroom_problem(params_, rng_),
+          train_multi,
           lambda: self.multiroom_problem(params_, rng_),
+          lambda: self.singleroom_problem(params_, rng_),
         )
 
       return jax.lax.cond(
-         params.training and params.train_single,
+         params.training,
          lambda: single_or_multi(params, rng),
          lambda: self.multiroom_problem(params, rng),
       )
@@ -671,7 +685,7 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
             agent=state.agent)
         state = state.replace(task_state=task_state)
 
-        observation = make_observation(state, state.room_grid)
+        observation = make_observation(state)
         timestep = TimeStep(
             state=state,
             step_type=StepType.FIRST,
@@ -706,7 +720,7 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
             step_num=timestep.state.step_num + 1,
             task_state=new_task_state,
         )
-        new_observation = make_observation(new_state, room_grid=new_room_grid)
+        new_observation = make_observation(new_state)
 
         # checking for termination or truncation
         def picked_up(task_object: jax.Array):
