@@ -1,6 +1,6 @@
 # rollouts
 "NUM_ENVS": 2
-"NUM_STEPS": 100
+"TRAINING_INTERVAL": 100
 "TOTAL_TIMESTEPS": 5_000
 # eval-specific
 "EVAL_EPISODES": 1

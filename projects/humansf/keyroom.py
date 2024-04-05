@@ -365,7 +365,7 @@ def prepare_task_variables(maze_config: struct.PyTreeNode):
     test_object = make_task_obj(*obj2, visible=1, state=States.PICKED_UP)
 
     task_objects.append((goal_key, goal_door, train_object, test_object))
-    train_w.append((.1, .25, 1., 0))
+    train_w.append((.1, .5, 1., 0))
     test_w.append((0., 0., 0., 1.0))
 
   task_objects = jnp.array(task_objects)
