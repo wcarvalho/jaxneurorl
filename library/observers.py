@@ -38,10 +38,6 @@ class Observer(abc.ABC):
 
     Should be state after previous time-step along"""
 
-  @abc.abstractmethod
-  def flush_metrics(self) -> Dict[str, Number]:
-    """Returns metrics collected for the current episode."""
-
 
 @struct.dataclass
 class BasicObserverState:
@@ -295,7 +291,6 @@ class BasicObserver(Observer):
       log_period: int = 50_000,
       max_episode_length: int = 200,
       max_num_episodes: int = 200,
-      logger: Optional = None,
       **kwargs,
       ):
 

@@ -81,7 +81,9 @@ def run_single(
 
 
     env = keyroom.KeyRoom()
-    env_params = env.default_params(maze_config=maze_config)
+    env_params = env.default_params(
+      maze_config=maze_config,
+      **config['env']['ENV_KWARGS'])
     test_env_params = env_params.replace(training=False)
 
     # auto-reset wrapper
@@ -125,21 +127,12 @@ def run_single(
           make_optimizer=qlearning.make_optimizer,
           make_loss_fn_class=qlearning.make_loss_fn_class,
           make_actor=qlearning.make_actor,
+          train_step_type=config.pop("TRAIN_TYPE", 'unroll'),
           make_logger=functools.partial(
             qlearning.make_logger,
-            maze_config=maze_config),
-      )
-    elif alg_name == 'qlearning_step':
-      make_train = functools.partial(
-          vbb.make_train,
-          make_agent=qlearning.make_agent,
-          make_optimizer=qlearning.make_optimizer,
-          make_loss_fn_class=qlearning.make_loss_fn_class,
-          make_actor=qlearning.make_actor,
-          make_logger=functools.partial(
-            qlearning.make_logger,
-            maze_config=maze_config),
-          train_step_type='single_step',
+            maze_config=maze_config,
+            get_task_name=get_task_name,
+            ),
       )
     else:
       raise NotImplementedError(alg_name)
@@ -157,6 +150,9 @@ def run_single(
     rngs = jax.random.split(rng, config["NUM_SEEDS"])
     outs = jax.block_until_ready(train_vjit(rngs))
 
+    #---------------
+    # save model weights
+    #---------------
     if save_path is not None:
         def save_params(params: Dict, filename: Union[str, os.PathLike]) -> None:
             flattened_dict = flatten_dict(params, sep=',')
@@ -167,6 +163,14 @@ def run_single(
         os.makedirs(save_path, exist_ok=True)
         save_params(params, f'{save_path}/{alg_name}.safetensors')
         print(f'Parameters of first batch saved in {save_path}/{alg_name}.safetensors')
+
+    #---------------
+    # clean up wandb dir
+    #---------------
+    wandb_dir = wandb_init.get("dir", './wandb')
+    if os.path.exists(wandb_dir):
+      import shutil
+      shutil.rmtree(wandb_dir)
 
 def sweep(search: str = ''):
   search = search or 'default'
@@ -186,13 +190,17 @@ def sweep(search: str = ''):
         #    **shared,
         #},
         {
-            "group": tune.grid_search(['qlearning-14-encoder']),
-            "alg": tune.grid_search(['qlearning_step',]),
-            "ENCODER_INIT": tune.grid_search(['word_embed', 'default']),
-            "CONV_DIM": tune.grid_search([16, 32]),
-            #"MAX_GRAD_NORM": tune.grid_search([10., 80.]),
-            #"TARGET_UPDATE_INTERVAL": tune.grid_search([500, 1000, 2000]),
-            "FIXED_EPSILON": tune.grid_search([True, False]),
+            "group": tune.grid_search(['qlearning-32-lr']),
+            "alg": tune.grid_search(['qlearning']),
+            "ENCODER_INIT": tune.grid_search(['jaxrl', 'default']),
+            "TRAIN_TYPE": tune.grid_search(['unroll']),
+            "env.train_multi_probs": tune.grid_search([0.]),
+            #"EPS_ADAM": tune.grid_search([1e-3, 1e-5]),
+            "TARGET_UPDATE_INTERVAL": tune.grid_search([1_000]),
+            "RNN_CELL_TYPE": tune.grid_search(['none']),
+            "LR": tune.grid_search([1e-4, 1e-5]),
+            #"SAMPLE_LENGTH": tune.grid_search([20]),
+            "FIXED_EPSILON": tune.grid_search([1]),
             **shared,
         },
         #{

@@ -256,8 +256,13 @@ class RlRnnCell(nn.Module):
         init_state = self.initialize_carry(
            rng=rng,
            batch_dims=x.shape[:-1])
-        input_state = tuple(
-            conditional_reset(reset, init, prior) for init, prior in zip(init_state, state))
+        if "lstm" in self.cell_type.lower():
+            input_state = tuple(
+                conditional_reset(reset, init, prior) for init, prior in zip(init_state, state))
+        elif 'gru' in self.cell_type.lower():
+            input_state = conditional_reset(reset, init_state, state)
+        else:
+           raise NotImplementedError(self.cell_type)
 
         return self.cell(input_state, x)
 
@@ -305,7 +310,6 @@ class ScannedRNN(nn.Module):
         rnn_state: [B]
         x: [T, B]; however, scan over it
         """
-        cell = self.cell
         def body_fn(cell, state, inputs):
             x, reset = inputs
             return cell(state, x, reset, rng)
@@ -318,7 +322,7 @@ class ScannedRNN(nn.Module):
             out_axes=0
         )
 
-        return scan(cell, state, (xs.obs, xs.reset))
+        return scan(self.cell, state, (xs.obs, xs.reset))
 
 
 
@@ -843,7 +847,8 @@ def make_train_step(
             # ------------------------
             log_period = max(1, int(
                 config.get("GRADIENT_LOG_PERIOD", 50_000) // config["NUM_STEPS"] // config["NUM_ENVS"]))
-            is_log_time = train_state.n_updates % log_period == 0
+            is_log_time = jnp.logical_and(
+                is_learn_time, train_state.n_updates % log_period == 0)
 
             jax.lax.cond(
                 is_log_time,
@@ -1188,7 +1193,8 @@ def make_train_unroll(
             # ------------------------
             log_period = max(1, int(
                 config.get("GRADIENT_LOG_PERIOD", 50_000) // config["NUM_STEPS"] // config["NUM_ENVS"]))
-            is_log_time = train_state.n_updates % log_period == 0
+            is_log_time = jnp.logical_and(
+                is_learn_time, train_state.n_updates % log_period == 0)
 
             jax.lax.cond(
                 is_log_time,

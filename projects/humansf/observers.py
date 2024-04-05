@@ -9,6 +9,8 @@ import flashbax as fbx
 from flax import struct
 import numpy as np
 import wandb
+from flax.training.train_state import TrainState
+
 
 from singleagent.basics import TimeStep
 
@@ -37,10 +39,6 @@ class Observer(abc.ABC):
     """Observe state and action that are due to observation of time-step.
 
     Should be state after previous time-step along"""
-
-  @abc.abstractmethod
-  def flush_metrics(self) -> Dict[str, Number]:
-    """Returns metrics collected for the current episode."""
 
 
 @struct.dataclass
@@ -209,35 +207,40 @@ class TaskObserver(Observer):
 
     return observer_state
 
-  def flush_metrics(
-    self,
-    key: str,
-    observer_state: BasicObserverState,
-    force: bool = False,
-    shared_metrics: dict = {}):
-    def callback(os: BasicObserverState, sm: dict):
+def experience_logger(
+        train_state: TrainState,
+        observer_state: BasicObserverState,
+        key: str = 'train',
+        get_task_name: Callable = None,
+        ):
+
+    def callback(ts: TrainState, os: BasicObserverState):
+        # main
+        end = min(os.idx + 1, len(os.episode_lengths))
+
+        #--------------------
+        # per-task logging
+        #--------------------
+        metrics = collections.defaultdict(list)
+
+        return_key = lambda name: f'{key}/0. {name.capitalize()} - AvgReturn'
+        length_key = lambda name: f'{key}/1. {name.capitalize()} - AvgLength'
+  
+        for idx in range(end):
+          task_info = jax.tree_map(lambda x: x[0, idx], os.task_info_buffer.experience)
+          task_name = get_task_name(task_info)
+
+          metrics[return_key(task_name)].append(os.episode_returns[idx])
+          metrics[length_key(task_name)].append(os.episode_lengths[idx])
+
+        metrics = {k: np.array(v).mean() for k, v in metrics.items()}
+        metrics.update({
+            f'{key}/avg_episode_length': os.episode_lengths[:end].mean(),
+            f'{key}/avg_episode_return': os.episode_returns[:end].mean(),
+            f'{key}/num_actor_steps': ts.timesteps,
+            f'{key}/num_learner_updates': ts.n_updates,
+        })
         if wandb.run is not None:
-          end = min(os.idx + 1, self.log_period)
-
-          if not force:
-            if not end % self.log_period == 0: return
-
-          metrics = collections.defaultdict(list)
-
-          return_key = lambda name: f'{key}/0. {name.capitalize()} - AvgReturn'
-          length_key = lambda name: f'{key}/1. {name.capitalize()} - AvgLength'
-
-          for idx in range(end):
-            task_info = jax.tree_map(lambda x: x[0, idx], os.task_info_buffer.experience)
-            task_name = self.get_task_name(task_info)
-
-            metrics[return_key(task_name)].append(os.episode_returns[idx])
-            metrics[length_key(task_name)].append(os.episode_lengths[idx])
-
-          # get average of all values
-          metrics = {k: np.array(v).mean() for k, v in metrics.items()}
-
-          # update with shared metrics
-          metrics.update({f'{key}/{k}': v for k,v in sm.items()})
           wandb.log(metrics)
-    jax.debug.callback(callback, observer_state, shared_metrics)
+
+    jax.debug.callback(callback, train_state, observer_state)
