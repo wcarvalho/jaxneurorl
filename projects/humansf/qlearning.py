@@ -20,6 +20,7 @@ from flax.training.train_state import TrainState
 import flashbax as fbx
 import wandb
 from math import ceil
+from math import ceil
 
 import flax
 import rlax
@@ -28,14 +29,19 @@ from safetensors.flax import save_file
 from flax.traverse_util import flatten_dict
 from gymnax.environments import environment
 import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 
+from xminigrid.rendering.rgb_render import render as rgb_render
 from xminigrid.rendering.rgb_render import render as rgb_render
 from singleagent.basics import TimeStep
 from singleagent import value_based_basics as vbb
 from projects.humansf.networks import KeyroomObsEncoder
 from projects.humansf import keyroom
 from projects.humansf import observers as humansf_observers
+from projects.humansf import keyroom
+from projects.humansf import observers as humansf_observers
 
+from library import loggers
 from library import loggers
 
 Agent = nn.Module
@@ -93,7 +99,7 @@ class RnnAgent(nn.Module):
         rng, _rng = jax.random.split(rng)
         new_rnn_state, rnn_out = self.rnn(rnn_state, rnn_in, _rng)
 
-        q_vals = self.q_fn(rnn_out)
+        q_vals = self.q_fn(nn.relu(rnn_out))
 
         return Predictions(q_vals, rnn_out), new_rnn_state
 
@@ -107,7 +113,7 @@ class RnnAgent(nn.Module):
         rng, _rng = jax.random.split(rng)
         new_rnn_state, rnn_out = self.rnn.unroll(rnn_state, rnn_in, _rng)
 
-        q_vals = nn.BatchApply(self.q_fn)(rnn_out)
+        q_vals = nn.BatchApply(self.q_fn)(nn.relu(rnn_out))
 
         return Predictions(q_vals, rnn_out), new_rnn_state
 

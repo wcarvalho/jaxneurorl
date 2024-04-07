@@ -806,7 +806,7 @@ def make_train_step(
             # ------------------------
             # log performance information
             # ------------------------
-            log_period = max(1, int(config["LEARNER_LOG_PERIOD"]))
+            log_period = config["LEARNER_LOG_PERIOD"]
             is_log_time = jnp.logical_and(
                 is_learn_time, train_state.n_updates % log_period == 0
             )
@@ -844,7 +844,7 @@ def make_train_step(
             # ------------------------
             # log gradient information
             # ------------------------
-            log_period = max(1, int(config.get("GRADIENT_LOG_PERIOD", 50_000)))
+            log_period = config.get("GRADIENT_LOG_PERIOD")
             is_log_time = jnp.logical_and(
                 is_learn_time, train_state.n_updates % log_period == 0)
 
@@ -871,6 +871,7 @@ def make_train_step(
         # TRAINING LOOP DEFINED. NOW RUN
         ##############################
         # run loop
+
 
         rng, _rng = jax.random.split(rng)
         runner_state = RunnerState(
@@ -1120,8 +1121,8 @@ def make_train_unroll(
                     buffer=buffer,
                     buffer_state=buffer_state,
                     loss_fn=loss_fn),
-                lambda train_state, rng: (
-                    train_state, dummy_metrics, dummy_grads),  # do nothing
+                lambda train_state_, rng: (
+                    train_state_, dummy_metrics, dummy_grads),  # do nothing
                 train_state,
                 _rng,
             )
@@ -1147,10 +1148,7 @@ def make_train_unroll(
             ##############################
             # 4. Logging learner metrics + evaluation episodes
             ##############################
-            # ------------------------
-            # log performance information
-            # ------------------------
-            log_period = max(1, int(config["LEARNER_LOG_PERIOD"]))
+            log_period = config["LEARNER_LOG_PERIOD"]
             is_log_time = jnp.logical_and(
                 is_learn_time, train_state.n_updates % log_period == 0
             )
@@ -1188,7 +1186,7 @@ def make_train_unroll(
             # ------------------------
             # log gradient information
             # ------------------------
-            log_period = max(1, int(config.get("GRADIENT_LOG_PERIOD", 50_000)))
+            log_period = config.get("GRADIENT_LOG_PERIOD")
             is_log_time = jnp.logical_and(
                 is_learn_time, train_state.n_updates % log_period == 0)
 

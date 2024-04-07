@@ -25,6 +25,8 @@ import wandb
 import hydra
 import matplotlib.pyplot as plt
 
+import matplotlib.pyplot as plt
+
 
 import flax
 from flax import struct
@@ -34,6 +36,7 @@ from safetensors.flax import save_file
 from flax.traverse_util import flatten_dict
 from gymnax.environments import environment
 
+from library import loggers
 from library import loggers
 from singleagent.basics import TimeStep
 from singleagent import value_based_basics as vbb
@@ -107,6 +110,78 @@ class R2D2LossFn(vbb.RecurrentLossFn):
         'z.q_var': self.extract_q(online_preds).var(),
         }
 
+    if self.logger.learner_log_extra is not None:
+        self.logger.learner_log_extra({
+        'data': data,
+        'td_errors': batch_td_error,                 # [T]
+        'q_values': self.extract_q(online_preds),    # [T, B]
+        'q_loss': batch_loss,                        #[ T, B]
+        'n_updates': steps,
+        })
+
+    return batch_td_error, batch_loss_mean, metrics  # [T-1, B], [B]
+
+
+def make_logger(config: dict,
+                env: environment.Environment,
+                env_params: environment.EnvParams):
+
+    def qlearner_logger(data: dict):
+        def callback(d):
+            if wandb.run is None: return
+            n_updates = d.pop('n_updates')
+
+            # Extract the relevant data
+            # only use data from batch dim = 0
+            # [T, B, ...] --> # [T, ...]
+            d_ = jax.tree_map(lambda x: x[:, 0], d)
+
+            rewards = d_['data'].timestep.reward[1:]
+            actions = d_['data'].action[:-1]
+            q_values = d_['q_values'][:-1]
+            q_values_taken = np.take_along_axis(q_values, actions[..., None], axis=-1).squeeze(-1)
+            td_errors = d_['td_errors']
+            q_loss = d_['q_loss']
+
+            # Create a figure with three subplots
+            fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(8, 12))
+
+            # Plot rewards and q-values in the top subplot
+            ax1.plot(rewards, label='Rewards')
+            ax1.plot(q_values_taken, label='Q-Values')
+            ax1.set_xlabel('Time')
+            ax1.set_title('Rewards and Q-Values')
+            ax1.legend()
+
+            # Plot TD errors in the middle subplot
+            ax2.plot(td_errors)
+            ax2.set_xlabel('Time')
+            ax2.set_title('TD Errors')
+
+            # Plot Q-loss in the bottom subplot
+            ax3.plot(q_loss)
+            ax3.set_xlabel('Update')
+            ax3.set_title('Q-Loss')
+
+            # Adjust the spacing between subplots
+            plt.tight_layout()
+            # log
+            wandb.log({f"learner_details/q-values": wandb.Image(fig)})
+            plt.close(fig)
+
+        jax.lax.cond(
+            data['n_updates'] % config.get("LEARNER_LOG_PERIOD", 10_000) == 0,
+            lambda d: jax.debug.callback(callback, d),
+            lambda d: None,
+            data)
+
+
+    return loggers.Logger(
+        gradient_logger=loggers.default_gradient_logger,
+        learner_logger=loggers.default_learner_logger,
+        experience_logger=loggers.default_experience_logger,
+        learner_log_extra=qlearner_logger,
+    )
     if self.logger.learner_log_extra is not None:
         self.logger.learner_log_extra({
         'data': data,
