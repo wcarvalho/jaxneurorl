@@ -56,7 +56,7 @@ def make_obj(
 make_obj_arr = partial(make_obj, asarray=True)
 
 def accomplished(grid, task):
-  # [D] [H, W, D]
+  # [H, W, D], [D]
   # was this task accomplioshed
   accomplished_somewhere = (task[None, None]==grid).all(axis=-1)
   accomplished_anywhere = accomplished_somewhere.any()
@@ -111,20 +111,21 @@ class TaskRunner(struct.PyTreeNode):
         visible_grid (GridState): [H, W, 2]
         agent (AgentState): _description_
     """
-    def add_visibility(grid):
-        padding_shape = (*grid.shape[:2], 1)
-        padding = jnp.ones(padding_shape, dtype=grid.dtype)
+    def add_visibility_pickup(grid):
+        padding = jnp.array((1, 0))
+        padding = jnp.tile(padding[None, None], (*grid.shape[:2], 1))
         return jnp.concatenate((grid, padding), axis=-1)
 
     # add dimension with all 1s, since each position here is visible to agent
-    visible_grid = add_visibility(visible_grid)  
+    visible_grid = add_visibility_pickup(visible_grid)  
 
     # acc_in_grid is [num_tasks, num_task_objects]
-    acc_in_grid = accomplished_HW(visible_grid, self.task_objects[:, :, 3])
+    acc_in_grid = accomplished_HW(visible_grid, self.task_objects)
 
     # look at all task objects and see if they match pocket
     # acc_in_pocket is [num_tasks, num_task_objects]
     pocket = make_task_obj(*agent.pocket, visible=1, state=States.PICKED_UP, asarray=True)
+
     acc_in_pocket = (pocket[None, None]==self.task_objects).all(axis=-1)
 
     acc = jnp.logical_or(acc_in_grid, acc_in_pocket)
@@ -714,6 +715,8 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
             prior_state=timestep.state.task_state,
             visible_grid=new_room_grid,
             agent=new_agent)
+
+
         new_state = timestep.state.replace(
             grid=new_grid,
             room_grid=new_room_grid,

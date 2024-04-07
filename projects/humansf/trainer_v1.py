@@ -177,17 +177,13 @@ def sweep(search: str = ''):
   if search == 'default':
     shared = {
       "config_name": tune.grid_search(['ql_keyroom']),
-      #"AGENT_HIDDEN_DIM": tune.grid_search([256]),
-      #"EPSILON_ANNEAL_TIME": tune.grid_search([1e6, 1e7]),
-      #"LR": tune.grid_search([1e-3, 1e-4]),
       'env.NUM_ROOMS': tune.grid_search([1]),
     }
     space = [
         {
-            "group": tune.grid_search(['qlearning-37-working!!!']),
+            "group": tune.grid_search(['qlearning-38-eps']),
             "alg": tune.grid_search(['qlearning']),
-            "LR": tune.grid_search([1e-3, 5e-3]),
-            "FIXED_EPSILON": tune.grid_search([0, 2]),
+            "FIXED_EPSILON": tune.grid_search([0,1, 2]),
             **shared,
         },
       ]
