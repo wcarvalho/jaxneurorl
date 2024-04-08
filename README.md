@@ -10,6 +10,12 @@
 - the agent's actor class which selects action in response to observations
 
 These functions are given as input to a `make_train` function which creates a `train` function that runs the experiment.
+
+Below is a schematic of the general learning algorithm used in this codebase.
+<img src="images/overview.png" alt="FARM" style="zoom:40%;" />
+
+
+
 # Install
 
 
