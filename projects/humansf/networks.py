@@ -102,7 +102,8 @@ class KeyroomObsEncoder(nn.Module):
 
         # [B, D]
         vector_inputs = (
-            embed(obs.task_w),
+            nn.Dense(4*self.hidden_dim, kernel_init=word_init,
+                     use_bias=False)(obs.task_w),
             embed(obs.direction),
             embed(obs.state_features),
             embed(obs.has_occurred),
