@@ -306,9 +306,12 @@ def make_logger(
                 wandb.log({f"learner_example/trajecotry": wandb.Image(fig)})
             plt.close(fig)
 
-        log_period = max(1, int(config["LEARNER_LOG_PERIOD"])) == 0
+        # this will be the value after update is applied
+        n_updates = data['n_updates'] + 1
+        is_log_time = n_updates % config["LEARNER_LOG_PERIOD"] == 0
+
         jax.lax.cond(
-            jnp.logical_and(data['n_updates'] > 0, log_period),
+            is_log_time,
             lambda d: jax.debug.callback(callback, d),
             lambda d: None,
             data)
