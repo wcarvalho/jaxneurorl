@@ -177,13 +177,16 @@ def sweep(search: str = ''):
   if search == 'default':
     shared = {
       "config_name": tune.grid_search(['ql_keyroom']),
-      'env.NUM_ROOMS': tune.grid_search([1,2]),
+      'env.NUM_ROOMS': tune.grid_search([1]),
     }
     space = [
         {
-            "group": tune.grid_search(['qlearning-41-faster']),
+            "group": tune.grid_search(['qlearning-43-larger?']),
             "alg": tune.grid_search(['qlearning']),
-            "SAMPLE_LENGTH": tune.grid_search([40, 80]),
+            "SAMPLE_LENGTH": tune.grid_search([40]),
+            "BUFFER_BATCH_SIZE": tune.grid_search([32, 128, 256]),
+            "TRAINING_INTERVAL": tune.grid_search([1, 10]),
+            "NUM_ENVS": tune.grid_search([32, 64]),
             **shared,
         },
       ]
