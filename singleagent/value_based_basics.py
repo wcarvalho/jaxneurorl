@@ -110,7 +110,8 @@ class AcmeBatchData(flax.struct.PyTreeNode):
 
     @property
     def mask(self):
-        return self.timestep.discount
+        is_last = self.timestep.last()
+        return 1.0 - is_last.astype(jnp.float32)
 
     @property
     def discount(self):
