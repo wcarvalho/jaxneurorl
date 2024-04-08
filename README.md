@@ -11,7 +11,7 @@
 
 These functions are given as input to a `make_train` function which creates a `train` function that runs the experiment.
 
-Below is a schematic of the general learning algorithm used in this [codebase](singleagent/value-based-basics.py).
+Below is a schematic of the general learning algorithm used in this [codebase](singleagent/value_based_basics.py).
 <img src="images/overview.png" alt="FARM" style="zoom:40%;" />
 
 
