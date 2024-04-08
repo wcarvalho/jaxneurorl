@@ -147,7 +147,7 @@ def make_agent(
 
     return agent, network_params, reset_fn
 
-def plot_frames(task_name, frames, rewards, discounts, actions_taken, W, max_frames=1e10):
+def plot_frames(task_name, frames, rewards, discounts, mask, actions_taken, W, max_frames=1e10):
     """
     Dynamically plots frames in a single figure based on the number of columns (W) and maximum number of frames.
     
@@ -174,7 +174,8 @@ def plot_frames(task_name, frames, rewards, discounts, actions_taken, W, max_fra
         ax.axis('off')  # Hide the axis
 
         if i < len(actions_taken) and i < len(rewards):
-            ax.set_title(f"{actions_taken[i]}, r={rewards[i]}, $\\gamma={discounts[i]}$")
+            ax.set_title(
+                f"{actions_taken[i]}\nr={rewards[i]}, $\\gamma={discounts[i]}$, m={mask[i]}")
 
     # Hide unused subplots
     for i in range(T, H * W):
@@ -295,12 +296,14 @@ def make_logger(
             # ------------
             # plot
             # ------------
+            mask = d_['mask']
             actions_taken = [action_names[int(a)] for a in d_['data'].action]
             fig = plot_frames(task_name,
                 frames=obs_images,
                 rewards=rewards,
                 actions_taken=actions_taken,
                 discounts=discounts,
+                mask=mask,
                 W=6)
             if wandb.run is not None:
                 wandb.log({f"learner_example/trajecotry": wandb.Image(fig)})
