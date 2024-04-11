@@ -46,6 +46,7 @@ os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']='false'
 import library.flags
 from library import parallel
 from singleagent import qlearning
+from singleagent import contrastive_dyna as dyna
 FLAGS = flags.FLAGS
 
 def run_single(
@@ -70,6 +71,8 @@ def run_single(
     alg_name = config['alg']
     if alg_name == 'qlearning':
       make_train = qlearning.make_train_preloaded
+    elif alg_name == 'dyna':
+      make_train = dyna.make_train_preloaded
     else:
       raise NotImplementedError(alg_name)
 
@@ -93,13 +96,20 @@ def run_single(
 
 def sweep(search: str = ''):
   search = search or 'default'
-  if search == 'default':
+  if search == 'qlearning':
     space = [
         {
             "group": tune.grid_search(['run-5-qlearning']),
             "alg": tune.grid_search(['qlearning']),
             "AGENT_HIDDEN_DIM": tune.grid_search([64, 128]),
             "AGENT_INIT_SCALE": tune.grid_search([2., .1]),
+        }
+    ]
+  elif search == 'dyna':
+    space = [
+        {
+            "group": tune.grid_search(['run-1-dyna']),
+            "alg": tune.grid_search(['dyna']),
         }
     ]
   else:

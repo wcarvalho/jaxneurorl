@@ -5,7 +5,6 @@ import jax.numpy as jnp
 import numpy as np
 from functools import partial
 from typing import NamedTuple, Dict, Union, Optional, Tuple, Callable, Any, Sequence
-from acme.jax.networks import duelling #? not sure
 
 import chex
 import dataclasses
