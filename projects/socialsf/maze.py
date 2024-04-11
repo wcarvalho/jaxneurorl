@@ -1,3 +1,4 @@
+from collections import deque
 from typing import Tuple
 from enum import IntEnum
 import jax
@@ -5,6 +6,7 @@ import jax.numpy as jnp
 import chex
 from flax import struct
 from gymnax.environments import spaces
+import numpy as np
 from projects.socialsf.underspecified_env import UnderspecifiedEnv
 from projects.socialsf.level import Level, prefabs
 
@@ -244,7 +246,7 @@ class Maze(UnderspecifiedEnv):
                 terminal=fwd_pos_has_goal),
             reward
         )
-        
+
 def make_maze_map(
     level: Level,
     padding=0,
@@ -286,3 +288,51 @@ def make_maze_map(
         return maze_map_padded
     else:
         return maze_map
+
+
+def find_optimal_actions(
+        maze,
+        floor_array=np.array([1, 0, 0]),
+        wall_array=np.array([2, 5, 0]),
+        goal_array=np.array([8, 1, 0]),
+        ):
+    del wall_array
+    rows, cols, _ = maze.shape
+    goal_coords = []
+
+    # Find the coordinates of the goal space(s)
+    for i in range(rows):
+        for j in range(cols):
+            if (maze[i, j] == goal_array).all():
+                goal_coords.append((i, j))
+
+    # Perform BFS starting from the goal space(s)
+    queue = deque(goal_coords)
+    distances = {coord: 0 for coord in goal_coords}
+    prev = {}
+
+    while queue:
+        y, x = queue.popleft()
+        for dy, dx in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
+            ny, nx = y + dy, x + dx
+            if 0 <= ny < rows and 0 <= nx < cols and (maze[ny, nx] == floor_array).all() and (ny, nx) not in distances:
+                distances[(ny, nx)] = distances[(y, x)] + 1
+                prev[(ny, nx)] = (y, x)
+                queue.append((ny, nx))
+
+    # Find the optimal action for each free space
+    actions = {}
+    for y in range(rows):
+        for x in range(cols):
+            if (maze[y, x] == floor_array).all():
+                min_distance = float('inf')
+                best_action = None
+                for dy, dx, action in [(0, 1, 'right'), (0, -1, 'left'), (1, 0, 'down'), (-1, 0, 'up')]:
+                    ny, nx = y + dy, x + dx
+                    if 0 <= ny < rows and 0 <= nx < cols and (ny, nx) in distances:
+                        if distances[(ny, nx)] < min_distance:
+                            min_distance = distances[(ny, nx)]
+                            best_action = action
+                actions[(y, x)] = best_action
+
+    return actions
