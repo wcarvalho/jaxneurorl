@@ -699,6 +699,18 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
         )
         return timestep
 
+    def take_action(self,
+             key: jax.random.KeyArray,
+             timestep: TimeStep[EnvCarryT],
+             action: IntOrArray,
+             params: EnvParamsT,
+             ) -> TimeStep[EnvCarryT]:
+        del key
+        del params
+        return take_action(
+            timestep.state.grid, timestep.state.agent, action)
+
+
     @partial(jax.jit, static_argnums=(0,))
     def step(self,
              key: jax.random.KeyArray,
@@ -706,9 +718,8 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
              action: IntOrArray,
              params: EnvParamsT,
              ) -> TimeStep[EnvCarryT]:
-        del key
-        new_grid, new_agent, _ = take_action(
-            timestep.state.grid, timestep.state.agent, action)
+        new_grid, new_agent, _ = self.take_action(
+            key=key, timestep=timestep, action=action, params=params)
         new_room_grid = get_room_grid(grid=new_grid, agent=new_agent)
 
         new_task_state = self.task_runner.step(
