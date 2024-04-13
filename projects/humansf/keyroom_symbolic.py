@@ -20,6 +20,9 @@ class KeyRoomSymbolic(KeyRoom):
         self.name = name
         self.test_end_on_key = test_end_on_key
 
+    def time_limit(self, params: EnvParams) -> int:
+        return 10
+
     def default_params(self, *args, **kwargs):
         params = super().default_params(*args, **kwargs)
         all_keys = params.maze_config['keys']
@@ -28,7 +31,7 @@ class KeyRoomSymbolic(KeyRoom):
         return SymbolicKeyRoomEnvParams(
             **params.__dict__,
             action_objects=action_objects,
-        ).replace(train_multi_probs=1.0)
+        )
 
     def action_space(
         self, params: Optional[EnvParams] = None
