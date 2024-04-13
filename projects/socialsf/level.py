@@ -28,7 +28,7 @@ class Level:
         return well_formatted
     
     @classmethod
-    def from_str(cls, level_str):
+    def from_str(cls, level_str, assert_agent_goal: bool = True):
         level_str = level_str.strip()
         rows = level_str.split('\n')
         nrows = len(rows)
@@ -63,10 +63,18 @@ class Level:
                 else:
                     raise Exception("Unexpected character.")
         
-        assert len(goal_pos) > 0, "Goal position not set."
-        assert agent_pos is not None, "Agent position not set."
-        
+        if assert_agent_goal:
+            assert len(goal_pos) > 0, "Goal position not set."
+            assert agent_pos is not None, "Agent position not set."
+        else:
+            if agent_pos is None:
+                agent_pos = jnp.array([-2, -2])
+                agent_dir = 0
+            if not goal_pos:
+                goal_pos.append((-2, -2))
+
         return Level(jnp.array(wall_map), *map(lambda x: jnp.array(x, dtype=jnp.uint32), (goal_pos[0], agent_pos)), jnp.array(agent_dir, dtype=jnp.uint8), ncols, nrows)
+
     
     def to_str(self):
         w, h = self.width, self.height
