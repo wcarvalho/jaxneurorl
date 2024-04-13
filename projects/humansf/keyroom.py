@@ -404,9 +404,10 @@ def make_observation(state: EnvState):
 
 class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
 
-    def __init__(self, name='keyroom'):
+    def __init__(self, test_end_on_key: bool = True, name='keyroom'):
         super().__init__()
         self.name = name
+        self.test_end_on_key = test_end_on_key
 
     def action_space(
         self, params: Optional[EnvParams] = None
@@ -653,12 +654,13 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
           rng_,
         )
 
+        test_end_idx = KEY_IDX if self.test_end_on_key else 2+task_object_idx
         termination_object = jnp.where(
             params.training,
             # goal object picked up
             goal_room_objects[TRAIN_OBJECT_IDX],
             # goal key picked up
-            goal_room_objects[KEY_IDX],
+            goal_room_objects[test_end_idx],
         )
         state = EnvState(
             key=rng,

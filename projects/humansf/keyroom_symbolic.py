@@ -15,6 +15,11 @@ class SymbolicKeyRoomEnvParams(KeyRoomEnvParams):
 
 class KeyRoomSymbolic(KeyRoom):
 
+    def __init__(self, test_end_on_key: bool = False, name='keyroom'):
+        super().__init__()
+        self.name = name
+        self.test_end_on_key = test_end_on_key
+
     def default_params(self, *args, **kwargs):
         params = super().default_params(*args, **kwargs)
         all_keys = params.maze_config['keys']
