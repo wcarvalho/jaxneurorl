@@ -335,6 +335,7 @@ class Observation(struct.PyTreeNode):
    direction: jax.Array
    local_position: jax.Array
    position: jax.Array
+   prev_action: jax.Array
 
 def render_room(state: EnvState, render_mode: str = "rgb_array", **kwargs):
   room_grid = np.asarray(state.room_grid)
@@ -375,12 +376,12 @@ def prepare_task_variables(maze_config: struct.PyTreeNode):
 
   return task_objects, train_w, test_w
 
-def make_observation(state: EnvState):
+def make_observation(state: EnvState, prev_action: jax.Array, params: EnvParams):
   """This converts all inputs into binary vectors. this faciitates processing with a neural network."""
 
   binary_room_grid = minigrid_common.make_binary_vector_grid(state.room_grid)
   direction = jnp.zeros((minigrid_common.NUM_DIRECTIONS))
-  direction.at[state.agent.direction].set(1)
+  direction = direction.at[state.agent.direction].set(1)
 
   local_position = minigrid_common.position_to_two_hot(
     state.local_agent_position, state.room_grid.shape[:2])
@@ -397,6 +398,7 @@ def make_observation(state: EnvState):
       direction=direction,
       local_position=local_position,
       position=global_position,
+      prev_action=prev_action,
       )
   # just to be safe?
   observation = jax.tree_map(lambda x: jax.lax.stop_gradient(x), observation)
@@ -415,6 +417,15 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
         """Action space of the environment."""
         del params
         return spaces.Discrete(NUM_ACTIONS)
+
+    def num_actions(self, params):
+        return self.action_space(params).n
+
+    def action_onehot(self, action, params):
+        num_actions = self.num_actions(params) + 1
+        one_hot = jnp.zeros((num_actions))
+        one_hot = one_hot.at[action].set(1)
+        return one_hot
 
     def default_params(
           self,
@@ -691,7 +702,11 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
             agent=state.agent)
         state = state.replace(task_state=task_state)
 
-        observation = make_observation(state)
+        observation = make_observation(
+           state,
+           prev_action=self.action_onehot(self.num_actions(params), params),
+           params=params)
+
         timestep = TimeStep(
             state=state,
             step_type=StepType.FIRST,
@@ -739,7 +754,10 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
             step_num=timestep.state.step_num + 1,
             task_state=new_task_state,
         )
-        new_observation = make_observation(new_state)
+        new_observation = make_observation(
+           new_state,
+           prev_action=self.action_onehot(action, params),
+           params=params)
 
         # checking for termination or truncation
         def picked_up(task_object: jax.Array):
