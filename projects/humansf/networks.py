@@ -48,6 +48,7 @@ class KeyroomObsEncoder(nn.Module):
             embed(obs.local_position),  # binary
             embed(obs.position),        # binary
             embed(obs.pocket),          # binary
+            embed(obs.prev_action),          # binary
         )
         vector = jnp.concatenate(vector_inputs, axis=-1)
 
