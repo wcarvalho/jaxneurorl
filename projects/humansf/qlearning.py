@@ -67,7 +67,7 @@ class RnnAgent(nn.Module):
         self.hidden_dim = self.config["AGENT_HIDDEN_DIM"]
         self.observation_encoder = KeyroomObsEncoder(
             hidden_dim=self.hidden_dim,
-            init=self.config.get('ENCODER_INIT', 'word_embed'),
+            init=self.config.get('ENCODER_INIT', 'word_init'),
             image_hidden_dim=self.config.get('IMAGE_HIDDEN', 512),
             )
 

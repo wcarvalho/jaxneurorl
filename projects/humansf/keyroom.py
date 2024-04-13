@@ -366,7 +366,7 @@ def prepare_task_variables(maze_config: struct.PyTreeNode):
     test_object = make_task_obj(*obj2, visible=1, state=States.PICKED_UP)
 
     task_objects.append((goal_key, goal_door, train_object, test_object))
-    train_w.append((.1, .5, 1., 0))
+    train_w.append((.25, .5, 1., 0))
     test_w.append((0., 0., 0., 1.0))
 
   task_objects = jnp.array(task_objects)
@@ -753,12 +753,13 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
         state_features = new_observation.state_features.astype(
             jnp.float32)
         goal_room_objects = params.task_objects[new_state.goal_room_idx]
+
         reward = jax.lax.cond(
            params.training,
            # use accomplishment of state features as reward
            lambda: (state_features*new_observation.task_w).sum(),
            # was key for goal object picked up?
-           lambda: picked_up(goal_room_objects[KEY_IDX]).astype(jnp.float32)
+           lambda: picked_up(goal_room_objects[KEY_IDX]).astype(jnp.float32) if self.test_end_on_key else (state_features*new_observation.task_w).sum()
         )
 
         step_type = jax.lax.select(

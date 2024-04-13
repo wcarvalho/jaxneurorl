@@ -50,6 +50,7 @@ import library.flags
 from library import parallel
 from projects.humansf import qlearning
 from projects.humansf import keyroom
+from projects.humansf import keyroom_symbolic
 from projects.humansf.minigrid_common import AutoResetWrapper
 from projects.humansf import observers
 from singleagent import value_based_basics as vbb
@@ -75,12 +76,16 @@ def run_single(
       maze_config = json.load(file)[0]
 
     num_rooms = config['env']['ENV_KWARGS'].pop('NUM_ROOMS', 4)
+    symbolic = config['env']['ENV_KWARGS'].pop('symbolic', False)
 
     maze_config = keyroom.shorten_maze_config(
        maze_config, num_rooms)
 
+    if symbolic:
+      env = keyroom_symbolic.KeyRoomSymbolic()
+    else:
+      env = keyroom.KeyRoom()
 
-    env = keyroom.KeyRoom()
     env_params = env.default_params(
       maze_config=maze_config,
       **config['env']['ENV_KWARGS'])
@@ -177,16 +182,27 @@ def sweep(search: str = ''):
   if search == 'default':
     shared = {
       "config_name": tune.grid_search(['ql_keyroom']),
-      'env.NUM_ROOMS': tune.grid_search([1]),
+      'env.NUM_ROOMS': tune.grid_search([1, 2]),
     }
     space = [
+        #{
+        #    "group": tune.grid_search(['qlearning-43-larger?']),
+        #    "alg": tune.grid_search(['qlearning']),
+        #    'env.symbolic': tune.grid_search([True, False]),
+        #    "SAMPLE_LENGTH": tune.grid_search([40]),
+        #    "BUFFER_BATCH_SIZE": tune.grid_search([32, 128, 256]),
+        #    "TRAINING_INTERVAL": tune.grid_search([1, 10]),
+        #    "NUM_ENVS": tune.grid_search([32, 64]),
+        #    **shared,
+        #},
         {
-            "group": tune.grid_search(['qlearning-43-larger?']),
+            "group": tune.grid_search(['qlearning-45-symb-fix']),
             "alg": tune.grid_search(['qlearning']),
-            "SAMPLE_LENGTH": tune.grid_search([40]),
-            "BUFFER_BATCH_SIZE": tune.grid_search([32, 128, 256]),
-            "TRAINING_INTERVAL": tune.grid_search([1, 10]),
-            "NUM_ENVS": tune.grid_search([32, 64]),
+            'env.symbolic': tune.grid_search([True]),
+            "ENCODER_INIT": tune.grid_search(['word_init', 'word_init2', 'truncated']),
+            #"BUFFER_BATCH_SIZE": tune.grid_search([32, 128, 256]),
+            #"TRAINING_INTERVAL": tune.grid_search([1, 10]),
+            #"NUM_ENVS": tune.grid_search([32, 64]),
             **shared,
         },
       ]

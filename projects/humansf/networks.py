@@ -15,7 +15,7 @@ class KeyroomObsEncoder(nn.Module):
     """
     hidden_dim: int = 128
     image_hidden_dim: int = 512
-    init: str = 'word_embed'
+    init: str = 'word_init'
 
     @nn.compact
     def __call__(self, obs: Observation):
@@ -41,7 +41,7 @@ class KeyroomObsEncoder(nn.Module):
 
         # [B, D]
         vector_inputs = (
-            nn.Dense(kernel_init=initialization)(obs.task_w),  # [continuous]
+            nn.Dense(self.hidden_dim, kernel_init=initialization)(obs.task_w),  # [continuous]
             embed(obs.direction),       # 1-hot
             embed(obs.state_features),  # binary
             embed(obs.has_occurred),    # binary
