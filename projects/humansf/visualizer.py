@@ -8,9 +8,10 @@ from gymnax.visualize.vis_maze import init_maze, update_maze
 from gymnax.visualize.vis_catch import init_catch, update_catch
 
 
-def display_image(image):
+def display_image(image, ax=None, **kwargs):
     # Create a new figure and axis
-    fig, ax = plt.subplots()
+    if ax is None:
+        fig, ax = plt.subplots(**kwargs)
 
     # Display the image
     ax.imshow(image)
@@ -18,9 +19,6 @@ def display_image(image):
     # Remove the axis ticks and labels
     ax.axis('off')
 
-    # Show the plot
-    plt.tight_layout()
-    plt.show()
 
 
 def init_image(ax, image):
