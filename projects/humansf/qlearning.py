@@ -311,7 +311,7 @@ def make_logger(
 
         # this will be the value after update is applied
         n_updates = data['n_updates'] + 1
-        is_log_time = n_updates % config["LEARNER_LOG_PERIOD"] == 0
+        is_log_time = n_updates % config["LEARNER_EXTRA_LOG_PERIOD"] == 0
 
         jax.lax.cond(
             is_log_time,
