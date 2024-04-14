@@ -60,7 +60,6 @@ class KeyRoomSymbolic(KeyRoom):
 
         return grid, agent, None
 
-
 def object_action(rng, action, action_object, timestep, params):
     roomW, roomH = params.width // 3, params.height // 3
     all_room_coords = [
