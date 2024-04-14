@@ -109,6 +109,10 @@ class AcmeBatchData(flax.struct.PyTreeNode):
     action: jax.Array
 
     @property
+    def is_last(self):
+        return self.timestep.last()
+
+    @property
     def mask(self):
         is_last = self.timestep.last()
         return 1.0 - is_last.astype(jnp.float32)

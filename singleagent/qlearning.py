@@ -34,6 +34,7 @@ from safetensors.flax import save_file
 from flax.traverse_util import flatten_dict
 from gymnax.environments import environment
 
+from library import losses
 from library import loggers
 from singleagent.basics import TimeStep
 from singleagent import value_based_basics as vbb
@@ -58,7 +59,7 @@ class R2D2LossFn(vbb.RecurrentLossFn):
 
   tx_pair: rlax.TxPair = rlax.IDENTITY_PAIR
   extract_q: Callable[[jax.Array], jax.Array] = lambda preds: preds.q_vals
-  bootstrap_n: int = 5
+  lambda_: float = .9
 
   def error(self, data, online_preds, online_state, target_preds, target_state, steps, **kwargs):
     """R2D2 learning.
@@ -70,27 +71,30 @@ class R2D2LossFn(vbb.RecurrentLossFn):
 
     # Preprocess discounts & rewards.
     discounts = float(data.discount)*self.discount
+    lambda_ = jnp.ones_like(data.discount)*self.lambda_
     rewards = float(data.reward)
+    is_last = float(data.is_last)
     mask = float(data.mask[:-1])  # if 0, episode ending
 
     # Get N-step transformed TD error and loss.
     batch_td_error_fn = jax.vmap(
-        functools.partial(
-            rlax.transformed_n_step_q_learning,
-            n=self.bootstrap_n,
-            tx_pair=self.tx_pair),
+        losses.q_learning_lambda_td,
         in_axes=1,
         out_axes=1)
 
     # [T, B]
-    batch_td_error = batch_td_error_fn(
+    q_t, target_q_t = batch_td_error_fn(
         self.extract_q(online_preds)[:-1],  # [T+1] --> [T]
         data.action[:-1],    # [T+1] --> [T]
         self.extract_q(target_preds)[1:],  # [T+1] --> [T]
         selector_actions[1:],  # [T+1] --> [T]
         rewards[1:],        # [T+1] --> [T]
-        discounts[1:])      # [T+1] --> [T]
+        discounts[1:],
+        is_last[1:],
+        lambda_[1:])      # [T+1] --> [T]
 
+    batch_td_error = target_q_t - q_t
+    target_q_t = target_q_t*mask
     batch_td_error = batch_td_error*mask
 
     # [T, B]
@@ -114,6 +118,7 @@ class R2D2LossFn(vbb.RecurrentLossFn):
         'mask': mask,                 # [T]
         'q_values': self.extract_q(online_preds),    # [T, B]
         'q_loss': batch_loss,                        #[ T, B]
+        'q_target': target_q_t,
         'n_updates': steps,
         })
 
