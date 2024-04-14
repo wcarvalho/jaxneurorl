@@ -106,10 +106,10 @@ def run_single(
        }
 
     def get_task_name(task_info: dict):
-      setting = 'single' if task_info['room_setting'] == 0 else 'multi'
+      setting = '0.single' if task_info['room_setting'] == 0 else '1.multi'
       room_idx = task_info['goal_room_idx']
       object_idx = task_info['task_object_idx']
-      label = 'test' if object_idx > 0 else 'train'
+      label = '1.test' if object_idx > 0 else '0.train'
 
       category, color = maze_config['pairs'][room_idx][object_idx]
 
@@ -182,7 +182,7 @@ def sweep(search: str = ''):
   if search == 'default':
     shared = {
       "config_name": tune.grid_search(['ql_keyroom']),
-      'env.NUM_ROOMS': tune.grid_search([1, 2]),
+      'env.NUM_ROOMS': tune.grid_search([2]),
     }
     space = [
         #{
@@ -196,15 +196,25 @@ def sweep(search: str = ''):
         #    **shared,
         #},
         {
-            "group": tune.grid_search(['qlearning-45-symb-fix']),
+            "group": tune.grid_search(['qlearning-48-symb-fix']),
             "alg": tune.grid_search(['qlearning']),
             'env.symbolic': tune.grid_search([True]),
-            "ENCODER_INIT": tune.grid_search(['word_init', 'word_init2', 'truncated']),
-            #"BUFFER_BATCH_SIZE": tune.grid_search([32, 128, 256]),
+            #"ENCODER_INIT": tune.grid_search(['word_init', 'word_init2', 'truncated']),
+            "GAMMA": tune.grid_search([.3, 6, .7]),
             #"TRAINING_INTERVAL": tune.grid_search([1, 10]),
             #"NUM_ENVS": tune.grid_search([32, 64]),
             **shared,
         },
+        #{
+        #    "group": tune.grid_search(['qlearning-47-reg-fix']),
+        #    "alg": tune.grid_search(['qlearning']),
+        #    'env.symbolic': tune.grid_search([False]),
+        #    "ENCODER_INIT": tune.grid_search(['word_init', 'word_init2', 'truncated']),
+        #    #"BUFFER_BATCH_SIZE": tune.grid_search([32, 128, 256]),
+        #    #"TRAINING_INTERVAL": tune.grid_search([1, 10]),
+        #    #"NUM_ENVS": tune.grid_search([32, 64]),
+        #    **shared,
+        #},
       ]
   else:
     raise NotImplementedError(search)
