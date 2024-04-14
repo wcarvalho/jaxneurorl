@@ -38,6 +38,7 @@ from projects.humansf import observers as humansf_observers
 
 from library import loggers
 
+
 Agent = nn.Module
 Params = flax.core.FrozenDict
 AgentState = flax.struct.PyTreeNode
@@ -175,7 +176,7 @@ def plot_frames(task_name, frames, rewards, discounts, mask, actions_taken, W, m
 
         if i < len(actions_taken) and i < len(rewards):
             ax.set_title(
-                f"{actions_taken[i]}\nr={rewards[i]}, $\\gamma={discounts[i]}$, m={mask[i]}")
+                f"{i}: {actions_taken[i]}\nr={rewards[i]}, $\\gamma={discounts[i]}$, m={mask[i]}")
 
     # Hide unused subplots
     for i in range(T, H * W):
@@ -190,6 +191,7 @@ def make_logger(
         env: environment.Environment,
         env_params: environment.EnvParams,
         maze_config: dict,
+        action_names: dict,
         get_task_name: Callable = None,
         ):
 
@@ -248,14 +250,6 @@ def make_logger(
             ##############################
             # plot images of env
             ##############################
-            action_names = {
-                0: 'forward',
-                1: 'right',
-                2: 'left',
-                3: 'pickup',
-                4: 'put_down',
-                5: 'toggle'}
-
             #timestep = jax.tree_map(lambda x: jnp.array(x), d_['data'].timestep)
             timestep: TimeStep = d_['data'].timestep
 
