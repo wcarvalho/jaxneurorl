@@ -672,13 +672,12 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
           rng_,
         )
 
-        test_end_idx = KEY_IDX if self.test_episodes_ends_on_key_pickup else 2+task_object_idx
         termination_object = jnp.where(
             params.training,
             # goal object picked up
             goal_room_objects[TRAIN_OBJECT_IDX],
             # goal key picked up
-            goal_room_objects[test_end_idx],
+            goal_room_objects[KEY_IDX],
         )
         state = EnvState(
             key=rng,
