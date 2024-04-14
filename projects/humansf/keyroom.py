@@ -404,12 +404,19 @@ def make_observation(state: EnvState, prev_action: jax.Array, params: EnvParams)
   observation = jax.tree_map(lambda x: jax.lax.stop_gradient(x), observation)
   return observation
 
+
+def pair_object_picked_up(params, state):
+    """True if any object in pairs is picked up."""
+    pairs = params.maze_config['pairs'].reshape(-1, 2)
+    pair_object_picked_up = (pairs == state.agent.pocket[None]).all(-1)
+    return pair_object_picked_up.any()
+
 class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
 
-    def __init__(self, test_end_on_key: bool = True, name='keyroom'):
+    def __init__(self, test_episodes_ends_on_key_pickup: bool = True, name='keyroom'):
         super().__init__()
         self.name = name
-        self.test_end_on_key = test_end_on_key
+        self.test_episodes_ends_on_key_pickup = test_episodes_ends_on_key_pickup
 
     def action_space(
         self, params: Optional[EnvParams] = None
@@ -665,7 +672,7 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
           rng_,
         )
 
-        test_end_idx = KEY_IDX if self.test_end_on_key else 2+task_object_idx
+        test_end_idx = KEY_IDX if self.test_episodes_ends_on_key_pickup else 2+task_object_idx
         termination_object = jnp.where(
             params.training,
             # goal object picked up
@@ -765,7 +772,10 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
                                 state=States.PICKED_UP, asarray=True)
           return (pocket == task_object).all()
 
-        terminated = picked_up(new_state.termination_object)
+        if self.test_episodes_ends_on_key_pickup:
+          terminated = picked_up(new_state.termination_object)
+        else:
+          terminated = pair_object_picked_up(params, new_state)
         truncated = jnp.equal(new_state.step_num, self.time_limit(params))
 
         state_features = new_observation.state_features.astype(
@@ -777,7 +787,7 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
            # use accomplishment of state features as reward
            lambda: (state_features*new_observation.task_w).sum(),
            # was key for goal object picked up?
-           lambda: picked_up(goal_room_objects[KEY_IDX]).astype(jnp.float32) if self.test_end_on_key else (state_features*new_observation.task_w).sum()
+           lambda: picked_up(goal_room_objects[KEY_IDX]).astype(jnp.float32) if self.test_episodes_ends_on_key_pickup else (state_features*new_observation.task_w).sum()
         )
 
         step_type = jax.lax.select(
