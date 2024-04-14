@@ -9,6 +9,14 @@ from xminigrid.environment import Environment, EnvParams, EnvParamsT
 from xminigrid.types import AgentState, EnvCarry, State, TimeStep, EnvCarryT, IntOrArray, StepType, GridState
 from xminigrid.core.grid import check_pickable
 
+def get_action_names(maze_config: dict):
+    keys = [" ".join(k[::-1]) for k in maze_config['keys']]
+    pairs = []
+    for p in maze_config['pairs']:
+        pairs.extend([" ".join(p[0][::-1]), " ".join(p[1][::-1])])
+    return keys + pairs
+
+
 
 class SymbolicKeyRoomEnvParams(KeyRoomEnvParams):
     action_objects: jax.Array = None

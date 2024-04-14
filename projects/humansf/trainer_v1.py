@@ -83,8 +83,17 @@ def run_single(
 
     if symbolic:
       env = keyroom_symbolic.KeyRoomSymbolic()
+      action_names = keyroom_symbolic.get_action_names(maze_config)
     else:
       env = keyroom.KeyRoom()
+      action_names = {
+          0: 'forward',
+          1: 'right',
+          2: 'left',
+          3: 'pickup',
+          4: 'put_down',
+          5: 'toggle'}
+
 
     env_params = env.default_params(
       maze_config=maze_config,
@@ -137,6 +146,7 @@ def run_single(
             qlearning.make_logger,
             maze_config=maze_config,
             get_task_name=get_task_name,
+            action_names=action_names,
             ),
       )
     else:
@@ -182,7 +192,7 @@ def sweep(search: str = ''):
   if search == 'default':
     shared = {
       "config_name": tune.grid_search(['ql_keyroom']),
-      'env.NUM_ROOMS': tune.grid_search([1, 2]),
+      'env.NUM_ROOMS': tune.grid_search([1, 2, 4]),
     }
     space = [
         #{
@@ -196,13 +206,15 @@ def sweep(search: str = ''):
         #    **shared,
         #},
         {
-            "group": tune.grid_search(['qlearning-45-symb-fix']),
+            "group": tune.grid_search(['qlearning-46-reg']),
+            "alg": tune.grid_search(['qlearning']),
+            'env.symbolic': tune.grid_search([False]),
+            **shared,
+        },
+        {
+            "group": tune.grid_search(['qlearning-46-symb']),
             "alg": tune.grid_search(['qlearning']),
             'env.symbolic': tune.grid_search([True]),
-            "ENCODER_INIT": tune.grid_search(['word_init', 'word_init2', 'truncated']),
-            #"BUFFER_BATCH_SIZE": tune.grid_search([32, 128, 256]),
-            #"TRAINING_INTERVAL": tune.grid_search([1, 10]),
-            #"NUM_ENVS": tune.grid_search([32, 64]),
             **shared,
         },
       ]
