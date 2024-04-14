@@ -15,6 +15,7 @@ class KeyroomObsEncoder(nn.Module):
     """
     hidden_dim: int = 128
     image_hidden_dim: int = 512
+    include_task: bool = True
     init: str = 'word_init'
 
     @nn.compact
@@ -41,7 +42,6 @@ class KeyroomObsEncoder(nn.Module):
 
         # [B, D]
         vector_inputs = (
-            nn.Dense(self.hidden_dim, kernel_init=initialization)(obs.task_w),  # [continuous]
             embed(obs.direction),       # 1-hot
             embed(obs.state_features),  # binary
             embed(obs.has_occurred),    # binary
@@ -51,7 +51,7 @@ class KeyroomObsEncoder(nn.Module):
             embed(obs.prev_action),          # binary
         )
         vector = jnp.concatenate(vector_inputs, axis=-1)
-
+        vector = nn.relu(nn.Dense(128)(vector))
         ###################
         # embed image inputs
         ###################
@@ -64,12 +64,17 @@ class KeyroomObsEncoder(nn.Module):
 
         # turn into vector
         image = image.reshape(image.shape[0], -1)
+        image = nn.relu(nn.Dense(self.image_hidden_dim)(image))
 
         ###################
         # combine
         ###################
-
-        outputs = jnp.concatenate((image, vector), axis=-1)
+        if self.include_task:
+            task_w = nn.Dense(self.hidden_dim, kernel_init=initialization)(obs.task_w)  # [continuous]
+            outputs = (image, vector, task_w)
+            outputs = jnp.concatenate(outputs, axis=-1)
+        else:
+            outputs = jnp.concatenate((image, vector), axis=-1)
         outputs = nn.Sequential([
             nn.Dense(self.image_hidden_dim), nn.relu,
             nn.Dense(self.image_hidden_dim), nn.relu

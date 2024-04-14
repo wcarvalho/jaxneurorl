@@ -223,8 +223,8 @@ def experience_logger(
         #--------------------
         metrics = collections.defaultdict(list)
 
-        return_key = lambda name: f'{key}/0. {name.capitalize()} - AvgReturn'
-        length_key = lambda name: f'{key}/1. {name.capitalize()} - AvgLength'
+        return_key = lambda name: f'{key}/0.1 {name.capitalize()} - AvgReturn'
+        length_key = lambda name: f'{key}/1.1 {name.capitalize()} - AvgLength'
   
         for idx in range(end):
           task_info = jax.tree_map(lambda x: x[0, idx], os.task_info_buffer.experience)
@@ -235,8 +235,8 @@ def experience_logger(
 
         metrics = {k: np.array(v).mean() for k, v in metrics.items()}
         metrics.update({
-            f'{key}/avg_episode_length': os.episode_lengths[:end].mean(),
-            f'{key}/avg_episode_return': os.episode_returns[:end].mean(),
+            f'{key}/1.0. avg_episode_length': os.episode_lengths[:end].mean(),
+            f'{key}/0.0 avg_episode_return': os.episode_returns[:end].mean(),
             f'{key}/num_actor_steps': ts.timesteps,
             f'{key}/num_learner_updates': ts.n_updates,
         })
