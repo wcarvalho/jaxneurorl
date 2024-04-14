@@ -772,8 +772,10 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
                                 state=States.PICKED_UP, asarray=True)
           return (pocket == task_object).all()
 
-        #terminated = picked_up(new_state.termination_object)
-        terminated = pair_object_picked_up(params, new_state)
+        if self.test_end_on_key:
+          terminated = picked_up(new_state.termination_object)
+        else:
+          terminated = pair_object_picked_up(params, new_state)
         truncated = jnp.equal(new_state.step_num, self.time_limit(params))
 
         state_features = new_observation.state_features.astype(
