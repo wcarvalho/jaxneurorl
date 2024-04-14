@@ -404,6 +404,13 @@ def make_observation(state: EnvState, prev_action: jax.Array, params: EnvParams)
   observation = jax.tree_map(lambda x: jax.lax.stop_gradient(x), observation)
   return observation
 
+
+def pair_object_picked_up(params, state):
+    """True if any object in pairs is picked up."""
+    pairs = params.maze_config['pairs'].reshape(-1, 2)
+    pair_object_picked_up = (pairs == state.agent.pocket[None]).all(-1)
+    return pair_object_picked_up.any()
+
 class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
 
     def __init__(self, test_end_on_key: bool = True, name='keyroom'):
@@ -765,7 +772,8 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
                                 state=States.PICKED_UP, asarray=True)
           return (pocket == task_object).all()
 
-        terminated = picked_up(new_state.termination_object)
+        #terminated = picked_up(new_state.termination_object)
+        terminated = pair_object_picked_up(params, new_state)
         truncated = jnp.equal(new_state.step_num, self.time_limit(params))
 
         state_features = new_observation.state_features.astype(
