@@ -23,10 +23,10 @@ class SymbolicKeyRoomEnvParams(KeyRoomEnvParams):
 
 class KeyRoomSymbolic(KeyRoom):
 
-    def __init__(self, test_end_on_key: bool = False, name='keyroom'):
+    def __init__(self, test_episodes_ends_on_key_pickup: bool = False, name='keyroom'):
         super().__init__()
         self.name = name
-        self.test_end_on_key = test_end_on_key
+        self.test_episodes_ends_on_key_pickup = test_episodes_ends_on_key_pickup
 
     def time_limit(self, params: EnvParams) -> int:
         return 10
@@ -59,7 +59,6 @@ class KeyRoomSymbolic(KeyRoom):
         )
 
         return grid, agent, None
-
 
 def object_action(rng, action, action_object, timestep, params):
     roomW, roomH = params.width // 3, params.height // 3
