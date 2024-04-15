@@ -205,7 +205,7 @@ def sweep(search: str = ''):
         #    **shared,
         #},
         {
-            "group": tune.grid_search(['qlearning-56-symb']),
+            "group": tune.grid_search(['qlearning-59-symb']),
             "alg": tune.grid_search(['qlearning']),
             "GAMMA": tune.grid_search([.6]),
             'env.symbolic': tune.grid_search([True]),
