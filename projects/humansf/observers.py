@@ -218,7 +218,9 @@ def experience_logger(
 
     def callback(ts: TrainState, os: BasicObserverState):
         # main
-        end = min(os.idx + 1, len(os.episode_lengths))
+        task_info_buffer = os.task_info_buffer.experience
+        len_task_info = max((jax.tree_map(lambda x: x.shape[-1], task_info_buffer)).values())
+        end = min(os.idx + 1, len(os.episode_lengths), len_task_info)
 
         #--------------------
         # per-task logging
@@ -229,7 +231,7 @@ def experience_logger(
         length_key = lambda name: f'{key}/1.1 {name.capitalize()} - AvgLength'
   
         for idx in range(end):
-          task_info = jax.tree_map(lambda x: x[0, idx], os.task_info_buffer.experience)
+          task_info = jax.tree_map(lambda x: x[0, idx], task_info_buffer)
           task_name = get_task_name(task_info)
 
           if os.finished[idx] > 0:

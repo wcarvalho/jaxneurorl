@@ -29,7 +29,7 @@ class KeyRoomSymbolic(KeyRoom):
         self.test_episodes_ends_on_key_pickup = test_episodes_ends_on_key_pickup
 
     def time_limit(self, params: EnvParams) -> int:
-        return 10
+        return 20
 
     def default_params(self, *args, **kwargs):
         params = super().default_params(*args, **kwargs)

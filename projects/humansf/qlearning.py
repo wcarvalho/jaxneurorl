@@ -285,10 +285,6 @@ def make_logger(
                 state_images.append(state_image)
                 obs_images.append(obs_image)
 
-                #if timestep.last()[idx]:
-                #    import ipdb; ipdb.set_trace()
-                #    assert timestep.discount[idx] < 1e-4, f'bug?, discount={timestep.discount[idx]}'
-
             # ------------
             # task name
             # ------------
