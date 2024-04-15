@@ -204,19 +204,21 @@ def make_logger(
             # [T, B, ...] --> # [T, ...]
             d_ = jax.tree_map(lambda x: x[:, 0], d)
 
-            rewards = d_['data'].timestep.reward[1:]
-            discounts = d_['data'].timestep.discount[1:]
-            actions = d_['data'].action[:-1]
-            q_values = d_['q_values'][:-1]
+            mask = d_['mask']
+            discounts = d_['data'].timestep.discount
+            rewards = d_['data'].timestep.reward
+            actions = d_['data'].action
+            q_values = d_['q_values']
+            q_target = d_['q_target']
             q_values_taken = np.take_along_axis(
                 q_values, actions[..., None], axis=-1).squeeze(-1)
             td_errors = d_['td_errors']
             q_loss = d_['q_loss']
 
             # Create a figure with three subplots
-            width = .4
+            width = .3
             nT = len(rewards)  # e.g. 20 --> 8
-            fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(int(width*nT), 12))
+            fig, (ax1, ax2, ax3, ax4) = plt.subplots(4, 1, figsize=(int(width*nT), 12))
 
             # Plot rewards and q-values in the top subplot
             def format(ax):
@@ -224,8 +226,8 @@ def make_logger(
                 ax.grid(True)
                 ax.set_xticks(range(0, len(rewards), 1))
             ax1.plot(rewards, label='Rewards')
-            ax1.plot(discounts, label='Discounts')
             ax1.plot(q_values_taken, label='Q-Values')
+            ax1.plot(q_target, label='Q-Targets')
             ax1.set_title('Rewards and Q-Values')
             format(ax1)
             ax1.legend()
@@ -239,6 +241,14 @@ def make_logger(
             ax3.plot(q_loss)
             format(ax3)
             ax3.set_title('Q-Loss')
+
+            # Plot episode quantities
+            is_last = d_['data'].timestep.last()[1:]
+            ax4.plot(discounts, label='Discounts')
+            ax4.plot(mask, label='mask')
+            ax4.plot(is_last, label='is_last')
+            format(ax4)
+            ax4.set_title('Episode markers')
 
             # Adjust the spacing between subplots
             plt.tight_layout()
@@ -290,7 +300,6 @@ def make_logger(
             # ------------
             # plot
             # ------------
-            mask = d_['mask']
             actions_taken = [action_names[int(a)] for a in d_['data'].action]
             fig = plot_frames(task_name,
                 frames=obs_images,
