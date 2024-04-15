@@ -174,9 +174,11 @@ def plot_frames(task_name, frames, rewards, discounts, mask, actions_taken, W, m
         ax.imshow(frames[i])
         ax.axis('off')  # Hide the axis
 
-        if i < len(actions_taken) and i < len(rewards):
+        try:
             ax.set_title(
                 f"{i}: {actions_taken[i]}\nr={rewards[i]}, $\\gamma={discounts[i]}$, m={mask[i]}")
+        except Exception:
+            pass
 
     # Hide unused subplots
     for i in range(T, H * W):
@@ -210,8 +212,7 @@ def make_logger(
             actions = d_['data'].action
             q_values = d_['q_values']
             q_target = d_['q_target']
-            q_values_taken = np.take_along_axis(
-                q_values, actions[..., None], axis=-1).squeeze(-1)
+            q_values_taken = rlax.batched_index(q_values, actions)
             td_errors = d_['td_errors']
             q_loss = d_['q_loss']
 
@@ -243,7 +244,7 @@ def make_logger(
             ax3.set_title('Q-Loss')
 
             # Plot episode quantities
-            is_last = d_['data'].timestep.last()[1:]
+            is_last = d_['data'].timestep.last()
             ax4.plot(discounts, label='Discounts')
             ax4.plot(mask, label='mask')
             ax4.plot(is_last, label='is_last')
