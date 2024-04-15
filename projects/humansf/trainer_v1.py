@@ -96,8 +96,7 @@ def run_single(
 
 
     env_params = env.default_params(
-      maze_config=maze_config,
-      **config['env']['ENV_KWARGS'])
+      maze_config=maze_config, **config['env']['ENV_KWARGS'])
     test_env_params = env_params.replace(training=False)
 
     # auto-reset wrapper
@@ -206,16 +205,16 @@ def sweep(search: str = ''):
         #    **shared,
         #},
         {
-            "group": tune.grid_search(['qlearning-53-reg']),
+            "group": tune.grid_search(['qlearning-56-symb']),
             "alg": tune.grid_search(['qlearning']),
-            'env.symbolic': tune.grid_search([False]),
+            "GAMMA": tune.grid_search([.6]),
+            'env.symbolic': tune.grid_search([True]),
             **shared,
         },
         #{
-        #    "group": tune.grid_search(['qlearning-53-symb']),
+        #    "group": tune.grid_search(['qlearning-55-reg']),
         #    "alg": tune.grid_search(['qlearning']),
-        #    "GAMMA": tune.grid_search([.3, .6, .9]),
-        #    'env.symbolic': tune.grid_search([True]),
+        #    'env.symbolic': tune.grid_search([False]),
         #    **shared,
         #},
         #{

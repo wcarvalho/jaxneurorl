@@ -675,11 +675,8 @@ def make_train_step(
         ##############################
         observer = ObserverCls(
            num_envs=config['NUM_ENVS'],
-           log_period=int(config['ACTOR_LOG_PERIOD']//config['NUM_ENVS']))
-        eval_observer = ObserverCls(
-            num_envs=config['NUM_ENVS'],
-            log_period=config['EVAL_EPISODES'])
-
+           log_period=5_000)  #random large number
+        eval_observer = observer
         example_predictions, _ = agent.apply(
             train_state.params, init_agent_state, init_timestep, dummy_rng)
 
@@ -1025,10 +1022,8 @@ def make_train_unroll(
         ##############################
         observer = ObserverCls(
             num_envs=config['NUM_ENVS'],
-            log_period=int(config['ACTOR_LOG_PERIOD']//config['NUM_ENVS']))
-        eval_observer = ObserverCls(
-            num_envs=config['NUM_ENVS'],
-            log_period=config['EVAL_EPISODES'])
+            log_period=5_000)
+        eval_observer = observer
 
         example_predictions, _ = agent.apply(
             train_state.params, init_agent_state, init_timestep, dummy_rng)

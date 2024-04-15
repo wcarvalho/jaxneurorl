@@ -45,6 +45,7 @@ class Observer(abc.ABC):
 class BasicObserverState:
   episode_returns: jax.Array
   episode_lengths: jax.Array
+  finished: jax.Array
   #episode_starts: jax.Array
   #action_buffer: fbx.trajectory_buffer.TrajectoryBufferState
   #timestep_buffer: fbx.trajectory_buffer.TrajectoryBufferState
@@ -118,8 +119,8 @@ class TaskObserver(Observer):
 
     observer_state = BasicObserverState(
       episode_returns=jnp.zeros((self.log_period), dtype=jnp.float32),
-      #episode_starts=jnp.zeros((self.log_period), dtype=jnp.int32),
       episode_lengths=jnp.zeros((self.log_period), dtype=jnp.int32),
+      finished=jnp.zeros((self.log_period), dtype=jnp.int32),
       task_info_buffer=self.task_info_buffer.init(
          get_first(self.extract_task_info(example_timestep))),
       #timestep_buffer=self.buffer.init(get_first(example_timestep)),
@@ -173,7 +174,7 @@ class TaskObserver(Observer):
 
     def advance_episode(os):
       # beginning new episode
-      idx = os.idx + 1
+      next_idx = os.idx + 1
       task_info_buffer = add_first_to_buffer(
             buffer=self.buffer,
             buffer_state=os.task_info_buffer,
@@ -181,10 +182,11 @@ class TaskObserver(Observer):
           )
 
       return os.replace(
-        idx=idx,
+        idx=next_idx,
         task_info_buffer=task_info_buffer,
-        episode_lengths=os.episode_lengths.at[idx].add(1),
-        episode_returns=os.episode_returns.at[idx].add(first_next_timestep.reward)
+        finished=os.finished.at[os.idx].add(1),
+        episode_lengths=os.episode_lengths.at[next_idx].add(1),
+        episode_returns=os.episode_returns.at[next_idx].add(first_next_timestep.reward)
         )
 
     def update_episode(os):
@@ -230,12 +232,13 @@ def experience_logger(
           task_info = jax.tree_map(lambda x: x[0, idx], os.task_info_buffer.experience)
           task_name = get_task_name(task_info)
 
-          metrics[return_key(task_name)].append(os.episode_returns[idx])
-          metrics[length_key(task_name)].append(os.episode_lengths[idx])
+          if os.finished[idx] > 0:
+            metrics[return_key(task_name)].append(os.episode_returns[idx])
+            metrics[length_key(task_name)].append(os.episode_lengths[idx])
 
         metrics = {k: np.array(v).mean() for k, v in metrics.items()}
         metrics.update({
-            f'{key}/1.0. avg_episode_length': os.episode_lengths[:end].mean(),
+            #f'{key}/1.0. avg_episode_length': os.episode_lengths[:end].mean(),
             f'{key}/0.0 avg_episode_return': os.episode_returns[:end].mean(),
             f'{key}/num_actor_steps': ts.timesteps,
             f'{key}/num_learner_updates': ts.n_updates,

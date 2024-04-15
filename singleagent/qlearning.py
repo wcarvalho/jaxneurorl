@@ -97,8 +97,9 @@ class R2D2LossFn(vbb.RecurrentLossFn):
     batch_td_error = target_q_t - q_t
 
     # ensure loss = 0 when episode truncates
+    # truncated if FINAL time-step but data.discount = 1.0, something like [1,1,2,1,1]
     truncated = (data.discount+is_last) > 1  # truncated is discount on AND is last
-    loss_mask = (1-truncated).astype(batch_td_error.dtype)
+    loss_mask = (1-truncated).astype(batch_td_error.dtype)[:-1]
     batch_td_error = batch_td_error*loss_mask
 
     # [T, B]
@@ -143,11 +144,11 @@ def make_logger(config: dict,
             # [T, B, ...] --> # [T, ...]
             d_ = jax.tree_map(lambda x: x[:, 0], d)
 
-            rewards = d_['data'].timestep.reward[1:]
-            actions = d_['data'].action[:-1]
-            q_values = d_['q_values'][:-1]
+            rewards = d_['data'].timestep.reward
+            actions = d_['data'].action
+            q_values = d_['q_values']
             q_target = d_['q_target']
-            q_values_taken = np.take_along_axis(q_values, actions[..., None], axis=-1).squeeze(-1)
+            q_values_taken = rlax.batched_index(q_values, actions)
             td_errors = d_['td_errors']
             q_loss = d_['q_loss']
 
