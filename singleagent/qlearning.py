@@ -74,7 +74,6 @@ class R2D2LossFn(vbb.RecurrentLossFn):
     lambda_ = jnp.ones_like(data.discount)*self.lambda_
     rewards = float(data.reward)
     is_last = float(data.is_last)
-    mask = float(data.mask[:-1])  # if 0, episode ending
 
     # Get N-step transformed TD error and loss.
     batch_td_error_fn = jax.vmap(
@@ -93,20 +92,25 @@ class R2D2LossFn(vbb.RecurrentLossFn):
         is_last[1:],
         lambda_[1:])      # [T+1] --> [T]
 
+    # ensure target = 0 when episode terminates
+    target_q_t = target_q_t*data.discount[:-1]
     batch_td_error = target_q_t - q_t
-    target_q_t = target_q_t*mask
-    batch_td_error = batch_td_error*mask
+
+    # ensure loss = 0 when episode truncates
+    truncated = (data.discount+is_last) > 1  # truncated is discount on AND is last
+    loss_mask = (1-truncated).astype(batch_td_error.dtype)
+    batch_td_error = batch_td_error*loss_mask
 
     # [T, B]
     batch_loss = 0.5 * jnp.square(batch_td_error)
 
     # [B]
-    batch_loss_mean = vbb.masked_mean(batch_loss, mask)
+    batch_loss_mean = vbb.masked_mean(batch_loss, loss_mask)
 
     metrics = {
         '0.q_loss': batch_loss.mean(),
         '0.q_td': jnp.abs(batch_td_error).mean(),
-        '1.reward': (rewards[1:]*mask).mean(),
+        '1.reward': rewards[1:].mean(),
         'z.q_mean': self.extract_q(online_preds).mean(),
         'z.q_var': self.extract_q(online_preds).var(),
         }
@@ -115,7 +119,7 @@ class R2D2LossFn(vbb.RecurrentLossFn):
         self.logger.learner_log_extra({
         'data': data,
         'td_errors': batch_td_error,                 # [T]
-        'mask': mask,                 # [T]
+        'mask': loss_mask,                 # [T]
         'q_values': self.extract_q(online_preds),    # [T, B]
         'q_loss': batch_loss,                        #[ T, B]
         'q_target': target_q_t,
