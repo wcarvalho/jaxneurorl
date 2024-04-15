@@ -21,3 +21,7 @@ Below is a schematic of the general learning algorithm used in this [codebase](s
 
 1. [FAS Install and Setup](install-fas.md)
 2. [Local Install and Setup](install.md)
+
+
+# General todos
+1. Replace default LSTM with S5 (maybe [this implementation](https://github.com/facebookresearch/minimax/blob/2ae9e04d37f97d7c14308f5a26237dcfca63470f/src/minimax/models/s5.py#L575)?]

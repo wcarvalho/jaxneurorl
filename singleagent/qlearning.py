@@ -142,6 +142,7 @@ def make_logger(config: dict,
             rewards = d_['data'].timestep.reward[1:]
             actions = d_['data'].action[:-1]
             q_values = d_['q_values'][:-1]
+            q_target = d_['q_target']
             q_values_taken = np.take_along_axis(q_values, actions[..., None], axis=-1).squeeze(-1)
             td_errors = d_['td_errors']
             q_loss = d_['q_loss']
@@ -152,6 +153,7 @@ def make_logger(config: dict,
             # Plot rewards and q-values in the top subplot
             ax1.plot(rewards, label='Rewards')
             ax1.plot(q_values_taken, label='Q-Values')
+            ax1.plot(q_target, label='Q-Targets')
             ax1.set_xlabel('Time')
             ax1.set_title('Rewards and Q-Values')
             ax1.legend()

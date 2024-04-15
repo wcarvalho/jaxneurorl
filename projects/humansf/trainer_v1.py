@@ -192,7 +192,7 @@ def sweep(search: str = ''):
   if search == 'default':
     shared = {
       "config_name": tune.grid_search(['ql_keyroom']),
-      'env.NUM_ROOMS': tune.grid_search([1, 2, 4]),
+      'env.NUM_ROOMS': tune.grid_search([4, 2, 1]),
     }
     space = [
         #{
@@ -205,15 +205,16 @@ def sweep(search: str = ''):
         #    "NUM_ENVS": tune.grid_search([32, 64]),
         #    **shared,
         #},
+        #{
+        #    "group": tune.grid_search(['qlearning-51-reg']),
+        #    "alg": tune.grid_search(['qlearning']),
+        #    'env.symbolic': tune.grid_search([False]),
+        #    **shared,
+        #},
         {
-            "group": tune.grid_search(['qlearning-46-reg']),
+            "group": tune.grid_search(['qlearning-52-symb']),
             "alg": tune.grid_search(['qlearning']),
-            'env.symbolic': tune.grid_search([False]),
-            **shared,
-        },
-        {
-            "group": tune.grid_search(['qlearning-46-symb']),
-            "alg": tune.grid_search(['qlearning']),
+            "GAMMA": tune.grid_search([.3, .6]),
             'env.symbolic': tune.grid_search([True]),
             **shared,
         },
