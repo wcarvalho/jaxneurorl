@@ -249,6 +249,7 @@ def make_logger(
             ax4.plot(is_last, label='is_last')
             format(ax4)
             ax4.set_title('Episode markers')
+            ax4.legend()
 
             # Adjust the spacing between subplots
             plt.tight_layout()

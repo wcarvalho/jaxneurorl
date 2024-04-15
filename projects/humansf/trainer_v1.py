@@ -205,19 +205,19 @@ def sweep(search: str = ''):
         #    "NUM_ENVS": tune.grid_search([32, 64]),
         #    **shared,
         #},
-        #{
-        #    "group": tune.grid_search(['qlearning-51-reg']),
-        #    "alg": tune.grid_search(['qlearning']),
-        #    'env.symbolic': tune.grid_search([False]),
-        #    **shared,
-        #},
         {
-            "group": tune.grid_search(['qlearning-52-symb']),
+            "group": tune.grid_search(['qlearning-53-reg']),
             "alg": tune.grid_search(['qlearning']),
-            "GAMMA": tune.grid_search([.3, .6]),
-            'env.symbolic': tune.grid_search([True]),
+            'env.symbolic': tune.grid_search([False]),
             **shared,
         },
+        #{
+        #    "group": tune.grid_search(['qlearning-53-symb']),
+        #    "alg": tune.grid_search(['qlearning']),
+        #    "GAMMA": tune.grid_search([.3, .6, .9]),
+        #    'env.symbolic': tune.grid_search([True]),
+        #    **shared,
+        #},
         #{
         #    "group": tune.grid_search(['qlearning-47-reg-fix']),
         #    "alg": tune.grid_search(['qlearning']),
