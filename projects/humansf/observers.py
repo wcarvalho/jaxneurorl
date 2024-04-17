@@ -245,7 +245,7 @@ def experience_logger(
   
         for idx in range(end):
           task_info = jax.tree_map(lambda x: x[0, idx], task_info_buffer)
-          task_name = get_task_name(task_info)
+          task_name = get_task_name(**task_info)
 
           if os.finished[idx] > 0:
             metrics[return_key(task_name)].append(os.episode_returns[idx])
@@ -262,7 +262,6 @@ def experience_logger(
           wandb.log(metrics)
 
         if log_details_period and (ts.n_updates % log_details_period == 0):
-          import ipdb; ipdb.set_trace()
           timesteps = jax.tree_map(lambda x: x[0], os.timestep_buffer.experience)
           actions = jax.tree_map(lambda x: x[0], os.action_buffer.experience)
           #predictions = jax.tree_map(lambda x: x[0], os.prediction_buffer.experience)
