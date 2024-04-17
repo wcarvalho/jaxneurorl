@@ -142,6 +142,15 @@ def sweep(search: str = ''):
             "ENV_NAME": tune.grid_search(['Breakout-MinAtar',]),
         },
     ]
+  elif search == 'alpha':
+    space = [
+        {
+            "group": tune.grid_search(['baselines-Breakout-13']),
+            "alg": tune.grid_search(['alphazero']),
+            "config_name": tune.grid_search(['qlearning']),
+            "ENV_NAME": tune.grid_search(['Breakout-MinAtar',]),
+        },
+    ]
   else:
     raise NotImplementedError(search)
 
