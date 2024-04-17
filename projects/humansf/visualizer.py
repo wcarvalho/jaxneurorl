@@ -26,7 +26,12 @@ def plot_timestep_observations(
         obs_images.append(obs_image)
 
 
-def plot_frames(task_name, frames, rewards, discounts, actions_taken, W, mask = None, max_frames=1e10):
+def plot_frames(
+        timesteps,
+        frames,
+        ncols,
+        panel_title_fn = lambda t,i: '',
+        max_frames=1e10):
     """
     Dynamically plots frames in a single figure based on the number of columns (W) and maximum number of frames.
 
@@ -37,14 +42,11 @@ def plot_frames(task_name, frames, rewards, discounts, actions_taken, W, mask = 
     :param max_frames: Maximum number of frames to plot.
     :param W: Number of columns in the plot's grid.
     """
-    if mask is None:
-        mask = jax.numpy.ones(len(actions_taken))
     T = min(len(frames), max_frames)  # Total number of frames to plot (limited by max_frames)
-    H = ceil(T / W)  # Calculate number of rows required
+    H = ceil(T / ncols)  # Calculate number of rows required
     width = 3
 
-    fig, axs = plt.subplots(H, W, figsize=(W*width, H*width), squeeze=False)
-    fig.suptitle(task_name)
+    fig, axs = plt.subplots(H, ncols, figsize=(ncols*width, H*width), squeeze=False)
 
     # Flatten the axes array for easy iteration
     axs = axs.ravel()
@@ -55,13 +57,12 @@ def plot_frames(task_name, frames, rewards, discounts, actions_taken, W, mask = 
         ax.axis('off')  # Hide the axis
 
         try:
-            ax.set_title(
-                f"t={i}\n{actions_taken[i]}\nr={rewards[i]}, $\\gamma={discounts[i]}$, m={mask[i]}")
+            ax.set_title(panel_title_fn(timesteps, i))
         except Exception:
             pass
 
     # Hide unused subplots
-    for i in range(T, H * W):
+    for i in range(T, H * ncols):
         axs[i].axis('off')
 
     plt.tight_layout()

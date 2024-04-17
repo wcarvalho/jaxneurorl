@@ -47,8 +47,10 @@ os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']='false'
 
 import library.flags
 from library import parallel
-from singleagent import qlearning
 from singleagent import value_based_basics as vbb
+
+from singleagent import alphazero
+from singleagent import qlearning
 FLAGS = flags.FLAGS
 
 def run_single(
@@ -86,7 +88,14 @@ def run_single(
         make_optimizer=qlearning.make_optimizer,
         make_loss_fn_class=qlearning.make_loss_fn_class,
         make_actor=qlearning.make_actor,
-        train_step_type=config.pop("TRAIN_TYPE", 'unroll'),
+      )
+    elif alg_name == 'alphazero':
+      make_train = partial(
+        vbb.make_train,
+        make_agent=alphazero.make_agent,
+        make_optimizer=qlearning.make_optimizer,
+        make_loss_fn_class=alphazero.make_loss_fn_class,
+        make_actor=alphazero.make_actor,
       )
     else:
       raise NotImplementedError(alg_name)

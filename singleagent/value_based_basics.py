@@ -519,6 +519,8 @@ def log_performance(
         runner_state.train_state,
         final_eval_runner_state.observer_state,
         'evaluator_performance',
+        # log trajectory details for evaluator at this period
+        # counter = number of learner updates
         log_details_period=config.get("EVAL_LOG_PERIOD", 5_000),
     )
 
