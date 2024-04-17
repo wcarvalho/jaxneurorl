@@ -14,7 +14,8 @@ def get_action_names(maze_config: dict):
     pairs = []
     for p in maze_config['pairs']:
         pairs.extend([" ".join(p[0][::-1]), " ".join(p[1][::-1])])
-    return keys + pairs
+    actions = keys + pairs
+    return {i:name for i, name in enumerate(actions)}
 
 
 
@@ -42,7 +43,7 @@ class KeyRoomSymbolic(KeyRoom):
         )
 
     def action_space(
-        self, params: Optional[EnvParams] = None
+        self, params: EnvParams,
     ) -> spaces.Discrete:
         """Action space of the environment."""
         return spaces.Discrete(len(params.action_objects))

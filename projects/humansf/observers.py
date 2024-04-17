@@ -1,17 +1,20 @@
 
 import abc
 import collections
-from typing import Dict, Union, Optional, Callable
+from typing import Dict, Union, Optional, Callable, Optional
 
 import jax
 import jax.numpy as jnp
 import flashbax as fbx
 from flax import struct
+from flax.training.train_state import TrainState
 import numpy as np
 import wandb
-from flax.training.train_state import TrainState
+import matplotlib.pyplot as plt
 
 
+from projects.humansf import keyroom
+from projects.humansf.visualizer import plot_frames
 from singleagent.basics import TimeStep
 
 Number = Union[int, float, np.float32, jnp.float32]
@@ -46,10 +49,9 @@ class BasicObserverState:
   episode_returns: jax.Array
   episode_lengths: jax.Array
   finished: jax.Array
-  #episode_starts: jax.Array
-  #action_buffer: fbx.trajectory_buffer.TrajectoryBufferState
-  #timestep_buffer: fbx.trajectory_buffer.TrajectoryBufferState
-  #prediction_buffer: fbx.trajectory_buffer.TrajectoryBufferState
+  action_buffer: fbx.trajectory_buffer.TrajectoryBufferState
+  timestep_buffer: fbx.trajectory_buffer.TrajectoryBufferState
+  prediction_buffer: fbx.trajectory_buffer.TrajectoryBufferState
   task_info_buffer: fbx.trajectory_buffer.TrajectoryBufferState
   idx: jax.Array = jnp.array(0, dtype=jnp.int32)
   episodes: jax.Array = jnp.array(0, dtype=jnp.int32)
@@ -123,9 +125,9 @@ class TaskObserver(Observer):
       finished=jnp.zeros((self.log_period), dtype=jnp.int32),
       task_info_buffer=self.task_info_buffer.init(
          get_first(self.extract_task_info(example_timestep))),
-      #timestep_buffer=self.buffer.init(get_first(example_timestep)),
-      #action_buffer=self.buffer.init(get_first(example_action)),
-      #prediction_buffer=self.buffer.init(get_first(example_predictions)),
+      timestep_buffer=self.buffer.init(get_first(example_timestep)),
+      action_buffer=self.buffer.init(get_first(example_action)),
+      prediction_buffer=self.buffer.init(get_first(example_predictions)),
     )
     return observer_state
 
@@ -145,7 +147,10 @@ class TaskObserver(Observer):
     )
 
     observer_state = observer_state.replace(
-      task_info_buffer=task_info_buffer)
+      task_info_buffer=task_info_buffer,
+      timestep_buffer=add_first_to_buffer(
+        self.buffer, observer_state.timestep_buffer, first_timestep),
+      )
 
     return observer_state
 
@@ -186,7 +191,10 @@ class TaskObserver(Observer):
         task_info_buffer=task_info_buffer,
         finished=os.finished.at[os.idx].add(1),
         episode_lengths=os.episode_lengths.at[next_idx].add(1),
-        episode_returns=os.episode_returns.at[next_idx].add(first_next_timestep.reward)
+        episode_returns=os.episode_returns.at[next_idx].add(first_next_timestep.reward),
+        timestep_buffer=add_first_to_buffer(self.buffer, os.timestep_buffer, next_timestep),
+        action_buffer=add_first_to_buffer(self.buffer, os.action_buffer, action),
+        prediction_buffer=add_first_to_buffer(self.buffer, os.prediction_buffer, predictions),
         )
 
     def update_episode(os):
@@ -198,6 +206,9 @@ class TaskObserver(Observer):
       return os.replace(
         episode_lengths=os.episode_lengths.at[idx].add(1),
         episode_returns=os.episode_returns.at[idx].add(first_next_timestep.reward),
+        timestep_buffer=add_first_to_buffer(self.buffer, os.timestep_buffer, next_timestep),
+        action_buffer=add_first_to_buffer(self.buffer, os.action_buffer, action),
+        prediction_buffer=add_first_to_buffer(self.buffer, os.prediction_buffer, predictions),
       )
 
     observer_state = jax.lax.cond(
@@ -213,7 +224,9 @@ def experience_logger(
         train_state: TrainState,
         observer_state: BasicObserverState,
         key: str = 'train',
-        get_task_name: Callable = None,
+        log_details_period: int = 0,
+        action_names: Optional[dict] = None,
+        get_task_name: Callable = lambda t: 'Task',
         ):
 
     def callback(ts: TrainState, os: BasicObserverState):
@@ -247,5 +260,49 @@ def experience_logger(
         })
         if wandb.run is not None:
           wandb.log(metrics)
+
+        if not (log_details_period and ts.n_updates % log_details_period == 0): 
+          return
+        timesteps = jax.tree_map(lambda x: x[0], os.timestep_buffer.experience)
+        actions = jax.tree_map(lambda x: x[0], os.action_buffer.experience)
+        #predictions = jax.tree_map(lambda x: x[0], os.prediction_buffer.experience)
+
+        #################
+        # frames
+        #################
+        obs_images = []
+        max_len = 40
+        for idx in range(max_len):
+            index = lambda y: jax.tree_map(lambda x: x[idx], y)
+            obs_image = keyroom.render_room(
+                index(timesteps.state),
+                tile_size=8)
+            obs_images.append(obs_image)
+
+        #################
+        # actions
+        #################
+        def action_name(a):
+          if action_names is not None:
+            name = action_names.get(int(a), 'ERROR?')
+            return f"action {int(a)}: {name}"
+          else:
+            return f"action: {int(a)}"
+        actions_taken = [action_name(a) for a in actions]
+
+        #################
+        # plot
+        #################
+
+        fig = plot_frames(task_name,
+            frames=obs_images,
+            rewards=timesteps.reward,
+            actions_taken=actions_taken,
+            discounts=timesteps.discount,
+            W=6)
+        if wandb.run is not None:
+            wandb.log({f"{key}_example/trajectory": wandb.Image(fig)})
+        plt.close(fig)
+
 
     jax.debug.callback(callback, train_state, observer_state)
