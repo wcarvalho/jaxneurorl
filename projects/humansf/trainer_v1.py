@@ -3,7 +3,7 @@
 TESTING:
 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue projects/humansf/trainer_v1.py \
   --debug=True \
-  --wandb=False \
+  --wandb=True \
   --search=default
 
 JAX_DISABLE_JIT=1 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue projects/humansf/trainer_v1.py \
@@ -114,10 +114,10 @@ def run_single(
           'task_object_idx': state.task_object_idx,
        }
 
-    def get_task_name(task_info: dict):
-      setting = '0.single' if task_info['room_setting'] == 0 else '1.multi'
-      room_idx = task_info['goal_room_idx']
-      object_idx = task_info['task_object_idx']
+    def get_task_name(room_setting, goal_room_idx, task_object_idx):
+      setting = '0.single' if room_setting == 0 else '1.multi'
+      room_idx = goal_room_idx
+      object_idx = task_object_idx
       label = '1.test' if object_idx > 0 else '0.train'
 
       category, color = maze_config['pairs'][room_idx][object_idx]
@@ -206,9 +206,12 @@ def sweep(search: str = ''):
         #    **shared,
         #},
         {
-            "group": tune.grid_search(['qlearning-61-symb']),
+            "group": tune.grid_search(['qlearning-62-symb']),
             "alg": tune.grid_search(['qlearning']),
             "GAMMA": tune.grid_search([.6]),
+            "EVAL_LOG_PERIOD": tune.grid_search([500]),
+            "FIXED_EPSILON": tune.grid_search([0]),
+            "EPSILON_ANNEAL_TIME": tune.grid_search([1e5]),
             'env.symbolic': tune.grid_search([True]),
             **shared,
         },

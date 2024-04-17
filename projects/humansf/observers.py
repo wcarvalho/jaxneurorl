@@ -261,48 +261,57 @@ def experience_logger(
         if wandb.run is not None:
           wandb.log(metrics)
 
-        if not (log_details_period and ts.n_updates % log_details_period == 0): 
-          return
-        timesteps = jax.tree_map(lambda x: x[0], os.timestep_buffer.experience)
-        actions = jax.tree_map(lambda x: x[0], os.action_buffer.experience)
-        #predictions = jax.tree_map(lambda x: x[0], os.prediction_buffer.experience)
+        if log_details_period and (ts.n_updates % log_details_period == 0):
+          import ipdb; ipdb.set_trace()
+          timesteps = jax.tree_map(lambda x: x[0], os.timestep_buffer.experience)
+          actions = jax.tree_map(lambda x: x[0], os.action_buffer.experience)
+          #predictions = jax.tree_map(lambda x: x[0], os.prediction_buffer.experience)
 
-        #################
-        # frames
-        #################
-        obs_images = []
-        max_len = 40
-        for idx in range(max_len):
-            index = lambda y: jax.tree_map(lambda x: x[idx], y)
-            obs_image = keyroom.render_room(
-                index(timesteps.state),
-                tile_size=8)
-            obs_images.append(obs_image)
+          #################
+          # frames
+          #################
+          obs_images = []
+          max_len = 40
+          for idx in range(max_len):
+              index = lambda y: jax.tree_map(lambda x: x[idx], y)
+              obs_image = keyroom.render_room(
+                  index(timesteps.state),
+                  tile_size=8)
+              obs_images.append(obs_image)
 
-        #################
-        # actions
-        #################
-        def action_name(a):
-          if action_names is not None:
-            name = action_names.get(int(a), 'ERROR?')
-            return f"action {int(a)}: {name}"
-          else:
-            return f"action: {int(a)}"
-        actions_taken = [action_name(a) for a in actions]
+          #################
+          # actions
+          #################
+          def action_name(a):
+            if action_names is not None:
+              name = action_names.get(int(a), 'ERROR?')
+              return f"action {int(a)}: {name}"
+            else:
+              return f"action: {int(a)}"
+          actions_taken = [action_name(a) for a in actions]
 
-        #################
-        # plot
-        #################
+          #################
+          # plot
+          #################
 
-        fig = plot_frames(task_name,
-            frames=obs_images,
-            rewards=timesteps.reward,
-            actions_taken=actions_taken,
-            discounts=timesteps.discount,
-            W=6)
-        if wandb.run is not None:
-            wandb.log({f"{key}_example/trajectory": wandb.Image(fig)})
-        plt.close(fig)
+          def panel_title_fn(timesteps, i):
+            task_info = jax.tree_map(lambda x: x[0, i], task_info_buffer)
+            task_name = get_task_name(**task_info)
+
+            title = f'{task_name}\n'
+            title += f't={i}\n'
+            title += f'{actions_taken[i]}\n'
+            title += f'r={timesteps.reward[i]}, $\\gamma={timesteps.discount[i]}$'
+            return title
+
+          fig = plot_frames(
+              timesteps=timesteps,
+              frames=obs_images,
+              panel_title_fn=panel_title_fn,
+              ncols=6)
+          if wandb.run is not None:
+              wandb.log({f"{key}_example/trajectory": wandb.Image(fig)})
+          plt.close(fig)
 
 
     jax.debug.callback(callback, train_state, observer_state)

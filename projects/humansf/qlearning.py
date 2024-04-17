@@ -223,55 +223,65 @@ def make_logger(
             # plot images of env
             ##############################
             #timestep = jax.tree_map(lambda x: jnp.array(x), d_['data'].timestep)
-            timestep: TimeStep = d_['data'].timestep
+            timesteps: TimeStep = d_['data'].timestep
 
             # ------------
             # get images
             # ------------
 
-            state_images = []
+            #state_images = []
             obs_images = []
             max_len = min(config.get("MAX_EPISODE_LOG_LEN", 40), len(rewards))
             for idx in range(max_len):
                 index = lambda y: jax.tree_map(lambda x: x[idx], y)
-                state_image = rgb_render(
-                    timestep.state.grid[idx],
-                    index(timestep.state.agent),
-                    env_params.view_size,
-                    tile_size=8)
+                #state_image = rgb_render(
+                #    timesteps.state.grid[idx],
+                #    index(timesteps.state.agent),
+                #    env_params.view_size,
+                #    tile_size=8)
                 obs_image = keyroom.render_room(
                     index(d_['data'].timestep.state),
                     tile_size=8)
-                state_images.append(state_image)
+                #state_images.append(state_image)
                 obs_images.append(obs_image)
 
             # ------------
             # task name
             # ------------
-            room_setting = int(timestep.state.room_setting[0])
-            task_room = int(timestep.state.goal_room_idx[0])
-            task_object = int(timestep.state.task_object_idx[0])
-            setting = 'single' if room_setting == 0 else 'multi'
-            category, color = maze_config['pairs'][task_room][task_object]
-            task_name = f'{setting} - {color} {category}'
 
             # ------------
             # plot
             # ------------
             def action_name(a):
-                name = action_names.get(int(a), 'ERROR?')
-                return f"action {int(a)}: {name}"
+                if action_names is not None:
+                    name = action_names.get(int(a), 'ERROR?')
+                    return f"action {int(a)}: {name}"
+                else:
+                    return f"action: {int(a)}"
+            actions_taken = [action_name(a) for a in actions]
 
-            actions_taken = [action_name(a) for a in d_['data'].action]
-            fig = plot_frames(task_name,
+            def panel_title_fn(timesteps, i):
+                room_setting = int(timesteps.state.room_setting[i])
+                task_room = int(timesteps.state.goal_room_idx[i])
+                task_object = int(timesteps.state.task_object_idx[i])
+                setting = 'single' if room_setting == 0 else 'multi'
+                category, color = maze_config['pairs'][task_room][task_object]
+                task_name = f'{setting} - {color} {category}'
+
+                title = f'{task_name}\n'
+                title += f't={i}\n'
+                title += f'{actions_taken[i]}\n'
+                title += f'r={timesteps.reward[i]}, $\\gamma={timesteps.discount[i]}$'
+                return title
+
+            fig = plot_frames(
+                timesteps=timesteps,
                 frames=obs_images,
-                rewards=rewards,
-                actions_taken=actions_taken,
-                discounts=discounts,
-                mask=mask,
-                W=6)
+                panel_title_fn=panel_title_fn,
+                ncols=6)
             if wandb.run is not None:
-                wandb.log({f"learner_example/trajecotry": wandb.Image(fig)})
+                wandb.log(
+                    {f"learner_example/trajecotry": wandb.Image(fig)})
             plt.close(fig)
 
         # this will be the value after update is applied
