@@ -20,7 +20,7 @@ python projects/humansf/trainer_v1.py \
 RUNNING ON SLURM:
 python projects/humansf/trainer_v1.py \
   --parallel=sbatch \
-  --time '0-00:30:00' \
+  --time '0-00:15:00' \
   --search=default
 """
 from typing import Dict, Union
@@ -43,6 +43,7 @@ import hydra
 import gymnax
 from gymnax.wrappers.purerl import FlattenObservationWrapper, LogWrapper
 from library.wrappers import TimestepWrapper
+
 
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']='false'
 
@@ -127,6 +128,7 @@ def run_single(
       observers.TaskObserver,
       extract_task_info=extract_task_info,
       get_task_name=get_task_name,
+      action_names=action_names,
     )
 
     ##################
@@ -140,7 +142,6 @@ def run_single(
           make_optimizer=qlearning.make_optimizer,
           make_loss_fn_class=qlearning.make_loss_fn_class,
           make_actor=qlearning.make_actor,
-          train_step_type=config.pop("TRAIN_TYPE", 'unroll'),
           make_logger=functools.partial(
             qlearning.make_logger,
             maze_config=maze_config,
@@ -191,7 +192,7 @@ def sweep(search: str = ''):
   if search == 'default':
     shared = {
       "config_name": tune.grid_search(['ql_keyroom']),
-      'env.NUM_ROOMS': tune.grid_search([4, 2, 1]),
+      'env.NUM_ROOMS': tune.grid_search([4, 3, 2, 1]),
     }
     space = [
         #{
@@ -205,7 +206,7 @@ def sweep(search: str = ''):
         #    **shared,
         #},
         {
-            "group": tune.grid_search(['qlearning-59-symb']),
+            "group": tune.grid_search(['qlearning-61-symb']),
             "alg": tune.grid_search(['qlearning']),
             "GAMMA": tune.grid_search([.6]),
             'env.symbolic': tune.grid_search([True]),

@@ -19,7 +19,6 @@ from flax.linen.initializers import constant, orthogonal
 from flax.training.train_state import TrainState
 import flashbax as fbx
 import wandb
-from math import ceil
 
 import flax
 import rlax
@@ -35,6 +34,7 @@ from singleagent import value_based_basics as vbb
 from projects.humansf.networks import KeyroomObsEncoder
 from projects.humansf import keyroom
 from projects.humansf import observers as humansf_observers
+from projects.humansf.visualizer import plot_frames
 
 from library import loggers
 
@@ -148,46 +148,6 @@ def make_agent(
 
     return agent, network_params, reset_fn
 
-def plot_frames(task_name, frames, rewards, discounts, mask, actions_taken, W, max_frames=1e10):
-    """
-    Dynamically plots frames in a single figure based on the number of columns (W) and maximum number of frames.
-    
-    :param task_name: Name of the task to be displayed as figure title.
-    :param frames: 4D numpy array of shape (T, H, W, C) containing the frames to plot.
-    :param rewards: List of rewards corresponding to actions taken.
-    :param actions_taken: List of actions taken corresponding to each frame.
-    :param max_frames: Maximum number of frames to plot.
-    :param W: Number of columns in the plot's grid.
-    """
-    T = min(len(frames), max_frames)  # Total number of frames to plot (limited by max_frames)
-    H = ceil(T / W)  # Calculate number of rows required
-    width = 3
-    
-    fig, axs = plt.subplots(H, W, figsize=(W*width, H*width), squeeze=False)
-    fig.suptitle(task_name)
-    
-    # Flatten the axes array for easy iteration
-    axs = axs.ravel()
-    
-    for i in range(T):
-        ax = axs[i]
-        ax.imshow(frames[i])
-        ax.axis('off')  # Hide the axis
-
-        try:
-            ax.set_title(
-                f"{i}: {actions_taken[i]}\nr={rewards[i]}, $\\gamma={discounts[i]}$, m={mask[i]}")
-        except Exception:
-            pass
-
-    # Hide unused subplots
-    for i in range(T, H * W):
-        axs[i].axis('off')
-
-    plt.tight_layout()
-
-    return fig
-
 def make_logger(
         config: dict,
         env: environment.Environment,
@@ -298,7 +258,11 @@ def make_logger(
             # ------------
             # plot
             # ------------
-            actions_taken = [action_names[int(a)] for a in d_['data'].action]
+            def action_name(a):
+                name = action_names.get(int(a), 'ERROR?')
+                return f"action {int(a)}: {name}"
+
+            actions_taken = [action_name(a) for a in d_['data'].action]
             fig = plot_frames(task_name,
                 frames=obs_images,
                 rewards=rewards,
