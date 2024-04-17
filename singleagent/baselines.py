@@ -90,12 +90,36 @@ def run_single(
         make_actor=qlearning.make_actor,
       )
     elif alg_name == 'alphazero':
+      from library import utils
+      import mctx
+
+      max_value = config.get('MAX_VALUE', 10)
+      num_bins = config['NUM_BINS']
+
+      discretizer = utils.Discretizer(
+          max_value=max_value,
+          num_bins=num_bins,
+          min_value=-max_value)
+
+      mcts_policy = partial(
+          mctx.gumbel_muzero_policy,
+          max_depth=config.get('MAX_SIM_DEPTH', None),
+          num_simulations=config.get('NUM_SIMULATIONS', 4),
+          gumbel_scale=config.get('GUMBEL_SCALE', 1.0))
+
       make_train = partial(
         vbb.make_train,
-        make_agent=alphazero.make_agent,
+        make_agent=partial(
+          alphazero.make_agent,
+          test_env_params=env_params),
         make_optimizer=qlearning.make_optimizer,
-        make_loss_fn_class=alphazero.make_loss_fn_class,
-        make_actor=alphazero.make_actor,
+        make_loss_fn_class=partial(
+           alphazero.make_loss_fn_class,
+           discretizer=discretizer),
+        make_actor=partial(
+          alphazero.make_actor,
+          discretizer=discretizer,
+          mcts_policy=mcts_policy),
       )
     else:
       raise NotImplementedError(alg_name)
@@ -147,7 +171,7 @@ def sweep(search: str = ''):
         {
             "group": tune.grid_search(['baselines-Breakout-13']),
             "alg": tune.grid_search(['alphazero']),
-            "config_name": tune.grid_search(['qlearning']),
+            "config_name": tune.grid_search(['alphazero']),
             "ENV_NAME": tune.grid_search(['Breakout-MinAtar',]),
         },
     ]
