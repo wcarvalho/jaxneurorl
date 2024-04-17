@@ -299,6 +299,7 @@ def make_logger(
         learner_logger=loggers.default_learner_logger,
         experience_logger=functools.partial(
             humansf_observers.experience_logger,
+            action_names=action_names,
             get_task_name=get_task_name),
         learner_log_extra=qlearner_logger,
     )
