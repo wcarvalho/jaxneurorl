@@ -249,7 +249,7 @@ def experience_logger(
 
           if os.finished[idx] > 0:
             metrics[return_key(task_name)].append(os.episode_returns[idx])
-            metrics[length_key(task_name)].append(os.episode_lengths[idx])
+            #metrics[length_key(task_name)].append(os.episode_lengths[idx])
 
         metrics = {k: np.array(v).mean() for k, v in metrics.items()}
         metrics.update({
