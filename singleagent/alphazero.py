@@ -13,8 +13,9 @@ from gymnax.environments import environment
 import jax
 import jax.numpy as jnp
 import mctx
+import rlax
 
-from library import utils
+from library import utils, losses
 
 from singleagent.basics import TimeStep
 from singleagent import value_based_basics as vbb
@@ -33,6 +34,7 @@ class Predictions:
     policy_logits: jax.Array
     value_logits: jax.Array
     state: AgentState
+    policy_target: Optional[mctx.PolicyOutput] = None
 
 
 def model_step(params: Params,
@@ -63,25 +65,113 @@ def model_step(params: Params,
 class AlphaZeroLossFn(vbb.RecurrentLossFn):
     """Computes AlphaZero loss. 
     """
-    discretizer: utils.Discretizer = utils.Discretizer(
-      max_value=10, num_bins=101)
+    discretizer: utils.Discretizer = None
+    lambda_: float = .9
+    policy_coef: float = 1.0
+    value_coef: float = 0.25
 
-    #mcts_policy: Union[
-    #  mctx.muzero_policy,
-    #  mctx.gumbel_muzero_policy] = mctx.gumbel_muzero_policy
+    def loss_fn(self, data, online_preds, target_preds):
+        """This will compute the loss for the policy and value function.
 
-    #simulation_steps : int = 5  # how many time-steps of simulation to learn model with
-    ##reanalyze_ratio : float = .5  # how often to learn from MCTS data vs. experience
-    #value_target_source: str = 'return'
+        For the policy, either (a) use the policy logits from the experience or (b) generate new ones using MCTS.
 
-    #root_policy_coef: float = 1.0
-    #root_value_coef: float = 0.25
+        For value, either use the environment return or (b) generate new ones from MCTS.
 
-    #state_from_preds: Callable[
-    #  [Predictions], jax.Array] = lambda preds: preds.state
+        For simplicity, we will not re-analyze.
+        """
+        is_last = data.is_last
+        ################
+        # Policy loss
+        ################
+        # ---------------
+        # target
+        # ---------------
+        # [T, A]
+        preds = data.extras.get('preds')
+        policy_target = preds.policy_target
+        # [T] --> [T, A]
+        random_policy_mask = jnp.broadcast_to(
+            is_last[:, None], policy_target.shape)
+        num_actions = online_preds.policy_logits.shape[-1]
+        uniform_policy = jnp.ones_like(policy_target) / num_actions
+
+        policy_probs_target = jax.lax.select(
+            random_policy_mask, uniform_policy, policy_target)
+
+        # ---------------
+        # loss
+        # ---------------
+        policy_ce = jax.vmap(rlax.categorical_cross_entropy)(
+            policy_probs_target, online_preds.policy_logits)
+
+        # []
+        policy_loss = self.policy_coef*policy_ce.mean()
+
+        ################
+        # Value loss
+        ################
+        target_net_values = self.discretizer.logits_to_scalar(
+            target_preds.value_logits)
+        lambda_ = jnp.ones_like(data.discount)*self.lambda_
+        lambda_ *= (1 - is_last.astype(lambda_.dtype))
+
+        value_target = rlax.lambda_returns(
+            data.reward[1:],
+            data.discount[1:]*self.discount,
+            target_net_values[1:],
+            lambda_[1:],
+        )
+        value_target = value_target*data.discount[:-1]
+        value_probs_target = self.discretizer.scalar_to_probs(value_target)
+
+        num_v_preds = value_probs_target.shape[0]
+        value_ce = jax.vmap(rlax.categorical_cross_entropy)(
+            value_probs_target,
+            online_preds.value_logits[:num_v_preds])
+
+        # []
+        # truncated is discount on AND is last
+        truncated = (data.discount+is_last) > 1
+        loss_mask = (1-truncated).astype(value_ce.dtype)
+        value_ce = value_ce*loss_mask[:num_v_preds]
+        value_loss = self.value_coef*value_ce.mean()
+        total_loss = policy_loss + value_loss
+
+        # ---------
+        # TD-error
+        # ---------
+        value_prediction = self.discretizer.logits_to_scalar(
+            online_preds.value_logits[:num_v_preds])
+        # [T]
+        td_error = value_prediction - value_target
+
+        ################
+        # metrics
+        ################
+
+        metrics = {
+            "0.0.total_loss": total_loss,
+            "0.0.td-error": td_error,
+            '0.1.policy_loss': policy_loss,
+            '0.2.value_loss': value_loss,
+        }
+        return td_error, total_loss, metrics
+
 
     def error(self, data, online_preds, online_state, target_preds, target_state, steps, **kwargs):
-        import ipdb; ipdb.set_trace()
+        assert self.discretizer is not None, 'please set'
+
+        # [B, T], [B], [B, T]
+        td_error, total_loss, metrics = jax.vmap(self.loss_fn, 1, 0)(
+            data,
+            online_preds,
+            target_preds,
+        )
+        td_error = td_error.transpose()  # [B,T] --> [T,B]
+        metrics = jax.tree_map(lambda x: x.mean(), metrics)  # []
+
+        # [T, B], [B], []
+        return td_error, total_loss, metrics
 
 
 class Block(nn.Module):
@@ -313,6 +403,7 @@ def make_actor(
             rng, rng_ = jax.random.split(rng)
             action = jax.random.categorical(rng_, policy_target)
 
+        preds = preds.replace(policy_target=policy_target)
         return preds, action, agent_state
 
     return vbb.Actor(train_step=actor_step,
