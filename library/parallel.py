@@ -193,7 +193,7 @@ def run_sbatch(
   #################################
   # save configs for all runs
   #################################
-  sbatch_base_path = os.path.join(base_path, f'runs-{date_time(True)}')
+  sbatch_base_path = os.path.join(base_path, 'sbatch', f'runs-{date_time(True)}')
   process_path(sbatch_base_path)
 
   # base_filename = os.path.join(sbatch_base_path, date_time(time=True))
