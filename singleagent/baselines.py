@@ -4,24 +4,24 @@ TESTING:
 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue singleagent/baselines.py \
   --debug=True \
   --wandb=False \
-  --search=baselines
+  --search=alpha
 
 JAX_DISABLE_JIT=1 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue singleagent/baselines.py \
   --debug=True \
   --wandb=False \
-  --search=baselines
+  --search=alpha
 
 TESTING SLURM LAUNCH:
 python singleagent/baselines.py \
   --parallel=sbatch \
   --debug_parallel=True \
-  --search=baselines
+  --search=alpha
 
 RUNNING ON SLURM:
 python singleagent/baselines.py \
   --parallel=sbatch \
-  --time '0-00:20:00' \
-  --search=baselines
+  --time '0-00:30:00' \
+  --search=alpha
 """
 
 from absl import flags
@@ -54,17 +54,8 @@ from singleagent import qlearning
 FLAGS = flags.FLAGS
 
 def run_single(
-        sweep_config: dict,
-        config_path: str,
+        config: dict,
         save_path: str = None):
-
-    config, wandb_init = parallel.load_hydra_config(
-        sweep_config,
-        config_path=config_path,
-        save_path=save_path,
-        tags=[f"jax_{jax.__version__}"]
-        )
-    wandb.init(**wandb_init)
 
     assert config['ENV_NAME'] in (
        'CartPole-v1',
@@ -117,19 +108,18 @@ def sweep(search: str = ''):
   search = search or 'baselines'
   if search == 'baselines':
     space = [
-        #{
-        #    "group": tune.grid_search(['baselines-Catch-12']),
-        #    "alg": tune.grid_search(['qlearning']),
-        #    "config_name": tune.grid_search(['qlearning']),
-        #    "ENV_NAME": tune.grid_search(['Catch-bsuite']),
-        #    "TRAIN_TYPE": tune.grid_search(['single_step']),
-        #},
-        #{
-        #    "group": tune.grid_search(['baselines-CartPole-12']),
-        #    "alg": tune.grid_search(['qlearning']),
-        #    "config_name": tune.grid_search(['qlearning']),
-        #    "ENV_NAME": tune.grid_search(['CartPole-v1',]),
-        #},
+        {
+            "group": tune.grid_search(['baselines-Catch-12']),
+            "alg": tune.grid_search(['qlearning']),
+            "config_name": tune.grid_search(['qlearning']),
+            "ENV_NAME": tune.grid_search(['Catch-bsuite']),
+        },
+        {
+            "group": tune.grid_search(['baselines-CartPole-12']),
+            "alg": tune.grid_search(['qlearning']),
+            "config_name": tune.grid_search(['qlearning']),
+            "ENV_NAME": tune.grid_search(['CartPole-v1',]),
+        },
         {
             "group": tune.grid_search(['baselines-Breakout-13']),
             "alg": tune.grid_search(['qlearning']),
@@ -140,7 +130,19 @@ def sweep(search: str = ''):
   elif search == 'alpha':
     space = [
         {
-            "group": tune.grid_search(['baselines-Breakout-13']),
+            "group": tune.grid_search(['alphazero-Catch-1']),
+            "alg": tune.grid_search(['alphazero']),
+            "config_name": tune.grid_search(['alphazero']),
+            "ENV_NAME": tune.grid_search(['Catch-bsuite']),
+        },
+        {
+            "group": tune.grid_search(['alphazero-CartPole-1']),
+            "alg": tune.grid_search(['alphazero']),
+            "config_name": tune.grid_search(['alphazero']),
+            "ENV_NAME": tune.grid_search(['CartPole-v1',]),
+        },
+        {
+            "group": tune.grid_search(['alphazero-Breakout-1']),
             "alg": tune.grid_search(['alphazero']),
             "config_name": tune.grid_search(['alphazero']),
             "ENV_NAME": tune.grid_search(['Breakout-MinAtar',]),
