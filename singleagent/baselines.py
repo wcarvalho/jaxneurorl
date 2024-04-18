@@ -90,13 +90,7 @@ def run_single(
         make_actor=qlearning.make_actor,
       )
     elif alg_name == 'alphazero':
-      from library import utils
-      import mctx
-
-      make_train = alphazero.make_train_preloaded(
-        config=config,
-        test_env_params=env_params,
-      )
+      make_train = alphazero.make_train_preloaded(config)
 
     else:
       raise NotImplementedError(alg_name)

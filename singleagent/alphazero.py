@@ -514,7 +514,7 @@ def make_logger(config: dict,
         learner_log_extra=learner_log_extra,
     )
 
-def make_train_preloaded(config, test_env_params):
+def make_train_preloaded(config, test_env_params=None):
     max_value = config.get('MAX_VALUE', 10)
     num_bins = config['NUM_BINS']
 

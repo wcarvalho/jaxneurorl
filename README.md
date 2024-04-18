@@ -1,7 +1,8 @@
 
-# Single-agent algorithms
+# Single-agent algorithms (all recurrent)
 
-1. [Q-learning](singleagent/qlearning.py)
+1. [Q-learning](https://openreview.net/forum?id=r1lyTjAqYX) ([code](singleagent/qlearning.py)). This is a Q-learning based agent.
+2. [AlphaZero](https://arxiv.org/abs/1712.01815) ([code](singleagent/alphazero.py)). This is a model-based agent that does planning with a ground-truth world model via monte-carlo tree search.
 
 **General structure of algorithms**. Each agent is defined by functions for creating:
 - the agent's neural network
