@@ -51,10 +51,8 @@ def q_learning_lambda_target(
   """
   v_t = rlax.batched_index(q_t, a_t)
   lambda_ = jax.numpy.ones_like(discount_t) * lambda_ * (1 - is_last_t)
-  target_tm1 = rlax.lambda_returns(r_t, discount_t, v_t, lambda_)
-
-  target_tm1 = jax.lax.select(stop_target_gradients,
-                              jax.lax.stop_gradient(target_tm1), target_tm1)
+  target_tm1 = rlax.lambda_returns(r_t, discount_t, v_t, lambda_,
+                                   stop_target_gradients=stop_target_gradients)
   return target_tm1
 
 def q_learning_lambda_td(
