@@ -289,6 +289,7 @@ class RlRnnCell(nn.Module):
 class ScannedRNN(nn.Module):
     hidden_dim: int
     cell_type: str = "LSTMCell"
+    unroll_output_state: bool = False  # return state at all time-points
 
     def initialize_carry(self, *args, **kwargs):
         """Initializes the RNN state."""
@@ -316,7 +317,10 @@ class ScannedRNN(nn.Module):
         """
         def body_fn(cell, state, inputs):
             x, reset = inputs
-            return cell(state, x, reset, rng)
+            state, out = cell(state, x, reset, rng)
+            if self.unroll_output_state:
+                return state, state
+            return state, out
 
         scan = nn.scan(
             body_fn,
@@ -743,6 +747,9 @@ def make_train(
         ##############################
         # DEFINE TRAINING LOOP
         ##############################
+        print("="*50)
+        print("TRAINING")
+        print("="*50)
         def _train_step(old_runner_state: RunnerState, unused):
             del unused
 

@@ -3,7 +3,7 @@
 TESTING:
 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue projects/humansf/trainer_v1.py \
   --debug=True \
-  --wandb=True \
+  --wandb=False \
   --search=default
 
 JAX_DISABLE_JIT=1 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue projects/humansf/trainer_v1.py \
@@ -259,6 +259,19 @@ def sweep(search: str = ''):
         #    #"NUM_ENVS": tune.grid_search([32, 64]),
         #    **shared,
         #},
+      ]
+  elif search == 'alpha':
+    shared = {
+      "config_name": tune.grid_search(['alpha_keyroom']),
+      'env.NUM_ROOMS': tune.grid_search([4, 3, 2, 1]),
+    }
+    space = [
+        {
+            "group": tune.grid_search(['alpha-1']),
+            "alg": tune.grid_search(['alphazero']),
+            **shared,
+        },
+
       ]
   else:
     raise NotImplementedError(search)

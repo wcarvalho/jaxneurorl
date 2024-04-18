@@ -312,7 +312,7 @@ def run(
       configs = pickle_load(FLAGS.search_config)
       experiment_config = configs[FLAGS.config_idx-1]  # indexing starts at 1 with SLURM
       config, wandb_init = load_hydra_config(
-        sweep_config=config,
+        sweep_config=experiment_config,
         config_path=config_path,
         save_path=experiment_config['log_dir'],
         tags=[f"jax_{jax.__version__}"]
@@ -367,7 +367,9 @@ def load_hydra_config(
   # load algorithm, config, and env names
   #---------------
   if verbose:
+    print("="*50)
     print("Sweep Config")
+    print("="*50)
     pprint(sweep_config)
   #---------------
   # split sweep config into algo + env configs
@@ -413,7 +415,9 @@ def load_hydra_config(
     pass
 
   if verbose:
+    print("="*50)
     print("Final Config")
+    print("="*50)
     pprint(config)
 
   #---------------

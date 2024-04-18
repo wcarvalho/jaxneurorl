@@ -3,7 +3,7 @@
 TESTING:
 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue singleagent/baselines.py \
   --debug=True \
-  --wandb=False \
+  --wandb=True \
   --search=alpha
 
 JAX_DISABLE_JIT=1 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue singleagent/baselines.py \
@@ -130,19 +130,19 @@ def sweep(search: str = ''):
   elif search == 'alpha':
     space = [
         {
-            "group": tune.grid_search(['alphazero-Catch-1']),
+            "group": tune.grid_search(['alphazero-Catch-2']),
             "alg": tune.grid_search(['alphazero']),
             "config_name": tune.grid_search(['alphazero']),
             "ENV_NAME": tune.grid_search(['Catch-bsuite']),
         },
         {
-            "group": tune.grid_search(['alphazero-CartPole-1']),
+            "group": tune.grid_search(['alphazero-CartPole-2']),
             "alg": tune.grid_search(['alphazero']),
             "config_name": tune.grid_search(['alphazero']),
             "ENV_NAME": tune.grid_search(['CartPole-v1',]),
         },
         {
-            "group": tune.grid_search(['alphazero-Breakout-1']),
+            "group": tune.grid_search(['alphazero-Breakout-2']),
             "alg": tune.grid_search(['alphazero']),
             "config_name": tune.grid_search(['alphazero']),
             "ENV_NAME": tune.grid_search(['Breakout-MinAtar',]),
