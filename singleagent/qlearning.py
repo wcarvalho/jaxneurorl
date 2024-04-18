@@ -149,28 +149,31 @@ def make_logger(config: dict,
             q_values = d_['q_values']
             q_target = d_['q_target']
             q_values_taken = rlax.batched_index(q_values, actions)
-            td_errors = d_['td_errors']
-            q_loss = d_['q_loss']
 
             # Create a figure with three subplots
             fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(8, 12))
+
+            def format(ax):
+                ax.set_xlabel('Time')
+                ax.grid(True)
+                ax.set_xticks(range(0, len(rewards), 1))
 
             # Plot rewards and q-values in the top subplot
             ax1.plot(rewards, label='Rewards')
             ax1.plot(q_values_taken, label='Q-Values')
             ax1.plot(q_target, label='Q-Targets')
-            ax1.set_xlabel('Time')
+            format(ax1)
             ax1.set_title('Rewards and Q-Values')
             ax1.legend()
 
             # Plot TD errors in the middle subplot
-            ax2.plot(td_errors)
-            ax2.set_xlabel('Time')
+            ax2.plot(d_['td_errors'])
+            format(ax2)
             ax2.set_title('TD Errors')
 
             # Plot Q-loss in the bottom subplot
-            ax3.plot(q_loss)
-            ax3.set_xlabel('Update')
+            ax3.plot(d_['q_loss'])
+            format(ax3)
             ax3.set_title('Q-Loss')
 
             # Adjust the spacing between subplots
