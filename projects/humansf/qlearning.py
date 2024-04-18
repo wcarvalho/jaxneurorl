@@ -4,51 +4,46 @@ Recurrent Q-learning.
 
 
 
-from singleagent import qlearning
 import functools
 import os
 import jax
-import jax.numpy as jnp
-import numpy as np
-from functools import partial
-from typing import NamedTuple, Dict, Union, Optional, Tuple, Callable
+from typing import Tuple, Callable
 
 
 import flax.linen as nn
-from flax.linen.initializers import constant, orthogonal
-from flax.training.train_state import TrainState
 import flashbax as fbx
 import wandb
 
 import flax
 import rlax
-from omegaconf import OmegaConf
-from safetensors.flax import save_file
-from flax.traverse_util import flatten_dict
 from gymnax.environments import environment
 import matplotlib.pyplot as plt
 
 from xminigrid.rendering.rgb_render import render as rgb_render
-from singleagent.basics import TimeStep
-from singleagent import value_based_basics as vbb
+
+from library import loggers
+
 from projects.humansf.networks import KeyroomObsEncoder
 from projects.humansf import keyroom
 from projects.humansf import observers as humansf_observers
 from projects.humansf.visualizer import plot_frames
 
-from library import loggers
+from singleagent.basics import TimeStep
+from singleagent import value_based_basics as vbb
+from singleagent import qlearning as base_agent
+
 
 
 Agent = nn.Module
 Params = flax.core.FrozenDict
 AgentState = flax.struct.PyTreeNode
 RNNInput = vbb.RNNInput
-R2D2LossFn = qlearning.R2D2LossFn
-Predictions = qlearning.Predictions
-EpsilonGreedy = qlearning.LinearDecayEpsilonGreedy
-make_optimizer = qlearning.make_optimizer
-make_loss_fn_class = qlearning.make_loss_fn_class
-make_actor = qlearning.make_actor
+R2D2LossFn = base_agent.R2D2LossFn
+Predictions = base_agent.Predictions
+EpsilonGreedy = base_agent.LinearDecayEpsilonGreedy
+make_optimizer = base_agent.make_optimizer
+make_loss_fn_class = base_agent.make_loss_fn_class
+make_actor = base_agent.make_actor
 
 class RnnAgent(nn.Module):
     """_summary_
@@ -72,7 +67,7 @@ class RnnAgent(nn.Module):
             image_hidden_dim=self.config.get('IMAGE_HIDDEN', 512),
             )
 
-        self.q_fn = qlearning.MLP(
+        self.q_fn = base_agent.MLP(
            hidden_dim=512,
            num_layers=1,
            out_dim=self.action_dim)
