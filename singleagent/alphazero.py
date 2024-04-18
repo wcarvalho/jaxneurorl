@@ -12,10 +12,14 @@ from gymnax.environments import environment
 
 import jax
 import jax.numpy as jnp
+import matplotlib.pyplot as plt
 import mctx
+import optax
 import rlax
+import wandb
 
-from library import utils, losses
+from library import utils
+from library import loggers
 
 from singleagent.basics import TimeStep
 from singleagent import value_based_basics as vbb
@@ -70,7 +74,8 @@ class AlphaZeroLossFn(vbb.RecurrentLossFn):
     policy_coef: float = 1.0
     value_coef: float = 0.25
 
-    def loss_fn(self, data, online_preds, target_preds):
+    def loss_fn(self, data, online_preds, target_preds,
+                batch_index, steps: int):
         """This will compute the loss for the policy and value function.
 
         For the policy, either (a) use the policy logits from the experience or (b) generate new ones using MCTS.
@@ -148,13 +153,27 @@ class AlphaZeroLossFn(vbb.RecurrentLossFn):
         ################
         # metrics
         ################
-
+        
         metrics = {
             "0.0.total_loss": total_loss,
             "0.0.td-error": td_error,
             '0.1.policy_loss': policy_loss,
             '0.2.value_loss': value_loss,
         }
+
+        if self.logger.learner_log_extra is not None:
+            self.logger.learner_log_extra({
+                'batch_index': batch_index,
+                'data': data,
+                'td_errors': td_error,       # [T]
+                'mask': loss_mask,           # [T]
+                'values': value_prediction,  # [T]
+                'values_targets': value_target,  # [T]
+                'value_loss': value_loss,    # [T]
+                'policy_loss': policy_loss,    # [T]
+                'n_updates': steps,
+            })
+
         return td_error, total_loss, metrics
 
 
@@ -162,10 +181,14 @@ class AlphaZeroLossFn(vbb.RecurrentLossFn):
         assert self.discretizer is not None, 'please set'
 
         # [B, T], [B], [B, T]
-        td_error, total_loss, metrics = jax.vmap(self.loss_fn, 1, 0)(
-            data,
-            online_preds,
-            target_preds,
+        batch_indices = jnp.arange(data.reward.shape[1])
+        td_error, total_loss, metrics = jax.vmap(
+           self.loss_fn, in_axes=(1,1,1,0, None), out_axes=0)(
+            data,          # [T, B, ...]
+            online_preds,  # [T, B, ...]
+            target_preds,  # [T, B, ...]
+            batch_indices,  # [B]
+            steps,
         )
         td_error = td_error.transpose()  # [B,T] --> [T,B]
         metrics = jax.tree_map(lambda x: x.mean(), metrics)  # []
@@ -197,10 +220,6 @@ class MLP(nn.Module):
     x = nn.Dense(self.out_dim or self.hidden_dim, use_bias=False)(x)
     return x
 
-def extract_timestep_input(timestep: TimeStep):
-  return vbb.RNNInput(
-      obs=timestep.observation,
-      reset=timestep.first())
 
 class AlphaZeroAgent(nn.Module):
 
@@ -346,6 +365,20 @@ def make_agent(
     return agent, network_params, reset_fn
 
 
+def make_optimizer(config: dict) -> optax.GradientTransformation:
+  def linear_schedule(count):
+      frac = 1.0 - (count / config["NUM_UPDATES"])
+      return config["LR"] * frac
+
+  lr = linear_schedule if config.get(
+      "LR_LINEAR_DECAY", False) else config["LR"]
+
+  return optax.chain(
+      optax.clip_by_global_norm(config["MAX_GRAD_NORM"]),
+      optax.adam(learning_rate=lr, eps=config['EPS_ADAM'])
+  )
+
+
 def make_loss_fn_class(
         config,
         discretizer: utils.Discretizer) -> vbb.RecurrentLossFn:
@@ -409,3 +442,105 @@ def make_actor(
     return vbb.Actor(train_step=actor_step,
                      eval_step=functools.partial(
                          actor_step, evaluation=True))
+
+
+def make_logger(config: dict,
+                env: environment.Environment,
+                env_params: environment.EnvParams):
+
+    def learner_log_extra(data: dict):
+        def callback(d):
+            if d['batch_index'] != 0:
+                # called inside AlphaZeroLossFn:loss_fn
+                # this function is called for every batch element.
+                # only log first
+                return
+
+            rewards = d['data'].timestep.reward
+            values = d['values']
+            values_target = d['values_targets']
+
+            # Create a figure with three subplots
+            nplots = 4
+            fig, (ax1, ax2, ax3, ax4) = plt.subplots(
+                nplots, 1, figsize=(5, 3*nplots))
+
+            # Plot rewards and q-values in the top subplot
+            def format(ax):
+                ax.set_xlabel('Time')
+                ax.grid(True)
+                ax.set_xticks(range(0, len(rewards), 1))
+
+            # Plot rewards and q-values in the top subplot
+            ax1.plot(rewards, label='Rewards')
+            ax1.plot(values, label='Value Predictions')
+            ax1.plot(values_target, label='Value Targets')
+            format(ax1)
+            ax1.set_title('Rewards and Values')
+            ax1.legend()
+
+            # Plot TD errors in the middle subplot
+            ax2.plot(d['td_errors'])
+            format(ax2)
+            ax2.set_title('TD Errors')
+
+            # Plot Value-loss in the bottom subplot
+            ax3.plot(d['value_loss'])
+            format(ax3)
+            ax3.set_title('Value Loss')
+
+            # Plot Value-loss in the bottom subplot
+            ax4.plot(d['policy_loss'])
+            format(ax4)
+            ax4.set_title('Policy Loss')
+
+            # Adjust the spacing between subplots
+            plt.tight_layout()
+            # log
+            if wandb.run is not None:
+                wandb.log({f"learner_details/losses": wandb.Image(fig)})
+            plt.close(fig)
+
+        jax.lax.cond(
+            data['n_updates'] % config.get("LEARNER_LOG_PERIOD", 10_000) == 0,
+            lambda d: jax.debug.callback(callback, d),
+            lambda d: None,
+            data)
+
+    return loggers.Logger(
+        gradient_logger=loggers.default_gradient_logger,
+        learner_logger=loggers.default_learner_logger,
+        experience_logger=loggers.default_experience_logger,
+        learner_log_extra=learner_log_extra,
+    )
+
+def make_train_preloaded(config, test_env_params):
+    max_value = config.get('MAX_VALUE', 10)
+    num_bins = config['NUM_BINS']
+
+    discretizer = utils.Discretizer(
+        max_value=max_value,
+        num_bins=num_bins,
+        min_value=-max_value)
+
+    mcts_policy = functools.partial(
+        mctx.gumbel_muzero_policy,
+        max_depth=config.get('MAX_SIM_DEPTH', None),
+        num_simulations=config.get('NUM_SIMULATIONS', 4),
+        gumbel_scale=config.get('GUMBEL_SCALE', 1.0))
+
+    return functools.partial(
+        vbb.make_train,
+        make_agent=functools.partial(
+            make_agent,
+            test_env_params=test_env_params),
+        make_optimizer=make_optimizer,
+        make_loss_fn_class=functools.partial(
+            make_loss_fn_class,
+            discretizer=discretizer),
+        make_actor=functools.partial(
+            make_actor,
+            discretizer=discretizer,
+            mcts_policy=mcts_policy),
+        make_logger=make_logger,
+    )
