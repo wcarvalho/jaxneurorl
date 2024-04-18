@@ -48,28 +48,24 @@ from library.wrappers import TimestepWrapper
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']='false'
 
 import library.flags
+
 from library import parallel
-from projects.humansf import qlearning
+from library import utils
+
 from projects.humansf import keyroom
 from projects.humansf import keyroom_symbolic
 from projects.humansf.minigrid_common import AutoResetWrapper
 from projects.humansf import observers
+from projects.humansf import alphazero
+from projects.humansf import qlearning
+
 from singleagent import value_based_basics as vbb
 
 FLAGS = flags.FLAGS
 
 def run_single(
-        sweep_config: dict,
-        config_path: str,
+        config: dict,
         save_path: str = None):
-
-    config, wandb_init = parallel.load_hydra_config(
-        sweep_config,
-        config_path=config_path,
-        save_path=save_path,
-        tags=[f"jax_{jax.__version__}"]
-        )
-    wandb.init(**wandb_init)
 
     # Open the file and load the JSON data
     maze_path = os.path.join('projects/humansf', "maze_pairs.json")
@@ -149,6 +145,38 @@ def run_single(
             action_names=action_names,
             ),
       )
+    elif alg_name == 'alphazero':
+      import mctx
+      max_value = config.get('MAX_VALUE', 10)
+      num_bins = config['NUM_BINS']
+
+      discretizer = utils.Discretizer(
+          max_value=max_value,
+          num_bins=num_bins,
+          min_value=-max_value)
+
+      mcts_policy = functools.partial(
+          mctx.gumbel_muzero_policy,
+          max_depth=config.get('MAX_SIM_DEPTH', None),
+          num_simulations=config.get('NUM_SIMULATIONS', 4),
+          gumbel_scale=config.get('GUMBEL_SCALE', 1.0))
+
+      return functools.partial(
+          vbb.make_train,
+          make_agent=functools.partial(
+              alphazero.make_agent,
+              test_env_params=test_env_params),
+          make_optimizer=alphazero.make_optimizer,
+          make_loss_fn_class=functools.partial(
+              alphazero.make_loss_fn_class,
+              discretizer=discretizer),
+          make_actor=functools.partial(
+              alphazero.make_actor,
+              discretizer=discretizer,
+              mcts_policy=mcts_policy),
+          make_logger=alphazero.make_logger,
+      )
+
     else:
       raise NotImplementedError(alg_name)
 

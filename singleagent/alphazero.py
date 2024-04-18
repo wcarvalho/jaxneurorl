@@ -83,6 +83,7 @@ class AlphaZeroLossFn(vbb.RecurrentLossFn):
         For value, either use the environment return or (b) generate new ones from MCTS.
 
         For simplicity, we will not re-analyze.
+        TODO: implement reanalyze.
         """
         is_last = data.is_last
         ################
@@ -249,7 +250,7 @@ class AlphaZeroAgent(nn.Module):
         batch_dims = x.observation.shape[:-1]
         rnn_state = self.initialize_carry(rng, batch_dims)
         predictions, rnn_state = self.__call__(rnn_state, x, rng)
-        dummy_action = jnp.zeros(batch_dims, dtype=jnp.uint32)
+        dummy_action = jnp.zeros(batch_dims, dtype=jnp.int32)
         self.apply_model(predictions.state, dummy_action, rng)
 
     def initialize_carry(self, *args, **kwargs):
@@ -513,6 +514,7 @@ def make_logger(config: dict,
         experience_logger=loggers.default_experience_logger,
         learner_log_extra=learner_log_extra,
     )
+
 
 def make_train_preloaded(config, test_env_params=None):
     max_value = config.get('MAX_VALUE', 10)

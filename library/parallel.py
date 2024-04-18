@@ -7,7 +7,9 @@ from absl import logging
 import hydra
 import os
 import datetime
-import pickle 
+import pickle
+import jax
+import wandb
 
 from pathlib import Path
 import subprocess
@@ -17,6 +19,41 @@ import library.flags
 
 FLAGS = flags.FLAGS
 
+def make_base_path(
+    root_path: str,
+    trainer_file: str,
+    ):
+  trainer_filename = os.path.splitext(os.path.basename(trainer_file))[0]
+  return os.path.join(
+    root_path, trainer_filename)
+
+def setup_experiment_config(
+    base_path: str,
+    group: str,
+    config: dict,
+    datetime_name: bool = True,
+    ):
+
+  algo_config, env_config = get_agent_env_configs(config=config)
+  log_dir, wandb_name = gen_log_dir(
+      base_dir=os.path.join(base_path, 'save_data', group),
+      return_kwpath=True,
+      path_skip=['num_steps', 'num_learner_steps', 'group', 'config_name'],
+      **algo_config,
+      **env_config,
+      )
+  if datetime_name:
+    wandb_name = f'{wandb_name}_{(date_time(time=True))}'
+
+  process_path(log_dir)
+  config = dict(
+      algo_config=algo_config,
+      env_config=env_config,
+      wandb_group=group,
+      wandb_name=wandb_name,
+      log_dir=log_dir,
+    )
+  return config
 
 def process_path(path: str, *subpaths: str) -> str:
   """Process the path string.
@@ -131,48 +168,36 @@ def run_sbatch(
   #################################
   root_path = str(Path().absolute())
   configurations = get_all_configurations(spaces=spaces)
+
   from pprint import pprint
   logging.info("searching:")
   pprint(configurations)
+
   save_configs = []
-  base_path = os.path.join(root_path, folder, search_name)
+  base_path = make_base_path(
+    root_path=os.path.join(root_path, folder),
+    trainer_file=trainer_filename)
+
   for config in configurations:
-    if 'group' in config:
-      group = config.pop('group')
-    else:
-      group = search_name
 
-    algo_config, env_config = get_agent_env_configs(
-        config=config)
-
-    # dir will be root_path/folder/group/exp_name
-    # exp_name is also name in wandb
-    trainer_filename_dir = os.path.splitext(os.path.basename(trainer_filename))[0]
-    log_dir, exp_name = gen_log_dir(
-      base_dir=os.path.join(base_path, trainer_filename_dir, group),
-      return_kwpath=True,
-      path_skip=['num_steps', 'num_learner_steps', 'group', 'config_name'],
-      **algo_config,
-      **env_config,
-      )
-
-    save_config = dict(
-      algo_config=algo_config,
-      env_config=env_config,
-      wandb_group=group,
-      wandb_name=exp_name,
-      folder=log_dir,
+    group = config.pop('group', search_name)
+    save_config = setup_experiment_config(
+      base_path=base_path,
+      group=group,
+      config=config,
+      datetime_name=False,
     )
+
     save_configs.append(save_config)
 
   #################################
   # save configs for all runs
   #################################
-  base_path = os.path.join(base_path, f'runs-{date_time(True)}')
-  process_path(base_path)
+  sbatch_base_path = os.path.join(base_path, f'runs-{date_time(True)}')
+  process_path(sbatch_base_path)
 
-  # base_filename = os.path.join(base_path, date_time(time=True))
-  configs_file = f"{base_path}/config.pkl"
+  # base_filename = os.path.join(sbatch_base_path, date_time(time=True))
+  configs_file = f"{sbatch_base_path}/config.pkl"
   with open(configs_file, 'wb') as fp:
       pickle.dump(save_configs, fp)
       logging.info(f'Saved: {configs_file}')
@@ -191,7 +216,7 @@ def run_sbatch(
   python_file_contents += f" --subprocess={True}"
   # python_file_contents += f" --make_path={False}"
 
-  run_file = f"{base_path}/run.sh"
+  run_file = f"{sbatch_base_path}/run.sh"
 
   if debug:
     # create file and run single python command
@@ -219,8 +244,8 @@ def run_sbatch(
   sbatch_contents += f"#SBATCH -p {FLAGS.partition}\n"
   sbatch_contents += f"#SBATCH -t {FLAGS.time}"
   sbatch_contents += f"#SBATCH --account {FLAGS.account}\n"
-  sbatch_contents += f"#SBATCH -o {base_path}/id=%j.out\n"
-  sbatch_contents += f"#SBATCH -e {base_path}/id=%j.err\n"
+  sbatch_contents += f"#SBATCH -o {sbatch_base_path}/id=%j.out\n"
+  sbatch_contents += f"#SBATCH -e {sbatch_base_path}/id=%j.err\n"
 
   run_file_contents = "#!/bin/bash\n" + sbatch_contents + python_file_contents
   print("-"*20)
@@ -285,37 +310,43 @@ def run(
           return config
 
       configs = pickle_load(FLAGS.search_config)
-      config = configs[FLAGS.config_idx-1]  # indexing starts at 1 with SLURM
-      run_fn(
+      experiment_config = configs[FLAGS.config_idx-1]  # indexing starts at 1 with SLURM
+      config, wandb_init = load_hydra_config(
         sweep_config=config,
         config_path=config_path,
-        save_path=config.get('folder', None),  # load from search config
+        save_path=experiment_config['log_dir'],
+        tags=[f"jax_{jax.__version__}"]
         )
+      wandb.init(**wandb_init)
+      run_fn(
+        config=config,
+        save_path=experiment_config['log_dir'])
+
     else:  # called by this script (i.e. you)
-      trainer_filename_dir = os.path.splitext(os.path.basename(trainer_filename))[0]
-      save_path = gen_log_dir(
-          base_dir=os.path.join(
-            folder, trainer_filename_dir, FLAGS.search),
-          hourminute=True,
-          date=True,
-      )
       configs = get_all_configurations(spaces=sweep_fn(FLAGS.search))
 
-      process_path(save_path)
+      base_path = make_base_path(
+        root_path=f"{folder}_single",
+        trainer_file=trainer_filename)
+
       # this is to make sure that the sweep config has the same format as produced by run_sbatch
-      sweep_config = configs[0]
-      algo_config, env_config = get_agent_env_configs(config=sweep_config)
-      sweep_config['algo_config'] = algo_config
-      sweep_config['env_config'] = env_config
-
-      # sensible name for wandb run
-      algo_name = algo_config['alg']
-      sweep_config['wandb_name'] = f'{algo_name}_{(date_time(time=True))}'
-
-      run_fn(
-        sweep_config=sweep_config,
+      config = configs[0]
+      experiment_config = setup_experiment_config(
+        base_path=base_path,
+        group=config.pop('group', FLAGS.search),
+        config=config,
+        datetime_name=True,
+      )
+      config, wandb_init = load_hydra_config(
+        sweep_config=experiment_config,
         config_path=config_path,
-        save_path=save_path)
+        save_path=experiment_config['log_dir'],
+        tags=[f"jax_{jax.__version__}"]
+        )
+      wandb.init(**wandb_init)
+      run_fn(
+        config=config,
+        save_path=experiment_config['log_dir'])
   else:
     raise NotImplementedError
 
