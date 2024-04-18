@@ -107,6 +107,7 @@ class RunnerState(NamedTuple):
 class AcmeBatchData(flax.struct.PyTreeNode):
     timestep: TimeStep
     action: jax.Array
+    extras: FrozenDict
 
     @property
     def is_last(self):
@@ -207,7 +208,10 @@ class RecurrentLossFn:
     # -----------------------
     # compute loss
     # -----------------------
-    data = self.data_wrapper(data.timestep, data.action)
+    data = self.data_wrapper(
+        timestep=data.timestep,
+        action=data.action,
+        extras=data.extras)
 
     # [T-1, B], [B]
     elemwise_error, batch_loss, metrics = self.error(

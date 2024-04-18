@@ -52,7 +52,9 @@ def default_learner_logger(
 def default_experience_logger(
         train_state: TrainState,
         observer_state: BasicObserverState,
-        key: str = 'train'):
+        key: str = 'train',
+        log_details_period: int = 0,
+        ):
 
     def callback(ts: train_state, os: BasicObserverState):
         # main
