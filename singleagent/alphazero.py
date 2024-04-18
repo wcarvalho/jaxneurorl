@@ -74,8 +74,12 @@ class AlphaZeroLossFn(vbb.RecurrentLossFn):
     policy_coef: float = 1.0
     value_coef: float = 0.25
 
-    def loss_fn(self, data, online_preds, target_preds,
-                batch_index, steps: int):
+    def loss_fn(self,
+                data,
+                online_preds,
+                target_preds,
+                batch_index,
+                steps: int):
         """This will compute the loss for the policy and value function.
 
         For the policy, either (a) use the policy logits from the experience or (b) generate new ones using MCTS.
@@ -162,6 +166,7 @@ class AlphaZeroLossFn(vbb.RecurrentLossFn):
             '0.2.value_loss': value_loss,
         }
 
+        print('logging')
         if self.logger.learner_log_extra is not None:
             self.logger.learner_log_extra({
                 'batch_index': batch_index,
@@ -183,8 +188,9 @@ class AlphaZeroLossFn(vbb.RecurrentLossFn):
 
         # [B, T], [B], [B, T]
         batch_indices = jnp.arange(data.reward.shape[1])
+        print('error')
         td_error, total_loss, metrics = jax.vmap(
-           self.loss_fn, in_axes=(1,1,1,0, None), out_axes=0)(
+           self.loss_fn, in_axes=(1,1,1,0,None), out_axes=0)(
             data,          # [T, B, ...]
             online_preds,  # [T, B, ...]
             target_preds,  # [T, B, ...]
@@ -226,7 +232,6 @@ class AlphaZeroAgent(nn.Module):
 
     action_dim: int
     hidden_dim: int
-    init_scale: float
 
     rnn: vbb.ScannedRNN
 
@@ -273,7 +278,7 @@ class AlphaZeroAgent(nn.Module):
             value_logits=value_logits,
             state=AgentState(
                 timestep=x,
-                rnn_state=rnn_out)
+                rnn_state=new_rnn_state)
             )
 
         return predictions, new_rnn_state
@@ -287,8 +292,9 @@ class AlphaZeroAgent(nn.Module):
 
         rnn_in = vbb.RNNInput(obs=embedding, reset=xs.first())
         rng, _rng = jax.random.split(rng)
-        new_rnn_state, rnn_out = self.rnn.unroll(rnn_state, rnn_in, _rng)
+        new_rnn_state, new_rnn_states = self.rnn.unroll(rnn_state, rnn_in, _rng)
 
+        rnn_out = new_rnn_states[1]
         policy_logits = nn.BatchApply(self.policy_fn)(rnn_out)
         value_logits = nn.BatchApply(self.value_fn)(rnn_out)
         predictions = Predictions(
@@ -296,7 +302,7 @@ class AlphaZeroAgent(nn.Module):
             value_logits=value_logits,
             state=AgentState(
                 timestep=xs,
-                rnn_state=rnn_out)
+                rnn_state=new_rnn_states)
             )
         return predictions, new_rnn_state
 
@@ -337,13 +343,14 @@ def make_agent(
         rng: jax.random.KeyArray,
         test_env_params: Optional[environment.EnvParams] = None,
         ) -> Tuple[nn.Module, Params, vbb.AgentResetFn]:
-    
+
     test_env_params = test_env_params or env_params
     agent = AlphaZeroAgent(
         action_dim=env.action_space(env_params).n,
         hidden_dim=config["AGENT_HIDDEN_DIM"],
-        init_scale=config['AGENT_INIT_SCALE'],
-        rnn=vbb.ScannedRNN(hidden_dim=config["AGENT_HIDDEN_DIM"]),
+        rnn=vbb.ScannedRNN(
+            hidden_dim=config["AGENT_HIDDEN_DIM"],
+            unroll_output_state=True),
         num_bins=config['NUM_BINS'],
         env=env,
         env_params=env_params,
@@ -406,6 +413,7 @@ def make_actor(
             rng: jax.random.KeyArray,
             evaluation: bool = False,
             ):
+        print('acting', evaluation)
         preds, agent_state = agent.apply(
             train_state.params, agent_state, timestep, rng)
 
@@ -415,7 +423,6 @@ def make_actor(
            prior_logits=preds.policy_logits,
            value=value,
            embedding=preds.state)
-
         # 1 step of policy improvement
         rng, improve_key = jax.random.split(rng)
         mcts_outputs = mcts_policy(
@@ -438,6 +445,7 @@ def make_actor(
             action = jax.random.categorical(rng_, policy_target)
 
         preds = preds.replace(policy_target=policy_target)
+
         return preds, action, agent_state
 
     return vbb.Actor(train_step=actor_step,

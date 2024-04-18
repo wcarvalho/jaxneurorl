@@ -41,11 +41,6 @@
 "EPS_ADAM": 0.00001
 "GAMMA": 0.99
 
-# ACTOR PARAMS
-"FIXED_EPSILON": 2 # range of epsilons
-"EPSILON_START": 1.0
-"EPSILON_FINISH": 0.1
-"EPSILON_ANNEAL_TIME": 5e5
 
 hydra/output_subdir: null
 hydra/hydra_logging: disabled
