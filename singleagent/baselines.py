@@ -93,34 +93,11 @@ def run_single(
       from library import utils
       import mctx
 
-      max_value = config.get('MAX_VALUE', 10)
-      num_bins = config['NUM_BINS']
-
-      discretizer = utils.Discretizer(
-          max_value=max_value,
-          num_bins=num_bins,
-          min_value=-max_value)
-
-      mcts_policy = partial(
-          mctx.gumbel_muzero_policy,
-          max_depth=config.get('MAX_SIM_DEPTH', None),
-          num_simulations=config.get('NUM_SIMULATIONS', 4),
-          gumbel_scale=config.get('GUMBEL_SCALE', 1.0))
-
-      make_train = partial(
-        vbb.make_train,
-        make_agent=partial(
-          alphazero.make_agent,
-          test_env_params=env_params),
-        make_optimizer=qlearning.make_optimizer,
-        make_loss_fn_class=partial(
-           alphazero.make_loss_fn_class,
-           discretizer=discretizer),
-        make_actor=partial(
-          alphazero.make_actor,
-          discretizer=discretizer,
-          mcts_policy=mcts_policy),
+      make_train = alphazero.make_train_preloaded(
+        config=config,
+        test_env_params=env_params,
       )
+
     else:
       raise NotImplementedError(alg_name)
 
