@@ -522,7 +522,6 @@ def log_performance(
         env_params=test_env_params,
         observer=observer,
         )
-
     logger.experience_logger(
         runner_state.train_state,
         final_eval_runner_state.observer_state,
@@ -566,7 +565,6 @@ def log_performance(
         env_params=train_env_params,
         observer=observer,
         )
-
     logger.experience_logger(
         runner_state.train_state,
         final_eval_runner_state.observer_state,
