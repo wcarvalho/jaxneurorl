@@ -10,6 +10,7 @@ from flax import struct
 import flax.linen as nn
 from gymnax.environments import environment
 
+import distrax
 import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
@@ -166,7 +167,6 @@ class AlphaZeroLossFn(vbb.RecurrentLossFn):
             '0.2.value_loss': value_loss,
         }
 
-        print('logging')
         if self.logger.learner_log_extra is not None:
             self.logger.learner_log_extra({
                 'batch_index': batch_index,
@@ -188,7 +188,6 @@ class AlphaZeroLossFn(vbb.RecurrentLossFn):
 
         # [B, T], [B], [B, T]
         batch_indices = jnp.arange(data.reward.shape[1])
-        print('error')
         td_error, total_loss, metrics = jax.vmap(
            self.loss_fn, in_axes=(1,1,1,0,None), out_axes=0)(
             data,          # [T, B, ...]
@@ -256,7 +255,10 @@ class AlphaZeroAgent(nn.Module):
         rnn_state = self.initialize_carry(rng, batch_dims)
         predictions, rnn_state = self.__call__(rnn_state, x, rng)
         dummy_action = jnp.zeros(batch_dims, dtype=jnp.int32)
-        self.apply_model(predictions.state, dummy_action, rng)
+
+        state = jax.tree_map(lambda x: x[:, None], predictions.state)
+        dummy_action = jax.tree_map(lambda x: x[:, None], dummy_action)
+        jax.vmap(self.apply_model, (0,0,None), 0)(state, dummy_action, rng)
 
     def initialize_carry(self, *args, **kwargs):
         """Initializes the RNN state."""
@@ -287,7 +289,7 @@ class AlphaZeroAgent(nn.Module):
         # rnn_state: [B]
         # xs: [T, B]
 
-        embedding = nn.BatchApply(self.observation_encoder)(xs.observation)
+        embedding = jax.vmap(self.observation_encoder)(xs.observation)
         embedding = nn.relu(embedding)
 
         rnn_in = vbb.RNNInput(obs=embedding, reset=xs.first())
@@ -295,8 +297,8 @@ class AlphaZeroAgent(nn.Module):
         new_rnn_state, new_rnn_states = self.rnn.unroll(rnn_state, rnn_in, _rng)
 
         rnn_out = new_rnn_states[1]
-        policy_logits = nn.BatchApply(self.policy_fn)(rnn_out)
-        value_logits = nn.BatchApply(self.value_fn)(rnn_out)
+        policy_logits = jax.vmap(self.policy_fn)(rnn_out)
+        value_logits = jax.vmap(self.value_fn)(rnn_out)
         predictions = Predictions(
             policy_logits=policy_logits,
             value_logits=value_logits,
@@ -308,29 +310,28 @@ class AlphaZeroAgent(nn.Module):
 
     def apply_model(
           self,
-          state: AgentState,  # [B, D]
-          action: jnp.ndarray,  # [B]
+          state: AgentState,
+          action: jnp.ndarray,
           rng: jax.random.KeyArray,
           evaluation: bool = False,
       ) -> Tuple[Predictions, RnnState]:
         """This applies the model to each element in the state, action vectors.
 
         Args:
-            state (State): states. [B, D]
-            action (jnp.ndarray): actions to take on states. [B]
+            state (State): states. [1, D]
+            action (jnp.ndarray): actions to take on states. [1]
 
         Returns:
             Tuple[ModelOutput, State]: muzero outputs and new states for 
               each state state action pair.
         """
-        # take one step forward in the environment
-        B = action.shape[0]
+        assert action.shape[0] == 1, 'function only accepts batchsize=1 due to inability to vmap over environment. please use vmap to get these dimensions.'
         rng, rng_ = jax.random.split(rng)
         env_params = self.test_env_params if evaluation else self.env_params
-        env_step = lambda s, a, rng_: self.env.step(rng_, s.timestep, a, env_params)
-        next_timestep = jax.vmap(env_step)(state, action, jax.random.split(rng_, B))
+        timestep = jax.tree_map(lambda x: x[0], state.timestep)
+        next_timestep = self.env.step(rng_, timestep, action[0], env_params)
+        next_timestep = jax.tree_map(lambda x: x[None], next_timestep)
 
-        # compute value and policy for the next time-step
         rng, rng_ = jax.random.split(rng)
         return self.__call__(state.rnn_state, next_timestep, rng_)
 
@@ -413,7 +414,19 @@ def make_actor(
             rng: jax.random.KeyArray,
             evaluation: bool = False,
             ):
-        print('acting', evaluation)
+        """
+        
+        Note: some weird things. For some reason, I can't vmap
+          over the environment when it's being called within MCTS.
+          FIX: vmap over MCTS with each individual call applying the 
+            model (which uses ground-truth env) on a per state-action 
+            pair basis. In summary:
+            Before:
+                - MCTS --> Apply Model --> VMAP(ENV)(state, action)
+            Now:
+                - VMAP(MCTS) --> Apply Model --> ENV(state, action)
+            
+        """
         preds, agent_state = agent.apply(
             train_state.params, agent_state, timestep, rng)
 
@@ -423,26 +436,36 @@ def make_actor(
            prior_logits=preds.policy_logits,
            value=value,
            embedding=preds.state)
-        # 1 step of policy improvement
+
+        # will vmap over mcts
+        # mcts excepts []
+        # [B,...] --> [B, 1, ...]
+        root = jax.tree_map(lambda x: x[:, None], root)
         rng, improve_key = jax.random.split(rng)
-        mcts_outputs = mcts_policy(
-            params=train_state.params,
-            rng_key=improve_key,
-            root=root,
-            recurrent_fn=functools.partial(
-                model_step,
-                discount=timestep.discount,
-                agent=agent,
-                discretizer=discretizer,
-                evaluation=evaluation,
-            ))
+        def apply_mcts_policy(root_, discount_):
+            # 1 step of policy improvement
+            return mcts_policy(
+                params=train_state.params,
+                rng_key=improve_key,
+                root=root_,
+                recurrent_fn=functools.partial(
+                    model_step,
+                    discount=discount_,
+                    agent=agent,
+                    discretizer=discretizer,
+                    evaluation=evaluation,
+                ))
+
+        mcts_outputs = jax.vmap(apply_mcts_policy)(
+            root, timestep.discount[:, None])
+        mcts_outputs = jax.tree_map(lambda x: x[:, 0], mcts_outputs)
 
         policy_target = mcts_outputs.action_weights
         if evaluation:
             action = jnp.argmax(policy_target, axis=-1)
         else:
             rng, rng_ = jax.random.split(rng)
-            action = jax.random.categorical(rng_, policy_target)
+            action = distrax.Categorical(probs=policy_target).sample(seed=rng_)
 
         preds = preds.replace(policy_target=policy_target)
 

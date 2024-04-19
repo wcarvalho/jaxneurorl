@@ -99,15 +99,15 @@ class AlphaZeroAgent(nn.Module):
         # rnn_state: [B]
         # xs: [T, B]
 
-        embedding = nn.BatchApply(self.observation_encoder)(xs.observation)
+        embedding = jax.vmap(self.observation_encoder)(xs.observation)
         embedding = nn.relu(embedding)
 
         rnn_in = vbb.RNNInput(obs=embedding, reset=xs.first())
         rng, _rng = jax.random.split(rng)
         new_rnn_state, rnn_out = self.rnn.unroll(rnn_state, rnn_in, _rng)
 
-        policy_logits = nn.BatchApply(self.policy_fn)(rnn_out)
-        value_logits = nn.BatchApply(self.value_fn)(rnn_out)
+        policy_logits = jax.vmap(self.policy_fn)(rnn_out)
+        value_logits = jax.vmap(self.value_fn)(rnn_out)
         predictions = Predictions(
             policy_logits=policy_logits,
             value_logits=value_logits,

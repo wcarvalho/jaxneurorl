@@ -1,16 +1,25 @@
 # Install
 **load modules**
 ```
+module load Mambaforge/23.11.0-fasrc01
+module load cudnn/8.9.2.26_cuda12-fasrc01
 module load cuda/12.2.0-fasrc01
 ```
 
 **Create and activate conda environment**
 ```
-mamba create -n jaxneurorl python=3.10 pip wheel -y
-mamba env update -f conda_env.yaml
+mamba create -n jaxneurorl python=3.10.9 pip wheel -y
 # in case a mamba env is already active
-mamba deactivate  # in case a mamba env is already active
+mamba deactivate  # keep running until no env is active
 mamba activate jaxneurorl
+pip install -r requirements.txt
+```
+Expected errors:
+```
+ERROR: pip's dependency resolver does not currently take into account all the packages that are installed. This behaviour is the source of the following dependency conflicts.
+gym3 0.3.3 requires cffi<2.0.0,>=1.13.0, which is not installed.
+gym3 0.3.3 requires imageio<3.0.0,>=2.6.0, which is not installed.
+flashbax 0.0.1 requires typing-extensions<4.6.0, but you have typing-extensions 4.9.0 which is incompatible.
 ```
 
 **test that using correct python version (3.10)**
@@ -24,8 +33,8 @@ This is important for jax to properly link to cuda. Unfortunately, relatively ma
 
 ```
 # put cudnn path at beginning of path (before $LD_LIBRARY_PATH)
-unset LD_LIBRARY_PATH
-export LD_LIBRARY_PATH=/n/sw/helmod-rocky8/apps/Core/cudnn/8.9.2.26_cuda12-fasrc01/lib/:$LD_LIBRARY_PATH
+
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/n/sw/helmod-rocky8/apps/Core/cudnn/8.9.2.26_cuda12-fasrc01/lib/
 
 # add conda lib to end of path (after $LD_LIBRARY_PATH)
 export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$CONDA_PREFIX/lib
@@ -36,19 +45,16 @@ see guide at: https://jax.readthedocs.io/en/latest/installation.html
 
 **pip install:**
 ```
-pip install -U "jax[cuda12_local]==0.4.20" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+pip uninstall jax jaxlib -y
+pip install -U "jax[cuda12_local]==0.4.2" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
 ```
 
 **test jax install**
 ```
 TF_CPP_MIN_LOG_LEVEL=0 python -c "import jax; print(f'GPUS: {jax.device_count()}'); jax.random.split(jax.random.PRNGKey(42), 2); print('hello world');"
 ```
-Excpeted is something like
+Expected is something that includes
 ```
-2024-03-28 16:07:49.978848: I external/tsl/tsl/cuda/cudart_stub.cc:31] Could not find cuda drivers on your machine, GPU will not be used.
-2024-03-28 16:07:57.974045: I external/tsl/tsl/cuda/cudart_stub.cc:31] Could not find cuda drivers on your machine, GPU will not be used.
-2024-03-28 16:07:58.028387: I external/tsl/tsl/cuda/cudart_stub.cc:31] Could not find cuda drivers on your machine, GPU will not be used.
-2024-03-28 16:08:04.962298: I external/tsl/tsl/cuda/cudart_stub.cc:31] Could not find cuda drivers on your machine, GPU will not be used.
 GPUS: 1
 hello world
 ```
@@ -68,9 +74,20 @@ git clone https://github.com/FLAIROx/JaxMARL.git $jaxmarl_loc
 # install jaxmarl
 cd $jaxmarl_loc
 git checkout cc9f12bb5948c31c478a1d662c56a8d7c5f8c530
-pip install -e '.[qlearning]'
+pip install -e '.[qlearning]' "jax==0.4.20"
 cd $cur_dir
+pip install -r requirements-2.txt
 ```
+Expected errors:
+```
+ERROR: pip's dependency resolver does not currently take into account all the packages that are installed. This behaviour is the source of the following dependency conflicts.
+gym3 0.3.3 requires cffi<2.0.0,>=1.13.0, which is not installed.
+torch 2.0.1 requires nvidia-cublas-cu11==11.10.3.66; platform_system == "Linux" and platform_machine == "x86_64", which is not installed.
+torch 2.0.1 requires nvidia-cuda-cupti-cu11==11.7.101; platform_system == "Linux" and platform_machine == "x86_64", which is not installed.
+torch 2.0.1 requires nvidia-cuda-runtime-cu11==11.7.99; platform_system == "Linux" and platform_machine == "x86_64", which is not installed.
+torch 2.0.1 requires nvidia-cudnn-cu11==8.5.0.96; platform_system == "Linux" and platform_machine == "x86_64", which is not installed.
+```
+
 
 **notes**: if you're using IntelliSense (e.g. through vscode), you'll need to add the jaxmarl path to `python.autoComplete.extraPaths`. you can access it with `echo $jaxmarl_loc`
 
@@ -95,7 +112,7 @@ echo 'export PYTHONPATH=$PYTHONPATH:`pwd`' >> $activation_dir/env_vars.sh
 
 # setting LD_LIBRARY_PATH added to activation
 echo 'export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$CONDA_PREFIX/lib/' >> $activation_dir/env_vars.sh
-echo 'export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/n/sw/helmod-rocky8/apps/Core/cudnn/8.9.2.26_cuda12-fasrc01/lib/' >> $activation_dir/env_vars.sh
+echo 'export LD_LIBRARY_PATH=/n/sw/helmod-rocky8/apps/Core/cudnn/8.9.2.26_cuda12-fasrc01/lib/:$LD_LIBRARY_PATH' >> $activation_dir/env_vars.sh
 
 # undoing LD_LIBRARY_PATH added to deactivation
 echo 'unset LD_LIBRARY_PATH' >> $CONDA_PREFIX/etc/conda/deactivate.d/env_vars.sh

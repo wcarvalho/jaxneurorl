@@ -3,7 +3,7 @@
 TESTING:
 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue singleagent/baselines.py \
   --debug=True \
-  --wandb=True \
+  --wandb=False \
   --search=alpha
 
 JAX_DISABLE_JIT=1 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue singleagent/baselines.py \
@@ -106,7 +106,16 @@ def run_single(
 
 def sweep(search: str = ''):
   search = search or 'baselines'
-  if search == 'baselines':
+  if search == 'test':
+    space = [
+        {
+            "group": tune.grid_search(['baselines-Catch-12']),
+            "alg": tune.grid_search(['qlearning']),
+            "config_name": tune.grid_search(['qlearning']),
+            "ENV_NAME": tune.grid_search(['Catch-bsuite']),
+        },
+    ]
+  elif search == 'baselines':
     space = [
         {
             "group": tune.grid_search(['baselines-Catch-12']),

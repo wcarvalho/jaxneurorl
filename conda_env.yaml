@@ -8,7 +8,5 @@ dependencies:
     - ipdb
     - tqdm
     - rlax
-    - mctx==0.0.5
+    - mctx
     - "ray[tune]"
-    - jupyterlab
-    - ipywidgets
