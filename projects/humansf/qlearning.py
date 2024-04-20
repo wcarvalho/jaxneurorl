@@ -60,9 +60,8 @@ class RnnAgent(nn.Module):
     rnn: vbb.ScannedRNN
 
     def setup(self):
-        self.hidden_dim = self.config["AGENT_HIDDEN_DIM"]
         self.observation_encoder = KeyroomObsEncoder(
-            hidden_dim=self.hidden_dim,
+            hidden_dim=self.config["AGENT_HIDDEN_DIM"],
             init=self.config.get('ENCODER_INIT', 'word_init'),
             image_hidden_dim=self.config.get('IMAGE_HIDDEN', 512),
             )

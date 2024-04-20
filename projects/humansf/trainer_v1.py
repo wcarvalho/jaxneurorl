@@ -4,24 +4,24 @@ TESTING:
 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue projects/humansf/trainer_v1.py \
   --debug=True \
   --wandb=False \
-  --search=default
+  --search=alpha
 
 JAX_DISABLE_JIT=1 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue projects/humansf/trainer_v1.py \
   --debug=True \
   --wandb=False \
-  --search=default
+  --search=alpha
 
 TESTING SLURM LAUNCH:
 python projects/humansf/trainer_v1.py \
   --parallel=sbatch \
   --debug_parallel=True \
-  --search=default
+  --search=alpha
 
 RUNNING ON SLURM:
 python projects/humansf/trainer_v1.py \
   --parallel=sbatch \
   --time '0-00:15:00' \
-  --search=default
+  --search=alpha
 """
 from typing import Dict, Union
 
@@ -161,7 +161,7 @@ def run_single(
           num_simulations=config.get('NUM_SIMULATIONS', 4),
           gumbel_scale=config.get('GUMBEL_SCALE', 1.0))
 
-      return functools.partial(
+      make_train = functools.partial(
           vbb.make_train,
           make_agent=functools.partial(
               alphazero.make_agent,
@@ -207,17 +207,10 @@ def run_single(
         save_params(params, f'{save_path}/{alg_name}.safetensors')
         print(f'Parameters of first batch saved in {save_path}/{alg_name}.safetensors')
 
-    #---------------
-    # clean up wandb dir
-    #---------------
-    wandb_dir = wandb_init.get("dir", './wandb')
-    if os.path.exists(wandb_dir):
-      import shutil
-      shutil.rmtree(wandb_dir)
 
 def sweep(search: str = ''):
-  search = search or 'default'
-  if search == 'default':
+  search = search or 'ql'
+  if search == 'ql':
     shared = {
       "config_name": tune.grid_search(['ql_keyroom']),
       'env.NUM_ROOMS': tune.grid_search([4, 3, 2, 1]),
@@ -260,15 +253,35 @@ def sweep(search: str = ''):
         #    **shared,
         #},
       ]
+  if search == 'ql-symbolic':
+    shared = {
+      "config_name": tune.grid_search(['ql_keyroom']),
+      'env.NUM_ROOMS': tune.grid_search([4, 3, 2, 1]),
+    }
+    space = [
+
+        {
+            "group": tune.grid_search(['qlearning-64-symb']),
+            "alg": tune.grid_search(['qlearning']),
+            "GAMMA": tune.grid_search([.6]),
+            "EVAL_LOG_PERIOD": tune.grid_search([500]),
+            "FIXED_EPSILON": tune.grid_search([0]),
+            "EPSILON_ANNEAL_TIME": tune.grid_search([1e5]),
+            'env.symbolic': tune.grid_search([True]),
+            **shared,
+        },
+      ]
+
   elif search == 'alpha':
     shared = {
       "config_name": tune.grid_search(['alpha_keyroom']),
-      'env.NUM_ROOMS': tune.grid_search([4, 3, 2, 1]),
+      'env.NUM_ROOMS': tune.grid_search([3, 2, 1]),
     }
     space = [
         {
             "group": tune.grid_search(['alpha-1']),
             "alg": tune.grid_search(['alphazero']),
+            "MAX_SIM_DEPTH": tune.grid_search([50, 2, 4]),
             **shared,
         },
 

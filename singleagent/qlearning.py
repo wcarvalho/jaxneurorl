@@ -242,7 +242,7 @@ class RnnAgent(nn.Module):
         """Only used for initialization."""
         # [B, D]
         rng = jax.random.PRNGKey(0)
-        batch_dims = x.observation.shape[:-1]
+        batch_dims = (x.reward.shape[0],)
         rnn_state = self.initialize_carry(rng, batch_dims)
 
         return self.__call__(rnn_state, x, rng)
@@ -350,7 +350,7 @@ def make_rnn_agent(
         method=agent.initialize)
 
     def reset_fn(params, example_timestep, reset_rng):
-      batch_dims = example_timestep.observation.shape[:-1]
+      batch_dims = (example_timestep.reward.shape[0],)
       return agent.apply(
           params,
           batch_dims=batch_dims,

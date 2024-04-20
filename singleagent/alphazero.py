@@ -233,10 +233,9 @@ class MLP(nn.Module):
 class AlphaZeroAgent(nn.Module):
 
     action_dim: int
-    hidden_dim: int
 
+    observation_encoder: nn.Module
     rnn: vbb.ScannedRNN
-
     env: environment.Environment
     env_params: environment.EnvParams
     test_env_params: environment.EnvParams
@@ -244,8 +243,6 @@ class AlphaZeroAgent(nn.Module):
     num_bins: int = 101
 
     def setup(self):
-        self.observation_encoder = MLP(
-           hidden_dim=self.hidden_dim, num_layers=1)
 
         self.policy_fn = MLP(hidden_dim=512, num_layers=1, out_dim=self.action_dim)
         self.value_fn = MLP(hidden_dim=512, num_layers=1, out_dim=self.num_bins)
@@ -254,7 +251,7 @@ class AlphaZeroAgent(nn.Module):
         """Only used for initialization."""
         # [B, D]
         rng = jax.random.PRNGKey(0)
-        batch_dims = x.observation.shape[:-1]
+        batch_dims = (x.reward.shape[0],)
         rnn_state = self.initialize_carry(rng, batch_dims)
         predictions, rnn_state = self.__call__(rnn_state, x, rng)
         dummy_action = jnp.zeros(batch_dims, dtype=jnp.int32)
@@ -351,7 +348,9 @@ def make_agent(
     test_env_params = test_env_params or env_params
     agent = AlphaZeroAgent(
         action_dim=env.action_space(env_params).n,
-        hidden_dim=config["AGENT_HIDDEN_DIM"],
+        observation_encoder=MLP(
+           hidden_dim=config["AGENT_HIDDEN_DIM"],
+           num_layers=1),
         rnn=vbb.ScannedRNN(
             hidden_dim=config["AGENT_HIDDEN_DIM"],
             unroll_output_state=True),

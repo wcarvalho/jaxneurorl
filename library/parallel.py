@@ -268,7 +268,8 @@ def run(
     sweep_fn,
     folder: str,
     trainer_filename: str,
-    config_path: str):
+    config_path: str,
+    remove_wandb_files: bool = True):
   """The basic logics is as follows:
 
   Simplest: if FLAGS.parallel == 'none', simply runs run_fn
@@ -300,7 +301,11 @@ def run(
       debug=FLAGS.debug_parallel,
       spaces=sweep_fn(FLAGS.search),
     )
+    return
   elif FLAGS.parallel == 'none':
+    #-------------------
+    # load experiment config. varies based on whether called by slurm or not.
+    #-------------------
     if FLAGS.subprocess:  # called by SLURM
 
       def pickle_load(filename):
@@ -311,17 +316,6 @@ def run(
 
       configs = pickle_load(FLAGS.search_config)
       experiment_config = configs[FLAGS.config_idx-1]  # indexing starts at 1 with SLURM
-      config, wandb_init = load_hydra_config(
-        sweep_config=experiment_config,
-        config_path=config_path,
-        save_path=experiment_config['log_dir'],
-        tags=[f"jax_{jax.__version__}"]
-        )
-      wandb.init(**wandb_init)
-      run_fn(
-        config=config,
-        save_path=experiment_config['log_dir'])
-
     else:  # called by this script (i.e. you)
       configs = get_all_configurations(spaces=sweep_fn(FLAGS.search))
 
@@ -337,16 +331,29 @@ def run(
         config=config,
         datetime_name=True,
       )
-      config, wandb_init = load_hydra_config(
-        sweep_config=experiment_config,
-        config_path=config_path,
-        save_path=experiment_config['log_dir'],
-        tags=[f"jax_{jax.__version__}"]
-        )
-      wandb.init(**wandb_init)
-      run_fn(
-        config=config,
-        save_path=experiment_config['log_dir'])
+    #-------------------
+    # load hyra config from experiment config
+    # run experiment and optionally remove wandb files
+    #-------------------
+    config, wandb_init = load_hydra_config(
+      sweep_config=experiment_config,
+      config_path=config_path,
+      save_path=experiment_config['log_dir'],
+      tags=[f"jax_{jax.__version__}"]
+      )
+    wandb.init(**wandb_init)
+    run_fn(
+      config=config,
+      save_path=experiment_config['log_dir'])
+    if remove_wandb_files:
+      #---------------
+      # clean up wandb dir
+      #---------------
+      wandb_dir = wandb_init.get("dir", './wandb')
+      if os.path.exists(wandb_dir):
+        import shutil
+        shutil.rmtree(wandb_dir)
+
   else:
     raise NotImplementedError
 
@@ -438,8 +445,7 @@ def load_hydra_config(
     tags=tags+[algo_name.upper(), env_name.upper()],
     config=config,
     save_code=False,
-    dir=save_path,
-    # reinit=True,
+    dir=os.path.join(save_path, 'wandb'),
   )
 
   try:
@@ -449,3 +455,4 @@ def load_hydra_config(
     pass
 
   return config, wandb_init
+
