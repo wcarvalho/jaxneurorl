@@ -168,17 +168,21 @@ class AlphaZeroLossFn(vbb.RecurrentLossFn):
         }
 
         if self.logger.learner_log_extra is not None:
-            self.logger.learner_log_extra({
-                'batch_index': batch_index,
-                'data': data,
-                'td_errors': td_error,       # [T]
-                'mask': loss_mask,           # [T]
-                'values': value_prediction,  # [T]
-                'values_targets': value_target,  # [T]
-                'value_loss': value_loss,    # [T]
-                'policy_loss': policy_loss,    # [T]
-                'n_updates': steps,
-            })
+            jax.lax.cond(
+                batch_index < 1,
+                lambda: self.logger.learner_log_extra({
+                    'batch_index': batch_index,
+                    'data': data,
+                    'td_errors': td_error,       # [T]
+                    'mask': loss_mask,           # [T]
+                    'values': value_prediction,  # [T]
+                    'values_targets': value_target,  # [T]
+                    'value_loss': value_ce,    # [T]
+                    'policy_loss': policy_ce,    # [T]
+                    'n_updates': steps,
+                }),
+                lambda: None
+            )
 
         return td_error, total_loss, metrics
 
@@ -197,7 +201,6 @@ class AlphaZeroLossFn(vbb.RecurrentLossFn):
             steps,
         )
         td_error = td_error.transpose()  # [B,T] --> [T,B]
-        metrics = jax.tree_map(lambda x: x.mean(), metrics)  # []
 
         # [T, B], [B], []
         return td_error, total_loss, metrics
@@ -455,9 +458,10 @@ def make_actor(
                     discretizer=discretizer,
                     evaluation=evaluation,
                 ))
-
         mcts_outputs = jax.vmap(apply_mcts_policy)(
             root, timestep.discount[:, None])
+
+        # [B, 1, ...] --> [B, ...]
         mcts_outputs = jax.tree_map(lambda x: x[:, 0], mcts_outputs)
 
         policy_target = mcts_outputs.action_weights
@@ -482,12 +486,6 @@ def make_logger(config: dict,
 
     def learner_log_extra(data: dict):
         def callback(d):
-            if d['batch_index'] != 0:
-                # called inside AlphaZeroLossFn:loss_fn
-                # this function is called for every batch element.
-                # only log first
-                return
-
             rewards = d['data'].timestep.reward
             values = d['values']
             values_target = d['values_targets']
@@ -533,8 +531,14 @@ def make_logger(config: dict,
                 wandb.log({f"learner_details/losses": wandb.Image(fig)})
             plt.close(fig)
 
+        if config["LEARNER_EXTRA_LOG_PERIOD"] < 1:
+            return
+        # this will be the value after update is applied
+        n_updates = data['n_updates'] + 1
+        is_log_time = n_updates % config["LEARNER_EXTRA_LOG_PERIOD"] == 0
+        is_log_time = jnp.logical_and(is_log_time, data['batch_index'] < 1)
         jax.lax.cond(
-            data['n_updates'] % config.get("LEARNER_LOG_PERIOD", 10_000) == 0,
+            is_log_time,
             lambda d: jax.debug.callback(callback, d),
             lambda d: None,
             data)
@@ -559,7 +563,7 @@ def make_train_preloaded(config, test_env_params=None):
     mcts_policy = functools.partial(
         mctx.gumbel_muzero_policy,
         max_depth=config.get('MAX_SIM_DEPTH', None),
-        num_simulations=config.get('NUM_SIMULATIONS', 4),
+        num_simulations=config.get('NUM_SIMULATIONS', 2),
         gumbel_scale=config.get('GUMBEL_SCALE', 1.0))
 
     return functools.partial(

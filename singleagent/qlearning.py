@@ -182,8 +182,13 @@ def make_logger(config: dict,
             wandb.log({f"learner_details/q-values": wandb.Image(fig)})
             plt.close(fig)
 
+
+        # this will be the value after update is applied
+        n_updates = data['n_updates'] + 1
+        is_log_time = n_updates % config["LEARNER_EXTRA_LOG_PERIOD"] == 0
+
         jax.lax.cond(
-            data['n_updates'] % config.get("LEARNER_LOG_PERIOD", 10_000) == 0,
+            is_log_time,
             lambda d: jax.debug.callback(callback, d),
             lambda d: None,
             data)
