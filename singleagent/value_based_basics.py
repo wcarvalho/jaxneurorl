@@ -712,18 +712,15 @@ def make_train(
             log_period=5_000)
         eval_observer = observer
 
-        example_predictions, _ = agent.apply(
-            train_state.params, init_agent_state, init_timestep, dummy_rng)
-
         init_actor_observer_state = observer.init(
             example_timestep=init_timestep,
             example_action=action,
-            example_predictions=example_predictions)
+            example_predictions=init_preds)
 
         init_eval_observer_state = eval_observer.init(
             example_timestep=init_timestep,
             example_action=action,
-            example_predictions=example_predictions)
+            example_predictions=init_preds)
 
         actor_observer_state = observer.observe_first(
             first_timestep=init_timestep,
