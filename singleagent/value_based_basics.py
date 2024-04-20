@@ -224,7 +224,6 @@ class RecurrentLossFn:
       target_params=target_params,
       steps=steps,
       key_grad=key_grad)
-
     batch_loss = batch_loss.mean()
     # TODO: support for prioritized replay
 
@@ -337,11 +336,14 @@ class ScannedRNN(nn.Module):
 class DummyRNN(nn.Module):
     hidden_dim: int = 0
     cell_type: str = "LSTMCell"
+    unroll_output_state: bool = False  # return state at all time-points
 
     def __call__(self, state, x: RNNInput, rng: PRNGKey):
        return state, x.obs
 
     def unroll(self, state, xs: RNNInput, rng: PRNGKey):
+       if self.unroll_output_state:
+           return state, (xs.obs, xs.obs)
        return state, xs.obs
 
     def initialize_carry(

@@ -105,7 +105,9 @@ mkdir -p $activation_dir
 mkdir -p $CONDA_PREFIX/etc/conda/deactivate.d
 
 # module loading added to activation
-echo 'module load cuda/12.2.0-fasrc01' > $activation_dir/env_vars.sh
+echo 'module load cudnn/8.9.2.26_cuda12-fasrc01' > $activation_dir/env_vars.sh
+echo 'module load cuda/12.2.0-fasrc01' >> $activation_dir/env_vars.sh
+
 
 # setting PYTHONPATH added to activation
 echo 'export PYTHONPATH=$PYTHONPATH:`pwd`' >> $activation_dir/env_vars.sh
@@ -114,8 +116,6 @@ echo 'export PYTHONPATH=$PYTHONPATH:`pwd`' >> $activation_dir/env_vars.sh
 echo 'export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$CONDA_PREFIX/lib/' >> $activation_dir/env_vars.sh
 echo 'export LD_LIBRARY_PATH=/n/sw/helmod-rocky8/apps/Core/cudnn/8.9.2.26_cuda12-fasrc01/lib/:$LD_LIBRARY_PATH' >> $activation_dir/env_vars.sh
 
-# undoing LD_LIBRARY_PATH added to deactivation
-echo 'unset LD_LIBRARY_PATH' >> $CONDA_PREFIX/etc/conda/deactivate.d/env_vars.sh
 ```
 
 

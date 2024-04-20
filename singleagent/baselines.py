@@ -2,7 +2,7 @@
 
 TESTING:
 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue singleagent/baselines.py \
-  --debug=True \
+  --debug=False \
   --wandb=False \
   --search=alpha
 
@@ -138,24 +138,29 @@ def sweep(search: str = ''):
     ]
   elif search == 'alpha':
     space = [
+        #{
+        #    "group": tune.grid_search(['alphazero-CartPole-4']),
+        #    "alg": tune.grid_search(['alphazero']),
+        #    "config_name": tune.grid_search(['alphazero']),
+        #    "NUM_ENVS": tune.grid_search([2, 4, 8]),
+        #    "ENV_NAME": tune.grid_search(['CartPole-v1',]),
+        #},
         {
-            "group": tune.grid_search(['alphazero-Catch-2']),
+            "group": tune.grid_search(['alphazero-Breakout-7']),
             "alg": tune.grid_search(['alphazero']),
             "config_name": tune.grid_search(['alphazero']),
-            "ENV_NAME": tune.grid_search(['Catch-bsuite']),
-        },
-        {
-            "group": tune.grid_search(['alphazero-CartPole-2']),
-            "alg": tune.grid_search(['alphazero']),
-            "config_name": tune.grid_search(['alphazero']),
-            "ENV_NAME": tune.grid_search(['CartPole-v1',]),
-        },
-        {
-            "group": tune.grid_search(['alphazero-Breakout-2']),
-            "alg": tune.grid_search(['alphazero']),
-            "config_name": tune.grid_search(['alphazero']),
+            "NUM_ENVS": tune.grid_search([32]),
+            "NUM_SIMULATIONS": tune.grid_search([2, 4, 50]),
+            "LEARNER_EXTRA_LOG_PERIOD": tune.grid_search([0, 5_000]),
             "ENV_NAME": tune.grid_search(['Breakout-MinAtar',]),
         },
+        #{
+        #    "group": tune.grid_search(['alphazero-Catch-6']),
+        #    "alg": tune.grid_search(['alphazero']),
+        #    "config_name": tune.grid_search(['alphazero']),
+        #    "NUM_ENVS": tune.grid_search([10, 32]),
+        #    "ENV_NAME": tune.grid_search(['Catch-bsuite']),
+        #},
     ]
   else:
     raise NotImplementedError(search)

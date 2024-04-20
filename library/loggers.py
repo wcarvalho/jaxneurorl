@@ -38,7 +38,6 @@ def default_learner_logger(
 
     def callback(ts: train_state, metrics: dict):
         metrics = {f'{key}/{k}': v for k, v in metrics.items()}
-
         metrics.update({
             f'{key}/num_actor_steps': ts.timesteps,
             f'{key}/num_learner_updates': ts.n_updates,
@@ -46,6 +45,8 @@ def default_learner_logger(
         if wandb.run is not None:
           wandb.log(metrics)
 
+    # prepare
+    learner_metrics = jax.tree_map(lambda x: x.mean(), learner_metrics)  # []
     jax.debug.callback(callback, train_state, learner_metrics)
 
 
