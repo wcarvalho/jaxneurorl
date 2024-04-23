@@ -17,7 +17,7 @@ import numpy as np
 import copy
 from gymnax.environments import spaces
 
-from xminigrid.core.constants import Colors, Tiles, NUM_ACTIONS
+from xminigrid.core.constants import Colors, Tiles, NUM_ACTIONS, DIRECTIONS, TILES_REGISTRY
 from xminigrid.core.goals import EmptyGoal
 from xminigrid.core.actions import take_action
 from xminigrid.core.grid import cartesian_product_1d, nine_rooms, sample_coordinates, sample_direction, free_tiles_mask
@@ -95,7 +95,6 @@ def shorten_maze_config(maze_config: dict, n: int):
   maze_config['keys'] = maze_config['keys'][:n]
   maze_config['pairs'] = maze_config['pairs'][:n]
   return maze_config
-
 
 def swap_test_pairs(maze_config: dict):
   maze_config = copy.deepcopy(maze_config)
@@ -199,6 +198,7 @@ class KeyRoomEnvParams(EnvParams):
     #train_single: bool = struct.field(pytree_node=False, default=True)
     train_multi_probs: float = struct.field(pytree_node=False, default=.5)
     training: bool = struct.field(pytree_node=False, default=True)
+    time_limit: int = struct.field(pytree_node=False, default=150)
     maze_config: dict = None
     task_objects: jax.Array = None
     train_w: jax.Array = None
@@ -289,6 +289,7 @@ def get_local_agent_position(agent_pos, height, width):
     local_x = agent_pos[1] - start_x
 
     return jnp.array([local_y, local_x])
+
 
 ###########################
 # helper functions
@@ -423,14 +424,19 @@ def pair_object_picked_up(params, state):
     """True if any object in pairs is picked up."""
     pairs = params.maze_config['pairs'].reshape(-1, 2)
     pair_object_picked_up = (pairs == state.agent.pocket[None]).all(-1)
+
     return pair_object_picked_up.any()
 
 class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
 
-    def __init__(self, test_episodes_ends_on_key_pickup: bool = True, name='keyroom'):
+    def __init__(self,
+                 train_episode_ends_on_pair_pickup: bool = True,
+                 test_episode_ends_on_key_pickup: bool = True,
+                 name='keyroom'):
         super().__init__()
         self.name = name
-        self.test_episodes_ends_on_key_pickup = test_episodes_ends_on_key_pickup
+        self.train_episode_ends_on_pair_pickup = train_episode_ends_on_pair_pickup
+        self.test_episode_ends_on_key_pickup = test_episode_ends_on_key_pickup
 
     def action_space(
         self, params: Optional[EnvParams] = None
@@ -476,7 +482,7 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
           **kwargs)
 
     def time_limit(self, params: EnvParams) -> int:
-        return 150
+        return params.time_limit
 
     def _generate_problem(self, params: KeyRoomEnvParams, rng: jax.Array) -> State[EnvCarry]:
 
@@ -740,6 +746,68 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
         )
         return timestep
 
+    def teleport_agent_remove_key_close_door(
+          self,
+          prior_timestep,
+          new_grid,
+          new_agent):
+        def move(position: jax.Array,
+                 direction: jax.Array,
+                 steps: int = 2) -> jax.Array:
+          direction = jax.lax.dynamic_index_in_dim(
+              DIRECTIONS, direction, keepdims=False)
+          new_position = position + direction*steps
+          return new_position
+
+        def teleport_agent_remove_key_close_door(grid, agent, door_opened_somewhere):
+          # get door identity
+          y, x = jnp.nonzero(
+              door_opened_somewhere, size=1)
+          door = grid[y[0], x[0]]  # [D=2]
+
+          # get which task object door corresponded to
+          # [num_tasks, num_task_objects]
+          which_task_obj_is_door = (
+              door[None, None] == self.task_runner.task_objects[:, :, :2]).all(-1)
+
+          # [num_tasks, num_task_objects]
+          feature_counts = prior_timestep.state.task_state.feature_counts
+          feature_counts_door = (which_task_obj_is_door.astype(
+              jnp.float32)*feature_counts).sum()
+
+          def update_agent_grid(g, a):
+            position = move(a.position, a.direction)
+            new_a = a.replace(
+                position=position,
+                pocket=TILES_REGISTRY[Tiles.EMPTY, Colors.EMPTY])
+
+            new_g = g.at[y[0], x[0]].set(
+                TILES_REGISTRY[Tiles.DOOR_CLOSED, door[COLOR_IDX]])
+
+            return new_g, new_a
+
+          new_grid, new_agent = jax.lax.cond(
+              feature_counts_door < 1,
+              update_agent_grid,
+              lambda g, a: (g, a),
+              grid, agent,
+          )
+          return new_grid, new_agent
+
+        # --------
+        # door opened?
+        # --------
+        door_opened_somewhere = (
+            Tiles.DOOR_OPEN == new_grid[:, :, 0])
+        door_opened = door_opened_somewhere.any()
+
+        return jax.lax.cond(
+            door_opened,
+            lambda: teleport_agent_remove_key_close_door(
+                new_grid, new_agent, door_opened_somewhere),
+            lambda: (new_grid, new_agent),
+        )
+
     def take_action(self,
              key: jax.random.KeyArray,
              timestep: TimeStep[EnvCarryT],
@@ -748,8 +816,15 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
              ) -> TimeStep[EnvCarryT]:
         del key
         del params
-        return take_action(
+        new_grid, new_agent, _ = take_action(
             timestep.state.grid, timestep.state.agent, action)
+
+        new_grid, new_agent = self.teleport_agent_remove_key_close_door(
+            prior_timestep=timestep,
+            new_grid=new_grid,
+            new_agent=new_agent)
+
+        return new_grid, new_agent, _
 
 
     @partial(jax.jit, static_argnums=(0,))
@@ -767,7 +842,6 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
             prior_state=timestep.state.task_state,
             visible_grid=new_room_grid,
             agent=new_agent)
-
 
         new_state = timestep.state.replace(
             grid=new_grid,
@@ -789,22 +863,32 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
                                 state=States.PICKED_UP, asarray=True)
           return (pocket == task_object).all()
 
-        if self.test_episodes_ends_on_key_pickup:
-          terminated = picked_up(new_state.termination_object)
-        else:
-          terminated = pair_object_picked_up(params, new_state)
         truncated = jnp.equal(new_state.step_num, self.time_limit(params))
-
         state_features = new_observation.state_features.astype(
             jnp.float32)
         goal_room_objects = params.task_objects[new_state.goal_room_idx]
 
-        reward = jax.lax.cond(
+        def reward_terminated_training():
+            if self.train_episode_ends_on_pair_pickup:
+              terminated = pair_object_picked_up(params, new_state)
+            else:
+              terminated = picked_up(new_state.termination_object)
+            reward = (state_features*new_observation.task_w).sum()
+            return reward, terminated
+
+        def reward_terminated_testing():
+            if self.test_episode_ends_on_key_pickup:
+              terminated = picked_up(new_state.termination_object)
+              reward = picked_up(goal_room_objects[KEY_IDX]).astype(jnp.float32)
+            else:
+              terminated = pair_object_picked_up(params, new_state)
+              reward = (state_features*new_observation.task_w).sum()
+            return reward, terminated
+
+        reward, terminated = jax.lax.cond(
            params.training,
-           # use accomplishment of state features as reward
-           lambda: (state_features*new_observation.task_w).sum(),
-           # was key for goal object picked up?
-           lambda: picked_up(goal_room_objects[KEY_IDX]).astype(jnp.float32) if self.test_episodes_ends_on_key_pickup else (state_features*new_observation.task_w).sum()
+           reward_terminated_training,
+           reward_terminated_testing
         )
 
         step_type = jax.lax.select(
