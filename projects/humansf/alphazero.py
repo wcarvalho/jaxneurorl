@@ -37,6 +37,7 @@ MLP = base_agent.MLP
 Predictions = base_agent.Predictions
 AgentState = base_agent.AgentState
 
+from projects.humansf import observers as humansf_observers
 
 #class AlphaZeroAgent(nn.Module):
 
@@ -142,74 +143,22 @@ AgentState = base_agent.AgentState
 #        return self.__call__(state.rnn_state, next_timestep, rng_)
 
 
-def make_logger(config: dict,
-                env: environment.Environment,
-                env_params: environment.EnvParams):
-
-    def learner_log_extra(data: dict):
-        def callback(d):
-            if d['batch_index'] != 0:
-                # called inside AlphaZeroLossFn:loss_fn
-                # this function is called for every batch element.
-                # only log first
-                return
-
-            rewards = d['data'].timestep.reward
-            values = d['values']
-            values_target = d['values_targets']
-
-            # Create a figure with three subplots
-            nplots = 4
-            fig, (ax1, ax2, ax3, ax4) = plt.subplots(
-                nplots, 1, figsize=(5, 3*nplots))
-
-            # Plot rewards and q-values in the top subplot
-            def format(ax):
-                ax.set_xlabel('Time')
-                ax.grid(True)
-                ax.set_xticks(range(0, len(rewards), 1))
-
-            # Plot rewards and q-values in the top subplot
-            ax1.plot(rewards, label='Rewards')
-            ax1.plot(values, label='Value Predictions')
-            ax1.plot(values_target, label='Value Targets')
-            format(ax1)
-            ax1.set_title('Rewards and Values')
-            ax1.legend()
-
-            # Plot TD errors in the middle subplot
-            ax2.plot(d['td_errors'])
-            format(ax2)
-            ax2.set_title('TD Errors')
-
-            # Plot Value-loss in the bottom subplot
-            ax3.plot(d['value_loss'])
-            format(ax3)
-            ax3.set_title('Value Loss')
-
-            # Plot Value-loss in the bottom subplot
-            ax4.plot(d['policy_loss'])
-            format(ax4)
-            ax4.set_title('Policy Loss')
-
-            # Adjust the spacing between subplots
-            plt.tight_layout()
-            # log
-            if wandb.run is not None:
-                wandb.log({f"learner_details/losses": wandb.Image(fig)})
-            plt.close(fig)
-
-        jax.lax.cond(
-            data['n_updates'] % config.get("LEARNER_LOG_PERIOD", 10_000) == 0,
-            lambda d: jax.debug.callback(callback, d),
-            lambda d: None,
-            data)
+def make_logger(
+        config: dict,
+        env: environment.Environment,
+        env_params: environment.EnvParams,
+        maze_config: dict,
+        action_names: dict,
+        get_task_name: Callable = None,
+        ):
 
     return loggers.Logger(
         gradient_logger=loggers.default_gradient_logger,
         learner_logger=loggers.default_learner_logger,
-        experience_logger=loggers.default_experience_logger,
-        learner_log_extra=learner_log_extra,
+        experience_logger=functools.partial(
+            humansf_observers.experience_logger,
+            action_names=action_names,
+            get_task_name=get_task_name),
     )
 
 
@@ -225,9 +174,9 @@ def make_agent(
     agent = base_agent.AlphaZeroAgent(
         action_dim=env.num_actions(env_params),
         observation_encoder=KeyroomObsEncoder(
-            hidden_dim=config["AGENT_HIDDEN_DIM"],
+            embed_hidden_dim=config["AGENT_HIDDEN_DIM"],
             init=config.get('ENCODER_INIT', 'word_init'),
-            image_hidden_dim=config.get('IMAGE_HIDDEN', 512),
+            grid_hidden_dim=config.get('IMAGE_HIDDEN', 512),
         ),
         rnn=vbb.ScannedRNN(
             hidden_dim=config.get("AGENT_RNN_DIM", 128),

@@ -22,10 +22,13 @@ FLAGS = flags.FLAGS
 def make_base_path(
     root_path: str,
     trainer_file: str,
+    search: str,
     ):
   trainer_filename = os.path.splitext(os.path.basename(trainer_file))[0]
   return os.path.join(
-    root_path, trainer_filename)
+    root_path,
+    trainer_filename,
+    search)
 
 def setup_experiment_config(
     base_path: str,
@@ -176,7 +179,8 @@ def run_sbatch(
   save_configs = []
   base_path = make_base_path(
     root_path=os.path.join(root_path, folder),
-    trainer_file=trainer_filename)
+    trainer_file=trainer_filename,
+    search=search_name)
 
   for config in configurations:
 
@@ -321,7 +325,8 @@ def run(
 
       base_path = make_base_path(
         root_path=f"{folder}_single",
-        trainer_file=trainer_filename)
+        trainer_file=trainer_filename,
+        search=FLAGS.search)
 
       # this is to make sure that the sweep config has the same format as produced by run_sbatch
       config = configs[0]

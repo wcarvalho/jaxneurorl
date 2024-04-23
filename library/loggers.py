@@ -49,7 +49,6 @@ def default_learner_logger(
     learner_metrics = jax.tree_map(lambda x: x.mean(), learner_metrics)  # []
     jax.debug.callback(callback, train_state, learner_metrics)
 
-
 def default_experience_logger(
         train_state: TrainState,
         observer_state: BasicObserverState,

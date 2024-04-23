@@ -126,7 +126,7 @@ echo 'export RL_RESULTS_DIR=${results_dir}' >> $CONDA_PREFIX/etc/conda/activate.
 ```
 example:
 ```
-echo 'export RL_RESULTS_DIR=$HOME/jaxrl_results' >> $CONDA_PREFIX/etc/conda/activate.d/env_vars.sh
+echo 'export RL_RESULTS_DIR=$HOME/results/jaxrl_results' >> $CONDA_PREFIX/etc/conda/activate.d/env_vars.sh
 ```
 
 Otherwise, can set each time run experiment

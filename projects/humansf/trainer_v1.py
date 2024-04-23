@@ -20,7 +20,7 @@ python projects/humansf/trainer_v1.py \
 RUNNING ON SLURM:
 python projects/humansf/trainer_v1.py \
   --parallel=sbatch \
-  --time '0-00:15:00' \
+  --time '0-01:30:00' \
   --search=alpha
 """
 from typing import Dict, Union
@@ -43,6 +43,7 @@ import hydra
 import gymnax
 from gymnax.wrappers.purerl import FlattenObservationWrapper, LogWrapper
 from library.wrappers import TimestepWrapper
+from projects.humansf import logger
 
 
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']='false'
@@ -74,15 +75,28 @@ def run_single(
 
     num_rooms = config['env']['ENV_KWARGS'].pop('NUM_ROOMS', 4)
     symbolic = config['env']['ENV_KWARGS'].pop('symbolic', False)
+    num_tiles = config['env']['ENV_KWARGS'].pop('NUM_TILES', 19)
+    end_on_pair = config['env']['ENV_KWARGS'].pop('END_ON_PAIR', True)
+
+    default_params_kwargs = dict(
+      maze_config=maze_config,
+      height=num_tiles,
+      width=num_tiles,
+      **config['env']['ENV_KWARGS'])
 
     maze_config = keyroom.shorten_maze_config(
        maze_config, num_rooms)
 
+
+
     if symbolic:
       env = keyroom_symbolic.KeyRoomSymbolic()
-      action_names = keyroom_symbolic.get_action_names(maze_config)
+      env_params = env.default_params(**default_params_kwargs)
+      action_names = keyroom_symbolic.get_action_names(env_params)
     else:
-      env = keyroom.KeyRoom()
+      env = keyroom.KeyRoom(train_episode_ends_on_pair_pickup=end_on_pair)
+      import ipdb; ipdb.set_trace()
+      env_params = env.default_params(**default_params_kwargs)
       action_names = {
           0: 'forward',
           1: 'right',
@@ -91,9 +105,6 @@ def run_single(
           4: 'put_down',
           5: 'toggle'}
 
-
-    env_params = env.default_params(
-      maze_config=maze_config, **config['env']['ENV_KWARGS'])
     test_env_params = env_params.replace(training=False)
 
     # auto-reset wrapper
@@ -117,6 +128,24 @@ def run_single(
       label = '1.test' if object_idx > 0 else '0.train'
 
       category, color = maze_config['pairs'][room_idx][object_idx]
+              # Mapping of color names to colors
+      #color_mapping = {
+      #    'red': 'r',
+      #    'green': 'g',
+      #    'blue': 'b',
+      #    'purple': '#701FC3',  # Use hex color code for custom colors
+      #    'yellow': 'y',
+      #    'grey': '#646464',    # Use hex color code for custom colors
+      #}
+
+      ## Mapping of shape names to Unicode characters
+      #shape_mapping = {
+      #    'box': r'\textcolor{' + color_mapping[color] + r'}{$\square$}',    # Square shape
+      #    'ball': r'\textcolor{' + color_mapping[color] + r'}{$\bullet$}',   # Circle shape
+      #    'key': r'\textcolor{' + color_mapping[color] + r'}{$\star$}',      # Star shape
+      #}
+
+      #return f'{setting} - {label} - {shape_mapping[category]} {category}'
 
       return f'{setting} - {label} - {color} {category}'
 
@@ -139,10 +168,16 @@ def run_single(
           make_loss_fn_class=qlearning.make_loss_fn_class,
           make_actor=qlearning.make_actor,
           make_logger=functools.partial(
-            qlearning.make_logger,
+            logger.make_logger,
             maze_config=maze_config,
             get_task_name=get_task_name,
             action_names=action_names,
+            learner_log_extra=functools.partial(
+              qlearning.learner_log_extra,
+              config=config,
+              action_names=action_names,
+              maze_config=maze_config,
+              )
             ),
       )
     elif alg_name == 'alphazero':
@@ -174,7 +209,12 @@ def run_single(
               alphazero.make_actor,
               discretizer=discretizer,
               mcts_policy=mcts_policy),
-          make_logger=alphazero.make_logger,
+          make_logger=functools.partial(
+            logger.make_logger,
+            maze_config=maze_config,
+            get_task_name=get_task_name,
+            action_names=action_names,
+            ),
       )
 
     else:
@@ -213,60 +253,35 @@ def sweep(search: str = ''):
   if search == 'ql':
     shared = {
       "config_name": tune.grid_search(['ql_keyroom']),
-      'env.NUM_ROOMS': tune.grid_search([4, 3, 2, 1]),
+      'env.NUM_ROOMS': tune.grid_search([4, 3]),
     }
     space = [
-        #{
-        #    "group": tune.grid_search(['qlearning-43-larger?']),
-        #    "alg": tune.grid_search(['qlearning']),
-        #    'env.symbolic': tune.grid_search([True, False]),
-        #    "SAMPLE_LENGTH": tune.grid_search([40]),
-        #    "BUFFER_BATCH_SIZE": tune.grid_search([32, 128, 256]),
-        #    "TRAINING_INTERVAL": tune.grid_search([1, 10]),
-        #    "NUM_ENVS": tune.grid_search([32, 64]),
-        #    **shared,
-        #},
         {
-            "group": tune.grid_search(['qlearning-63-symb']),
+            "group": tune.grid_search(['qlearning-70']),
             "alg": tune.grid_search(['qlearning']),
-            "GAMMA": tune.grid_search([.6]),
-            "EVAL_LOG_PERIOD": tune.grid_search([500]),
-            "FIXED_EPSILON": tune.grid_search([0]),
-            "EPSILON_ANNEAL_TIME": tune.grid_search([1e5]),
-            'env.symbolic': tune.grid_search([True]),
+            "NUM_GRID_LAYERS": tune.grid_search([0, 1, 2]),
+            "NUM_EMBED_LAYERS": tune.grid_search([0, 1, 2]),
+            #"NUM_ENCODER_LAYERS": tune.grid_search([0, 1, 2]),
             **shared,
         },
-        #{
-        #    "group": tune.grid_search(['qlearning-55-reg']),
-        #    "alg": tune.grid_search(['qlearning']),
-        #    'env.symbolic': tune.grid_search([False]),
-        #    **shared,
-        #},
-        #{
-        #    "group": tune.grid_search(['qlearning-47-reg-fix']),
-        #    "alg": tune.grid_search(['qlearning']),
-        #    'env.symbolic': tune.grid_search([False]),
-        #    "ENCODER_INIT": tune.grid_search(['word_init', 'word_init2', 'truncated']),
-        #    #"BUFFER_BATCH_SIZE": tune.grid_search([32, 128, 256]),
-        #    #"TRAINING_INTERVAL": tune.grid_search([1, 10]),
-        #    #"NUM_ENVS": tune.grid_search([32, 64]),
-        #    **shared,
-        #},
       ]
-  if search == 'ql-symbolic':
+  elif search == 'ql-symbolic':
     shared = {
       "config_name": tune.grid_search(['ql_keyroom']),
-      'env.NUM_ROOMS': tune.grid_search([4, 3, 2, 1]),
+      'env.NUM_ROOMS': tune.grid_search([3]),
     }
     space = [
 
         {
-            "group": tune.grid_search(['qlearning-64-symb']),
+            "group": tune.grid_search(['ql-sym-70']),
             "alg": tune.grid_search(['qlearning']),
             "GAMMA": tune.grid_search([.6]),
-            "EVAL_LOG_PERIOD": tune.grid_search([500]),
-            "FIXED_EPSILON": tune.grid_search([0]),
-            "EPSILON_ANNEAL_TIME": tune.grid_search([1e5]),
+            "NUM_GRID_LAYERS": tune.grid_search([0, 1, 2]),
+            "NUM_EMBED_LAYERS": tune.grid_search([0, 1, 2]),
+            #"NUM_ENCODER_LAYERS": tune.grid_search([0, 1, 2]),
+            #"EVAL_LOG_PERIOD": tune.grid_search([1]),
+            #"FIXED_EPSILON": tune.grid_search([0]),
+            #"EPSILON_ANNEAL_TIME": tune.grid_search([1e5]),
             'env.symbolic': tune.grid_search([True]),
             **shared,
         },
@@ -275,16 +290,35 @@ def sweep(search: str = ''):
   elif search == 'alpha':
     shared = {
       "config_name": tune.grid_search(['alpha_keyroom']),
-      'env.NUM_ROOMS': tune.grid_search([3, 2, 1]),
+      'env.NUM_ROOMS': tune.grid_search([2,3,1]),
     }
     space = [
         {
-            "group": tune.grid_search(['alpha-1']),
+            "group": tune.grid_search(['alpha-4']),
             "alg": tune.grid_search(['alphazero']),
-            "MAX_SIM_DEPTH": tune.grid_search([50, 2, 4]),
+            "MAX_SIM_DEPTH": tune.grid_search([25, 2, 4]),
             **shared,
         },
 
+      ]
+  elif search == 'bench':
+    shared = {
+      'env.NUM_ROOMS': tune.grid_search([2,3]),
+    }
+    space = [
+        {
+            "group": tune.grid_search(['benchmark-1']),
+            "config_name": tune.grid_search(['ql_keyroom']),
+            "alg": tune.grid_search(['qlearning']),
+            **shared,
+        },
+        {
+            "group": tune.grid_search(['benchmark-1']),
+            "config_name": tune.grid_search(['alpha_keyroom']),
+            "alg": tune.grid_search(['alphazero']),
+            "MAX_SIM_DEPTH": tune.grid_search([4, 8, 16]),
+            **shared,
+        },
       ]
   else:
     raise NotImplementedError(search)

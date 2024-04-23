@@ -43,7 +43,7 @@ def position_to_two_hot(local_agent_position, grid_shape):
     # Set the corresponding positions to 1
     one_hot_x = one_hot_x.at[x].set(1)
     one_hot_y = one_hot_y.at[y].set(1)
-    
+
     return jnp.concatenate((one_hot_x, one_hot_y))
 
 def make_agent_grid(grid_shape, agent_pos, dir):

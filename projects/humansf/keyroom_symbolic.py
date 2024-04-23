@@ -1,26 +1,34 @@
 from typing import Optional
 import jax
 import jax.numpy as jnp
+from projects.humansf import keyroom
 from projects.humansf.keyroom import KeyRoom, KeyRoomEnvParams, sample_coordinates
 
 from xminigrid.core.constants import Colors, Tiles, DIRECTIONS, TILES_REGISTRY
 from gymnax.environments import spaces
 from xminigrid.environment import Environment, EnvParams, EnvParamsT
 from xminigrid.types import AgentState, EnvCarry, State, TimeStep, EnvCarryT, IntOrArray, StepType, GridState
-from xminigrid.core.grid import check_pickable
 
-def get_action_names(maze_config: dict):
-    keys = [" ".join(k[::-1]) for k in maze_config['keys']]
-    pairs = []
-    for p in maze_config['pairs']:
-        pairs.extend([" ".join(p[0][::-1]), " ".join(p[1][::-1])])
-    actions = keys + pairs
+class SymbolicKeyRoomEnvParams(KeyRoomEnvParams):
+    action_objects: jax.Array = None
+
+def get_action_names(env_params: SymbolicKeyRoomEnvParams):
+    color_map = keyroom.color_map
+    object_map = keyroom.object_map
+    # Create a dictionary to map object strings to their corresponding tile values
+
+
+    idx2color = {idx: color for color, idx in color_map.items()}
+    idx2obj = {idx: obj for obj, idx in object_map.items()}
+    actions = []
+    for obj, color in env_params.action_objects:
+      obj, color = int(obj), int(color)
+      actions.append(f"{idx2color[color]} {idx2obj[obj]}")
+
     return {i:name for i, name in enumerate(actions)}
 
 
 
-class SymbolicKeyRoomEnvParams(KeyRoomEnvParams):
-    action_objects: jax.Array = None
 
 class KeyRoomSymbolic(KeyRoom):
 
@@ -33,7 +41,11 @@ class KeyRoomSymbolic(KeyRoom):
         return 20
 
     def default_params(self, *args, **kwargs):
-        params = super().default_params(*args, **kwargs)
+        params = super().default_params(
+            *args,
+            key_reward=0.0,
+            door_reward=0.0,
+            **kwargs)
         all_keys = params.maze_config['keys']
         all_pairs = params.maze_config['pairs'].reshape(-1, 2)
         action_objects = jnp.concatenate((all_keys, all_pairs))
@@ -49,7 +61,8 @@ class KeyRoomSymbolic(KeyRoom):
         return spaces.Discrete(len(params.action_objects))
 
     def take_action(self, key, timestep, action, params: SymbolicKeyRoomEnvParams):
-        action_object = params.action_objects[action]
+        action_object = jax.lax.dynamic_index_in_dim(
+            params.action_objects, action, keepdims=False)
 
         in_grid = (timestep.state.room_grid == action_object[None, None]).all(-1).any()
 
@@ -63,19 +76,14 @@ class KeyRoomSymbolic(KeyRoom):
 
 def object_action(rng, action, action_object, timestep, params):
     roomW, roomH = params.width // 3, params.height // 3
-    all_room_coords = [
-        (1, 2),  # right
-        (2, 1),  # bottom
-        (1, 0),  # left
-        (0, 1),  # top
-    ]
-    all_room_coords = jnp.array(all_room_coords)
+
     num_keys = len(params.maze_config['keys'])
 
     def goto_keys_room():
       """Go to the room that this key maps to."""
       prior_agent = timestep.state.agent
-      room_coords = jax.lax.dynamic_index_in_dim(all_room_coords, action, keepdims=False)
+      room_coords = jax.lax.dynamic_index_in_dim(
+          keyroom.all_room_coords, action, keepdims=False)
 
       xL = room_coords[1] * roomW
       yT = room_coords[0] * roomH
@@ -90,9 +98,10 @@ def object_action(rng, action, action_object, timestep, params):
       )
       return timestep.state.grid, agent
 
-    is_key_for_door = action < num_keys
+    is_key_action = jnp.less(action, num_keys)
+
     return jax.lax.cond(
-        is_key_for_door,
+        is_key_action,
         lambda: goto_keys_room(),
         lambda: pick_up(timestep.state.grid, timestep.state.agent, action_object)
     )
@@ -102,11 +111,11 @@ def pick_up(grid: GridState, agent: AgentState, obj: jnp.array):
     y, x = jnp.nonzero(where_present, size=1)
     next_position = (y[0], x[0])
     #is_pickable = check_pickable(grid, (y, x))
-    is_empty_pocket = jnp.equal(agent.pocket[0], Tiles.EMPTY)
+    has_empty_pocket = jnp.equal(agent.pocket[0], Tiles.EMPTY)
 
-    # pick up only if pocket is empty and entity is pickable
+    # pick up only if pocket is empty
     new_grid, new_agent = jax.lax.cond(
-        is_empty_pocket,
+        has_empty_pocket,
         lambda: (
             grid.at[next_position[0], next_position[1]].set(
                 TILES_REGISTRY[Tiles.FLOOR, Colors.BLACK]),

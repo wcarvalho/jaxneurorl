@@ -4,10 +4,9 @@ Recurrent Q-learning.
 
 
 
-import functools
 import os
 import jax
-from typing import Tuple, Callable
+from typing import Tuple
 
 
 import flax.linen as nn
@@ -21,11 +20,9 @@ import matplotlib.pyplot as plt
 
 from xminigrid.rendering.rgb_render import render as rgb_render
 
-from library import loggers
 
 from projects.humansf.networks import KeyroomObsEncoder
 from projects.humansf import keyroom
-from projects.humansf import observers as humansf_observers
 from projects.humansf.visualizer import plot_frames
 
 from singleagent.basics import TimeStep
@@ -61,9 +58,12 @@ class RnnAgent(nn.Module):
 
     def setup(self):
         self.observation_encoder = KeyroomObsEncoder(
-            hidden_dim=self.config["AGENT_HIDDEN_DIM"],
+            embed_hidden_dim=self.config["AGENT_HIDDEN_DIM"],
             init=self.config.get('ENCODER_INIT', 'word_init'),
-            image_hidden_dim=self.config.get('IMAGE_HIDDEN', 512),
+            grid_hidden_dim=self.config.get('GRID_HIDDEN', 256),
+            num_embed_layers=self.config['NUM_EMBED_LAYERS'],
+            num_grid_layers=self.config['NUM_GRID_LAYERS'],
+            num_joint_layers=self.config['NUM_ENCODER_LAYERS']
             )
 
         self.q_fn = base_agent.MLP(
@@ -125,7 +125,9 @@ def make_agent(
             hidden_dim=config["AGENT_RNN_DIM"], cell_type=cell_type)
 
     agent = RnnAgent(
-        action_dim=env.num_actions(env_params), config=config, rnn=rnn,
+        action_dim=env.num_actions(env_params),
+        config=config,
+        rnn=rnn,
     )
 
     rng, _rng = jax.random.split(rng)
@@ -142,158 +144,140 @@ def make_agent(
 
     return agent, network_params, reset_fn
 
-def make_logger(
+def learner_log_extra(
+        data: dict,
         config: dict,
-        env: environment.Environment,
-        env_params: environment.EnvParams,
-        maze_config: dict,
         action_names: dict,
-        get_task_name: Callable = None,
+        maze_config: dict,
         ):
+    def callback(d):
+        n_updates = d.pop('n_updates')
 
-    def qlearner_logger(data: dict):
-        def callback(d):
-            n_updates = d.pop('n_updates')
+        # Extract the relevant data
+        # only use data from batch dim = 0
+        # [T, B, ...] --> # [T, ...]
+        d_ = jax.tree_map(lambda x: x[:, 0], d)
 
-            # Extract the relevant data
-            # only use data from batch dim = 0
-            # [T, B, ...] --> # [T, ...]
-            d_ = jax.tree_map(lambda x: x[:, 0], d)
+        mask = d_['mask']
+        discounts = d_['data'].timestep.discount
+        rewards = d_['data'].timestep.reward
+        actions = d_['data'].action
+        q_values = d_['q_values']
+        q_target = d_['q_target']
+        q_values_taken = rlax.batched_index(q_values, actions)
+        td_errors = d_['td_errors']
+        q_loss = d_['q_loss']
 
-            mask = d_['mask']
-            discounts = d_['data'].timestep.discount
-            rewards = d_['data'].timestep.reward
-            actions = d_['data'].action
-            q_values = d_['q_values']
-            q_target = d_['q_target']
-            q_values_taken = rlax.batched_index(q_values, actions)
-            td_errors = d_['td_errors']
-            q_loss = d_['q_loss']
+        # Create a figure with three subplots
+        width = .3
+        nT = len(rewards)  # e.g. 20 --> 8
+        fig, (ax1, ax2, ax3, ax4) = plt.subplots(4, 1, figsize=(int(width*nT), 12))
 
-            # Create a figure with three subplots
-            width = .3
-            nT = len(rewards)  # e.g. 20 --> 8
-            fig, (ax1, ax2, ax3, ax4) = plt.subplots(4, 1, figsize=(int(width*nT), 12))
+        # Plot rewards and q-values in the top subplot
+        def format(ax):
+            ax.set_xlabel('Time')
+            ax.grid(True)
+            ax.set_xticks(range(0, len(rewards), 1))
+        ax1.plot(rewards, label='Rewards')
+        ax1.plot(q_values_taken, label='Q-Values')
+        ax1.plot(q_target, label='Q-Targets')
+        ax1.set_title('Rewards and Q-Values')
+        format(ax1)
+        ax1.legend()
 
-            # Plot rewards and q-values in the top subplot
-            def format(ax):
-                ax.set_xlabel('Time')
-                ax.grid(True)
-                ax.set_xticks(range(0, len(rewards), 1))
-            ax1.plot(rewards, label='Rewards')
-            ax1.plot(q_values_taken, label='Q-Values')
-            ax1.plot(q_target, label='Q-Targets')
-            ax1.set_title('Rewards and Q-Values')
-            format(ax1)
-            ax1.legend()
+        # Plot TD errors in the middle subplot
+        ax2.plot(td_errors)
+        format(ax2)
+        ax2.set_title('TD Errors')
 
-            # Plot TD errors in the middle subplot
-            ax2.plot(td_errors)
-            format(ax2)
-            ax2.set_title('TD Errors')
+        # Plot Q-loss in the bottom subplot
+        ax3.plot(q_loss)
+        format(ax3)
+        ax3.set_title('Q-Loss')
 
-            # Plot Q-loss in the bottom subplot
-            ax3.plot(q_loss)
-            format(ax3)
-            ax3.set_title('Q-Loss')
+        # Plot episode quantities
+        is_last = d_['data'].timestep.last()
+        ax4.plot(discounts, label='Discounts')
+        ax4.plot(mask, label='mask')
+        ax4.plot(is_last, label='is_last')
+        format(ax4)
+        ax4.set_title('Episode markers')
+        ax4.legend()
 
-            # Plot episode quantities
-            is_last = d_['data'].timestep.last()
-            ax4.plot(discounts, label='Discounts')
-            ax4.plot(mask, label='mask')
-            ax4.plot(is_last, label='is_last')
-            format(ax4)
-            ax4.set_title('Episode markers')
-            ax4.legend()
+        # Adjust the spacing between subplots
+        #plt.tight_layout()
+        # log
+        if wandb.run is not None:
+            wandb.log({f"learner_example/q-values": wandb.Image(fig)})
+        plt.close(fig)
 
-            # Adjust the spacing between subplots
-            plt.tight_layout()
-            # log
-            if wandb.run is not None:
-                wandb.log({f"learner_example/q-values": wandb.Image(fig)})
-            plt.close(fig)
+        ##############################
+        # plot images of env
+        ##############################
+        #timestep = jax.tree_map(lambda x: jnp.array(x), d_['data'].timestep)
+        timesteps: TimeStep = d_['data'].timestep
 
-            ##############################
-            # plot images of env
-            ##############################
-            #timestep = jax.tree_map(lambda x: jnp.array(x), d_['data'].timestep)
-            timesteps: TimeStep = d_['data'].timestep
+        # ------------
+        # get images
+        # ------------
 
-            # ------------
-            # get images
-            # ------------
+        #state_images = []
+        obs_images = []
+        max_len = min(config.get("MAX_EPISODE_LOG_LEN", 40), len(rewards))
+        for idx in range(max_len):
+            index = lambda y: jax.tree_map(lambda x: x[idx], y)
+            #state_image = rgb_render(
+            #    timesteps.state.grid[idx],
+            #    index(timesteps.state.agent),
+            #    env_params.view_size,
+            #    tile_size=8)
+            obs_image = keyroom.render_room(
+                index(d_['data'].timestep.state),
+                tile_size=8)
+            #state_images.append(state_image)
+            obs_images.append(obs_image)
 
-            #state_images = []
-            obs_images = []
-            max_len = min(config.get("MAX_EPISODE_LOG_LEN", 40), len(rewards))
-            for idx in range(max_len):
-                index = lambda y: jax.tree_map(lambda x: x[idx], y)
-                #state_image = rgb_render(
-                #    timesteps.state.grid[idx],
-                #    index(timesteps.state.agent),
-                #    env_params.view_size,
-                #    tile_size=8)
-                obs_image = keyroom.render_room(
-                    index(d_['data'].timestep.state),
-                    tile_size=8)
-                #state_images.append(state_image)
-                obs_images.append(obs_image)
+        # ------------
+        # plot
+        # ------------
+        def action_name(a):
+            if action_names is not None:
+                name = action_names.get(int(a), 'ERROR?')
+                return f"action {int(a)}: {name}"
+            else:
+                return f"action: {int(a)}"
+        actions_taken = [action_name(a) for a in actions]
 
-            # ------------
-            # task name
-            # ------------
+        def panel_title_fn(timesteps, i):
+            room_setting = int(timesteps.state.room_setting[i])
+            task_room = int(timesteps.state.goal_room_idx[i])
+            task_object = int(timesteps.state.task_object_idx[i])
+            setting = 'single' if room_setting == 0 else 'multi'
+            category, color = maze_config['pairs'][task_room][task_object]
+            task_name = f'{setting} - {color} {category}'
 
-            # ------------
-            # plot
-            # ------------
-            def action_name(a):
-                if action_names is not None:
-                    name = action_names.get(int(a), 'ERROR?')
-                    return f"action {int(a)}: {name}"
-                else:
-                    return f"action: {int(a)}"
-            actions_taken = [action_name(a) for a in actions]
+            title = f'{task_name}\n'
+            title += f't={i}\n'
+            title += f'{actions_taken[i]}\n'
+            title += f'r={timesteps.reward[i]}, $\\gamma={timesteps.discount[i]}$'
+            return title
 
-            def panel_title_fn(timesteps, i):
-                room_setting = int(timesteps.state.room_setting[i])
-                task_room = int(timesteps.state.goal_room_idx[i])
-                task_object = int(timesteps.state.task_object_idx[i])
-                setting = 'single' if room_setting == 0 else 'multi'
-                category, color = maze_config['pairs'][task_room][task_object]
-                task_name = f'{setting} - {color} {category}'
+        fig = plot_frames(
+            timesteps=timesteps,
+            frames=obs_images,
+            panel_title_fn=panel_title_fn,
+            ncols=6)
+        if wandb.run is not None:
+            wandb.log(
+                {f"learner_example/trajecotry": wandb.Image(fig)})
+        plt.close(fig)
 
-                title = f'{task_name}\n'
-                title += f't={i}\n'
-                title += f'{actions_taken[i]}\n'
-                title += f'r={timesteps.reward[i]}, $\\gamma={timesteps.discount[i]}$'
-                return title
+    # this will be the value after update is applied
+    n_updates = data['n_updates'] + 1
+    is_log_time = n_updates % config["LEARNER_EXTRA_LOG_PERIOD"] == 0
 
-            fig = plot_frames(
-                timesteps=timesteps,
-                frames=obs_images,
-                panel_title_fn=panel_title_fn,
-                ncols=6)
-            if wandb.run is not None:
-                wandb.log(
-                    {f"learner_example/trajecotry": wandb.Image(fig)})
-            plt.close(fig)
-
-        # this will be the value after update is applied
-        n_updates = data['n_updates'] + 1
-        is_log_time = n_updates % config["LEARNER_EXTRA_LOG_PERIOD"] == 0
-
-        jax.lax.cond(
-            is_log_time,
-            lambda d: jax.debug.callback(callback, d),
-            lambda d: None,
-            data)
-
-    return loggers.Logger(
-        gradient_logger=loggers.default_gradient_logger,
-        learner_logger=loggers.default_learner_logger,
-        experience_logger=functools.partial(
-            humansf_observers.experience_logger,
-            action_names=action_names,
-            get_task_name=get_task_name),
-        learner_log_extra=qlearner_logger,
-    )
+    jax.lax.cond(
+        is_log_time,
+        lambda d: jax.debug.callback(callback, d),
+        lambda d: None,
+        data)
