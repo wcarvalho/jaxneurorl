@@ -73,7 +73,7 @@ def run_single(
     with open(maze_path, "r") as file:
       maze_config = json.load(file)[0]
 
-    num_rooms = config['env']['ENV_KWARGS'].pop('NUM_ROOMS', 4)
+    num_rooms = config['env']['ENV_KWARGS'].pop('NUM_ROOMS', 3)
     symbolic = config['env']['ENV_KWARGS'].pop('symbolic', False)
     num_tiles = config['env']['ENV_KWARGS'].pop('NUM_TILES', 19)
     end_on_pair = config['env']['ENV_KWARGS'].pop('END_ON_PAIR', True)
@@ -87,15 +87,13 @@ def run_single(
     maze_config = keyroom.shorten_maze_config(
        maze_config, num_rooms)
 
-
-
     if symbolic:
       env = keyroom_symbolic.KeyRoomSymbolic()
       env_params = env.default_params(**default_params_kwargs)
       action_names = keyroom_symbolic.get_action_names(env_params)
     else:
       env = keyroom.KeyRoom(train_episode_ends_on_pair_pickup=end_on_pair)
-      import ipdb; ipdb.set_trace()
+
       env_params = env.default_params(**default_params_kwargs)
       action_names = {
           0: 'forward',
@@ -253,14 +251,17 @@ def sweep(search: str = ''):
   if search == 'ql':
     shared = {
       "config_name": tune.grid_search(['ql_keyroom']),
-      'env.NUM_ROOMS': tune.grid_search([4, 3]),
+      'env.NUM_ROOMS': tune.grid_search([3]),
     }
     space = [
         {
-            "group": tune.grid_search(['qlearning-70']),
+            "group": tune.grid_search(['qlearning-71']),
             "alg": tune.grid_search(['qlearning']),
-            "NUM_GRID_LAYERS": tune.grid_search([0, 1, 2]),
-            "NUM_EMBED_LAYERS": tune.grid_search([0, 1, 2]),
+            'env.NUM_TILES': tune.grid_search([16, 19]),
+            'env.END_ON_PAIR': tune.grid_search([True, False]),
+            'env.time_limit': tune.grid_search([50, 150]),
+            #"NUM_GRID_LAYERS": tune.grid_search([0, 1, 2]),
+            #"NUM_EMBED_LAYERS": tune.grid_search([0, 1, 2]),
             #"NUM_ENCODER_LAYERS": tune.grid_search([0, 1, 2]),
             **shared,
         },
@@ -300,6 +301,28 @@ def sweep(search: str = ''):
             **shared,
         },
 
+      ]
+  elif search == 'env':
+    shared = {
+      'env.NUM_ROOMS': tune.grid_search([3, 4]),
+      'env.NUM_TILES': tune.grid_search([16, 19]),
+      'env.END_ON_PAIR': tune.grid_search([True, False]),
+    }
+    space = [
+        #{
+        #    "config_name": tune.grid_search(['alpha_keyroom']),
+        #    "group": tune.grid_search(['alpha-4']),
+        #    "alg": tune.grid_search(['alphazero']),
+        #    "NUM_SIMULATIONS": tune.grid_search([4]),
+        #    **shared,
+        #},
+        {
+            "config_name": tune.grid_search(['alpha_keyroom']),
+            "group": tune.grid_search(['alpha-4']),
+            "alg": tune.grid_search(['alphazero']),
+            "NUM_SIMULATIONS": tune.grid_search([4]),
+            **shared,
+        },
       ]
   elif search == 'bench':
     shared = {
