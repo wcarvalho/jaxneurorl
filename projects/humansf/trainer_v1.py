@@ -75,7 +75,7 @@ def run_single(
 
     num_rooms = config['env']['ENV_KWARGS'].pop('NUM_ROOMS', 3)
     symbolic = config['env']['ENV_KWARGS'].pop('symbolic', False)
-    num_tiles = config['env']['ENV_KWARGS'].pop('NUM_TILES', 19)
+    num_tiles = config['env']['ENV_KWARGS'].pop('NUM_TILES', 16)
     end_on_pair = config['env']['ENV_KWARGS'].pop('END_ON_PAIR', True)
 
     maze_config = keyroom.shorten_maze_config(
@@ -236,47 +236,22 @@ def sweep(search: str = ''):
     }
     space = [
         {
-            "group": tune.grid_search(['qlearning-71']),
+            "group": tune.grid_search(['qlearning-73']),
             "alg": tune.grid_search(['qlearning']),
-            'env.NUM_TILES': tune.grid_search([16, 19]),
             'env.END_ON_PAIR': tune.grid_search([True, False]),
-            'env.time_limit': tune.grid_search([50, 150]),
-            #"NUM_GRID_LAYERS": tune.grid_search([0, 1, 2]),
-            #"NUM_EMBED_LAYERS": tune.grid_search([0, 1, 2]),
-            #"NUM_ENCODER_LAYERS": tune.grid_search([0, 1, 2]),
             **shared,
         },
       ]
-  elif search == 'ql-symbolic':
-    shared = {
-      "config_name": tune.grid_search(['ql_keyroom']),
-    }
-    space = [
-
-        {
-            "group": tune.grid_search(['ql-sym-70']),
-            "alg": tune.grid_search(['qlearning']),
-            "GAMMA": tune.grid_search([.6]),
-            "NUM_GRID_LAYERS": tune.grid_search([0, 1, 2]),
-            "NUM_EMBED_LAYERS": tune.grid_search([0, 1, 2]),
-            #"NUM_ENCODER_LAYERS": tune.grid_search([0, 1, 2]),
-            #"EVAL_LOG_PERIOD": tune.grid_search([1]),
-            #"FIXED_EPSILON": tune.grid_search([0]),
-            #"EPSILON_ANNEAL_TIME": tune.grid_search([1e5]),
-            'env.symbolic': tune.grid_search([True]),
-            **shared,
-        },
-      ]
-
   elif search == 'alpha':
     shared = {
       "config_name": tune.grid_search(['alpha_keyroom']),
     }
     space = [
         {
-            "group": tune.grid_search(['alpha-4']),
+            "group": tune.grid_search(['alpha-5']),
             "alg": tune.grid_search(['alphazero']),
-            "MAX_SIM_DEPTH": tune.grid_search([25, 2, 4]),
+            "NUM_SIMULATIONS": tune.grid_search([2, 4, 8]),
+            'env.END_ON_PAIR': tune.grid_search([True, False]),
             **shared,
         },
 
