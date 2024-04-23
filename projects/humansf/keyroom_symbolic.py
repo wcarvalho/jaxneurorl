@@ -24,10 +24,10 @@ class SymbolicKeyRoomEnvParams(KeyRoomEnvParams):
 
 class KeyRoomSymbolic(KeyRoom):
 
-    def __init__(self, test_episodes_ends_on_key_pickup: bool = False, name='keyroom'):
+    def __init__(self, test_episodes_end_on_key_pickup: bool = False, name='keyroom'):
         super().__init__()
         self.name = name
-        self.test_episodes_ends_on_key_pickup = test_episodes_ends_on_key_pickup
+        self.test_episodes_end_on_key_pickup = test_episodes_end_on_key_pickup
 
     def time_limit(self, params: EnvParams) -> int:
         return 20
