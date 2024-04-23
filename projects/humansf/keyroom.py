@@ -40,31 +40,6 @@ TEST_OBJECT_IDX = 3
 TYPE_IDX = 0
 COLOR_IDX = 1
 
-
-color_map = {
-    "red": Colors.RED,
-    "green": Colors.GREEN,
-    "blue": Colors.BLUE,
-    "purple": Colors.PURPLE,
-    "yellow": Colors.YELLOW,
-    "grey": Colors.GREY,
-}
-
-# Create a dictionary to map object strings to their corresponding tile values
-object_map = {
-    "key": Tiles.KEY,
-    "box": Tiles.SQUARE,
-    "ball": Tiles.BALL,
-}
-
-all_room_coords = [
-    (1, 2),  # right
-    (2, 1),  # bottom
-    (1, 0),  # left
-    (0, 1),  # top
-]
-all_room_coords = jnp.array(all_room_coords)
-
 def make_obj(
         category: int,
         color: int,
@@ -224,6 +199,21 @@ class EnvState(struct.PyTreeNode, Generic[EnvCarryT]):
 def convert_dict_to_types(maze_dict):
     # Create a dictionary to map color strings to their corresponding values
 
+    color_map = {
+        "red": Colors.RED,
+        "green": Colors.GREEN,
+        "blue": Colors.BLUE,
+        "purple": Colors.PURPLE,
+        "yellow": Colors.YELLOW,
+        "grey": Colors.GREY,
+    }
+
+    # Create a dictionary to map object strings to their corresponding tile values
+    object_map = {
+        "key": Tiles.KEY,
+        "box": Tiles.SQUARE,
+        "ball": Tiles.BALL,
+    }
     # Convert keys
     converted_keys = []
     for key_pair in maze_dict["keys"]:
@@ -362,11 +352,7 @@ def render_room(state: EnvState, render_mode: str = "rgb_array", **kwargs):
   else: 
      raise NotImplementedError(render_mode)
 
-def prepare_task_variables(
-      maze_config: struct.PyTreeNode,
-      key_reward = .25,
-      door_reward = .5,
-      ):
+def prepare_task_variables(maze_config: struct.PyTreeNode):
   keys = maze_config['keys']
   pairs = maze_config['pairs']
   n_task_rooms = len(keys)
@@ -382,7 +368,7 @@ def prepare_task_variables(
     test_object = make_task_obj(*obj2, visible=1, state=States.PICKED_UP)
 
     task_objects.append((goal_key, goal_door, train_object, test_object))
-    train_w.append((key_reward, door_reward, 1., 0))
+    train_w.append((.25, .5, 1., 0))
     test_w.append((0., 0., 0., 1.0))
 
   task_objects = jnp.array(task_objects)
@@ -459,16 +445,12 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
           maze_config: dict,
           height=19,
           width=19,
-          key_reward=.25,
-          door_reward=.5,
           **kwargs) -> KeyRoomEnvParams:
 
         maze_config = convert_dict_to_types(maze_config)
 
         task_objects, train_w, test_w = prepare_task_variables(
-           maze_config,
-           key_reward=key_reward,
-           door_reward=door_reward)
+           maze_config)
 
         self.task_runner = TaskRunner(
            task_objects=task_objects,
@@ -872,18 +854,19 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
             if self.train_episode_ends_on_pair_pickup:
               terminated = pair_object_picked_up(params, new_state)
             else:
-              terminated = picked_up(new_state.termination_object)
+              terminated = picked_up(goal_room_objects[TRAIN_OBJECT_IDX])
             reward = (state_features*new_observation.task_w).sum()
             return reward, terminated
 
         def reward_terminated_testing():
-            if self.test_episode_ends_on_key_pickup:
-              terminated = picked_up(new_state.termination_object)
-              reward = picked_up(goal_room_objects[KEY_IDX]).astype(jnp.float32)
-            else:
-              terminated = pair_object_picked_up(params, new_state)
-              reward = (state_features*new_observation.task_w).sum()
-            return reward, terminated
+          if self.test_episode_ends_on_key_pickup:
+            key_picked_up = new_agent.pocket[0] == Tiles.KEY
+            terminated = key_picked_up
+            reward = picked_up(goal_room_objects[KEY_IDX]).astype(jnp.float32)
+          else:
+            terminated = pair_object_picked_up(params, new_state)
+            reward = (state_features*new_observation.task_w).sum()
+          return reward, terminated
 
         reward, terminated = jax.lax.cond(
            params.training,
