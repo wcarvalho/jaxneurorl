@@ -55,11 +55,7 @@ def plot_frames(
         ax = axs[i]
         ax.imshow(frames[i])
         ax.axis('off')  # Hide the axis
-
-        try:
-            ax.set_title(panel_title_fn(timesteps, i))
-        except Exception:
-            pass
+        ax.set_title(panel_title_fn(timesteps, i))
 
     # Hide unused subplots
     for i in range(T, H * ncols):

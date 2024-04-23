@@ -479,75 +479,68 @@ def make_actor(
                          actor_step, evaluation=True))
 
 
-def make_logger(config: dict,
-                env: environment.Environment,
-                env_params: environment.EnvParams):
+def learner_log_extra(
+        data: dict,
+        config: dict,
+    ):
+    """Note: currently not using. I think running this inside vmap leads to a race conditon where matplotlib stalls indefinitely."""
+    def callback(d):
+        rewards = d['data'].timestep.reward
+        values = d['values']
+        values_target = d['values_targets']
 
-    def learner_log_extra(data: dict):
-        def callback(d):
-            rewards = d['data'].timestep.reward
-            values = d['values']
-            values_target = d['values_targets']
+        # Create a figure with three subplots
+        nplots = 4
+        fig, (ax1, ax2, ax3, ax4) = plt.subplots(
+            nplots, 1, figsize=(5, 3*nplots))
 
-            # Create a figure with three subplots
-            nplots = 4
-            fig, (ax1, ax2, ax3, ax4) = plt.subplots(
-                nplots, 1, figsize=(5, 3*nplots))
+        # Plot rewards and q-values in the top subplot
+        def format(ax):
+            ax.set_xlabel('Time')
+            ax.grid(True)
+            ax.set_xticks(range(0, len(rewards), 1))
 
-            # Plot rewards and q-values in the top subplot
-            def format(ax):
-                ax.set_xlabel('Time')
-                ax.grid(True)
-                ax.set_xticks(range(0, len(rewards), 1))
+        # Plot rewards and q-values in the top subplot
+        ax1.plot(rewards, label='Rewards')
+        ax1.plot(values, label='Value Predictions')
+        ax1.plot(values_target, label='Value Targets')
+        format(ax1)
+        ax1.set_title('Rewards and Values')
+        ax1.legend()
 
-            # Plot rewards and q-values in the top subplot
-            ax1.plot(rewards, label='Rewards')
-            ax1.plot(values, label='Value Predictions')
-            ax1.plot(values_target, label='Value Targets')
-            format(ax1)
-            ax1.set_title('Rewards and Values')
-            ax1.legend()
+        # Plot TD errors in the middle subplot
+        ax2.plot(d['td_errors'])
+        format(ax2)
+        ax2.set_title('TD Errors')
 
-            # Plot TD errors in the middle subplot
-            ax2.plot(d['td_errors'])
-            format(ax2)
-            ax2.set_title('TD Errors')
+        # Plot Value-loss in the bottom subplot
+        ax3.plot(d['value_loss'])
+        format(ax3)
+        ax3.set_title('Value Loss')
 
-            # Plot Value-loss in the bottom subplot
-            ax3.plot(d['value_loss'])
-            format(ax3)
-            ax3.set_title('Value Loss')
+        # Plot Value-loss in the bottom subplot
+        ax4.plot(d['policy_loss'])
+        format(ax4)
+        ax4.set_title('Policy Loss')
 
-            # Plot Value-loss in the bottom subplot
-            ax4.plot(d['policy_loss'])
-            format(ax4)
-            ax4.set_title('Policy Loss')
+        # Adjust the spacing between subplots
+        plt.tight_layout()
+        # log
+        if wandb.run is not None:
+            wandb.log({f"learner_details/losses": wandb.Image(fig)})
+        plt.close(fig)
 
-            # Adjust the spacing between subplots
-            plt.tight_layout()
-            # log
-            if wandb.run is not None:
-                wandb.log({f"learner_details/losses": wandb.Image(fig)})
-            plt.close(fig)
-
-        if config["LEARNER_EXTRA_LOG_PERIOD"] < 1:
-            return
-        # this will be the value after update is applied
-        n_updates = data['n_updates'] + 1
-        is_log_time = n_updates % config["LEARNER_EXTRA_LOG_PERIOD"] == 0
-        is_log_time = jnp.logical_and(is_log_time, data['batch_index'] < 1)
-        jax.lax.cond(
-            is_log_time,
-            lambda d: jax.debug.callback(callback, d),
-            lambda d: None,
-            data)
-
-    return loggers.Logger(
-        gradient_logger=loggers.default_gradient_logger,
-        learner_logger=loggers.default_learner_logger,
-        experience_logger=loggers.default_experience_logger,
-        learner_log_extra=learner_log_extra,
-    )
+    if config["LEARNER_EXTRA_LOG_PERIOD"] < 1:
+        return
+    # this will be the value after update is applied
+    n_updates = data['n_updates'] + 1
+    is_log_time = n_updates % config["LEARNER_EXTRA_LOG_PERIOD"] == 0
+    is_log_time = jnp.logical_and(is_log_time, data['batch_index'] < 1)
+    jax.lax.cond(
+        is_log_time,
+        lambda d: jax.debug.callback(callback, d),
+        lambda d: None,
+        data)
 
 
 def make_train_preloaded(config, test_env_params=None):
@@ -564,6 +557,17 @@ def make_train_preloaded(config, test_env_params=None):
         max_depth=config.get('MAX_SIM_DEPTH', None),
         num_simulations=config.get('NUM_SIMULATIONS', 2),
         gumbel_scale=config.get('GUMBEL_SCALE', 1.0))
+
+    def make_logger(config: dict,
+                    env: environment.Environment,
+                    env_params: environment.EnvParams):
+
+        return loggers.Logger(
+            gradient_logger=loggers.default_gradient_logger,
+            learner_logger=loggers.default_learner_logger,
+            experience_logger=loggers.default_experience_logger,
+            learner_log_extra=functools.partial(
+                learner_log_extra, config=config))
 
     return functools.partial(
         vbb.make_train,

@@ -227,6 +227,7 @@ def experience_logger(
         log_details_period: int = 0,
         action_names: Optional[dict] = None,
         get_task_name: Callable = lambda t: 'Task',
+        max_len: int = 40,
         ):
 
     def callback(ts: TrainState, os: BasicObserverState):
@@ -244,7 +245,7 @@ def experience_logger(
         length_key = lambda name: f'{key}/1.1 {name.capitalize()} - AvgLength'
   
         for idx in range(end):
-          task_info = jax.tree_map(lambda x: x[0, idx], task_info_buffer)
+          task_info = jax.tree_map(lambda x: x[0, idx], os.task_info_buffer.experience)
           task_name = get_task_name(**task_info)
 
           if os.finished[idx] > 0:
@@ -253,7 +254,7 @@ def experience_logger(
 
         metrics = {k: np.array(v).mean() for k, v in metrics.items()}
         metrics.update({
-            #f'{key}/1.0. avg_episode_length': os.episode_lengths[:end].mean(),
+            f'{key}/z. avg_episode_length': os.episode_lengths[:end].mean(),
             f'{key}/0.0 avg_episode_return': os.episode_returns[:end].mean(),
             f'{key}/num_actor_steps': ts.timesteps,
             f'{key}/num_learner_updates': ts.n_updates,
@@ -261,7 +262,7 @@ def experience_logger(
         if wandb.run is not None:
           wandb.log(metrics)
 
-        if log_details_period and (ts.n_updates % log_details_period == 0):
+        if log_details_period and (int(ts.n_updates) % int(log_details_period) == 0):
           timesteps = jax.tree_map(lambda x: x[0], os.timestep_buffer.experience)
           actions = jax.tree_map(lambda x: x[0], os.action_buffer.experience)
           #predictions = jax.tree_map(lambda x: x[0], os.prediction_buffer.experience)
@@ -270,7 +271,6 @@ def experience_logger(
           # frames
           #################
           obs_images = []
-          max_len = 40
           for idx in range(max_len):
               index = lambda y: jax.tree_map(lambda x: x[idx], y)
               obs_image = keyroom.render_room(
@@ -294,13 +294,24 @@ def experience_logger(
           #################
 
           def panel_title_fn(timesteps, i):
-            task_info = jax.tree_map(lambda x: x[0, i], task_info_buffer)
-            task_name = get_task_name(**task_info)
+            room_setting = int(timesteps.state.room_setting[i])
+            task_room = int(timesteps.state.goal_room_idx[i])
+            task_object = int(timesteps.state.task_object_idx[i])
+            task_name = get_task_name(
+                room_setting=room_setting,
+                task_room=task_room,
+                task_object=task_object,
+            )
+            title = f'{task_name}'
 
-            title = f'{task_name}\n'
-            title += f't={i}\n'
-            title += f'{actions_taken[i]}\n'
-            title += f'r={timesteps.reward[i]}, $\\gamma={timesteps.discount[i]}$'
+            step_type = int(timesteps.step_type[i])
+            step_type = ['first', 'mid', '|last|'][step_type]
+            title += f'\nt={i}, type={step_type}'
+
+            if i < len(actions_taken):
+              title += f'\n{actions_taken[i]}'
+            title += f'\nr={timesteps.reward[i]}, $\\gamma={timesteps.discount[i]}$'
+
             return title
 
           fig = plot_frames(
@@ -311,6 +322,5 @@ def experience_logger(
           if wandb.run is not None:
               wandb.log({f"{key}_example/trajectory": wandb.Image(fig)})
           plt.close(fig)
-
 
     jax.debug.callback(callback, train_state, observer_state)
