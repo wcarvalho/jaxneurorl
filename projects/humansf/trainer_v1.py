@@ -78,14 +78,15 @@ def run_single(
     num_tiles = config['env']['ENV_KWARGS'].pop('NUM_TILES', 19)
     end_on_pair = config['env']['ENV_KWARGS'].pop('END_ON_PAIR', True)
 
+    maze_config = keyroom.shorten_maze_config(
+       maze_config, num_rooms)
+
     default_params_kwargs = dict(
       maze_config=maze_config,
       height=num_tiles,
       width=num_tiles,
       **config['env']['ENV_KWARGS'])
 
-    maze_config = keyroom.shorten_maze_config(
-       maze_config, num_rooms)
 
     if symbolic:
       env = keyroom_symbolic.KeyRoomSymbolic()
@@ -126,25 +127,6 @@ def run_single(
       label = '1.test' if object_idx > 0 else '0.train'
 
       category, color = maze_config['pairs'][room_idx][object_idx]
-              # Mapping of color names to colors
-      #color_mapping = {
-      #    'red': 'r',
-      #    'green': 'g',
-      #    'blue': 'b',
-      #    'purple': '#701FC3',  # Use hex color code for custom colors
-      #    'yellow': 'y',
-      #    'grey': '#646464',    # Use hex color code for custom colors
-      #}
-
-      ## Mapping of shape names to Unicode characters
-      #shape_mapping = {
-      #    'box': r'\textcolor{' + color_mapping[color] + r'}{$\square$}',    # Square shape
-      #    'ball': r'\textcolor{' + color_mapping[color] + r'}{$\bullet$}',   # Circle shape
-      #    'key': r'\textcolor{' + color_mapping[color] + r'}{$\star$}',      # Star shape
-      #}
-
-      #return f'{setting} - {label} - {shape_mapping[category]} {category}'
-
       return f'{setting} - {label} - {color} {category}'
 
     observer_class = functools.partial(
@@ -251,7 +233,6 @@ def sweep(search: str = ''):
   if search == 'ql':
     shared = {
       "config_name": tune.grid_search(['ql_keyroom']),
-      'env.NUM_ROOMS': tune.grid_search([3]),
     }
     space = [
         {
@@ -269,7 +250,6 @@ def sweep(search: str = ''):
   elif search == 'ql-symbolic':
     shared = {
       "config_name": tune.grid_search(['ql_keyroom']),
-      'env.NUM_ROOMS': tune.grid_search([3]),
     }
     space = [
 
@@ -291,7 +271,6 @@ def sweep(search: str = ''):
   elif search == 'alpha':
     shared = {
       "config_name": tune.grid_search(['alpha_keyroom']),
-      'env.NUM_ROOMS': tune.grid_search([2,3,1]),
     }
     space = [
         {
@@ -304,7 +283,6 @@ def sweep(search: str = ''):
       ]
   elif search == 'env':
     shared = {
-      'env.NUM_ROOMS': tune.grid_search([3, 4]),
       'env.NUM_TILES': tune.grid_search([16, 19]),
       'env.END_ON_PAIR': tune.grid_search([True, False]),
     }
@@ -326,7 +304,6 @@ def sweep(search: str = ''):
       ]
   elif search == 'bench':
     shared = {
-      'env.NUM_ROOMS': tune.grid_search([2,3]),
     }
     space = [
         {
