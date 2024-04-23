@@ -294,13 +294,10 @@ def experience_logger(
           #################
 
           def panel_title_fn(timesteps, i):
-            room_setting = int(timesteps.state.room_setting[i])
-            task_room = int(timesteps.state.goal_room_idx[i])
-            task_object = int(timesteps.state.task_object_idx[i])
             task_name = get_task_name(
-                room_setting=room_setting,
-                task_room=task_room,
-                task_object=task_object,
+                room_setting=int(timesteps.state.room_setting[i]),
+                goal_room_idx=int(timesteps.state.goal_room_idx[i]),
+                task_object_idx=int(timesteps.state.task_object_idx[i]),
             )
             title = f'{task_name}'
 
