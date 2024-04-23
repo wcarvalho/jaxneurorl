@@ -173,6 +173,7 @@ class KeyRoomEnvParams(EnvParams):
     #train_single: bool = struct.field(pytree_node=False, default=True)
     train_multi_probs: float = struct.field(pytree_node=False, default=.5)
     training: bool = struct.field(pytree_node=False, default=True)
+    time_limit: int = struct.field(pytree_node=False, default=150)
     maze_config: dict = None
     task_objects: jax.Array = None
     train_w: jax.Array = None
@@ -414,10 +415,14 @@ def pair_object_picked_up(params, state):
 
 class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
 
-    def __init__(self, test_episodes_ends_on_key_pickup: bool = True, name='keyroom'):
+    def __init__(self,
+                 train_episode_ends_on_pair_pickup: bool = True,
+                 test_episode_ends_on_key_pickup: bool = True,
+                 name='keyroom'):
         super().__init__()
         self.name = name
-        self.test_episodes_ends_on_key_pickup = test_episodes_ends_on_key_pickup
+        self.train_episode_ends_on_pair_pickup = train_episode_ends_on_pair_pickup
+        self.test_episode_ends_on_key_pickup = test_episode_ends_on_key_pickup
 
     def action_space(
         self, params: Optional[EnvParams] = None
@@ -459,7 +464,7 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
           **kwargs)
 
     def time_limit(self, params: EnvParams) -> int:
-        return 150
+        return params.time_limit
 
     def _generate_problem(self, params: KeyRoomEnvParams, rng: jax.Array) -> State[EnvCarry]:
 
@@ -840,26 +845,32 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
                                 state=States.PICKED_UP, asarray=True)
           return (pocket == task_object).all()
 
-        if self.test_episodes_ends_on_key_pickup:
-          terminated = jax.lax.cond(
-              params.training,
-              lambda: pair_object_picked_up(params, new_state),
-              lambda: picked_up(new_state.termination_object),
-          )
-        else:
-          terminated = pair_object_picked_up(params, new_state)
         truncated = jnp.equal(new_state.step_num, self.time_limit(params))
-
         state_features = new_observation.state_features.astype(
             jnp.float32)
         goal_room_objects = params.task_objects[new_state.goal_room_idx]
 
-        reward = jax.lax.cond(
+        def reward_terminated_training():
+            if self.train_episode_ends_on_pair_pickup:
+              terminated = pair_object_picked_up(params, new_state)
+            else:
+              terminated = picked_up(new_state.termination_object)
+            reward = (state_features*new_observation.task_w).sum()
+            return reward, terminated
+
+        def reward_terminated_testing():
+            if self.test_episode_ends_on_key_pickup:
+              terminated = picked_up(new_state.termination_object)
+              reward = picked_up(goal_room_objects[KEY_IDX]).astype(jnp.float32)
+            else:
+              terminated = pair_object_picked_up(params, new_state)
+              reward = (state_features*new_observation.task_w).sum()
+            return reward, terminated
+
+        reward, terminated = jax.lax.cond(
            params.training,
-           # use accomplishment of state features as reward
-           lambda: (state_features*new_observation.task_w).sum(),
-           # was key for goal object picked up?
-           lambda: picked_up(goal_room_objects[KEY_IDX]).astype(jnp.float32) if self.test_episodes_ends_on_key_pickup else (state_features*new_observation.task_w).sum()
+           reward_terminated_training,
+           reward_terminated_testing
         )
 
         step_type = jax.lax.select(
