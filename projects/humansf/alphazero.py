@@ -176,7 +176,10 @@ def make_agent(
         observation_encoder=KeyroomObsEncoder(
             embed_hidden_dim=config["AGENT_HIDDEN_DIM"],
             init=config.get('ENCODER_INIT', 'word_init'),
-            grid_hidden_dim=config.get('IMAGE_HIDDEN', 512),
+            grid_hidden_dim=config.get('GRID_HIDDEN', 256),
+            num_embed_layers=config['NUM_EMBED_LAYERS'],
+            num_grid_layers=config['NUM_GRID_LAYERS'],
+            num_joint_layers=config['NUM_ENCODER_LAYERS'],
         ),
         rnn=vbb.ScannedRNN(
             hidden_dim=config.get("AGENT_RNN_DIM", 128),

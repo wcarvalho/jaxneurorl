@@ -171,7 +171,7 @@ def learner_log_extra(
         # Create a figure with three subplots
         width = .3
         nT = len(rewards)  # e.g. 20 --> 8
-        fig, (ax1, ax2, ax3, ax4) = plt.subplots(4, 1, figsize=(int(width*nT), 12))
+        fig, (ax1, ax2, ax3, ax4) = plt.subplots(4, 1, figsize=(int(width*nT), 16))
 
         # Plot rewards and q-values in the top subplot
         def format(ax):

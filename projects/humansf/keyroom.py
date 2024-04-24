@@ -55,6 +55,9 @@ def make_obj(
 
 make_obj_arr = partial(make_obj, asarray=True)
 
+def index(x, i):
+  return jax.lax.dynamic_index_in_dim(x, i, keepdims=False)
+
 def accomplished(grid, task):
   # [H, W, D], [D]
   # was this task accomplioshed
@@ -193,7 +196,6 @@ class EnvState(struct.PyTreeNode, Generic[EnvCarryT]):
     feature_weights: jax.Array
     goal_room_idx: jax.Array
     task_object_idx: jax.Array
-    termination_object: jax.Array
     task_state: Optional[TaskState] = None
 
 def convert_dict_to_types(maze_dict):
@@ -417,12 +419,12 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
 
     def __init__(self,
                  train_episode_ends_on_pair_pickup: bool = True,
-                 test_episode_ends_on_key_pickup: bool = True,
+                 test_episode_ends_on: bool = True,
                  name='keyroom'):
         super().__init__()
         self.name = name
         self.train_episode_ends_on_pair_pickup = train_episode_ends_on_pair_pickup
-        self.test_episode_ends_on_key_pickup = test_episode_ends_on_key_pickup
+        self.test_episode_ends_on = test_episode_ends_on
 
     def action_space(
         self, params: Optional[EnvParams] = None
@@ -526,13 +528,9 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
         goal_room_idx = jax.random.randint(
             rng, shape=(), minval=0, maxval=len(pairs))
         goal_room = jax.nn.one_hot(goal_room_idx, len(pairs))
-        goal_room_objects = params.task_objects[goal_room_idx]
 
         # w-vector
         feature_weights = params.test_w*goal_room[:, None]
-
-        # define object which specifies whether 
-        termination_object = goal_room_objects[TEST_OBJECT_IDX]
 
         state = EnvState(
             key=rng,
@@ -546,7 +544,6 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
             goal_room_idx=goal_room_idx,
             task_object_idx=1,
             feature_weights=feature_weights,
-            termination_object=termination_object,
             carry=EnvCarry(),
         )
         return state
@@ -678,13 +675,6 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
           rng_,
         )
 
-        termination_object = jnp.where(
-            params.training,
-            # goal object picked up
-            goal_room_objects[TRAIN_OBJECT_IDX],
-            # goal key picked up
-            goal_room_objects[KEY_IDX],
-        )
         state = EnvState(
             key=rng,
             step_num=jnp.asarray(0),
@@ -697,10 +687,88 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
             room_setting=1,
             goal_room_idx=goal_room_idx,
             feature_weights=feature_weights,
-            termination_object=termination_object,
             carry=EnvCarry(),
         )
         return state
+
+    def single_room_reward_termination(self, params, state: EnvState, observation: Observation):
+
+      def reward_fn(state: EnvState, observation: Observation):
+        state_features = observation.state_features.astype(
+          jnp.float32)
+        return (state_features*observation.task_w).sum()
+
+      def termination_fn(state: EnvState, observation: Observation):
+        pocket = state.agent.pocket
+        train_ends_on_task_pickup = False
+        if train_ends_on_task_pickup:
+          # terminate when task object has been picked up
+          goal_room_objects = params.task_objects[state.goal_room_idx]
+          task_object = goal_room_objects[TEST_OBJECT_IDX]
+          import ipdb; ipdb.set_trace()
+          return (pocket == task_object).all()
+        else:
+          # terminate when __anything__ has been picked up
+          return pocket[0] != Tiles.EMPTY
+
+      reward = reward_fn(state, observation)
+      termination = termination_fn(state, observation)
+      return reward, termination
+
+    def multi_room_reward_termination(self, params, state: EnvState, observation: Observation):
+
+      def reward_fn_train(state: EnvState, observation: Observation):
+        state_features = observation.state_features.astype(
+          jnp.float32)
+        return (state_features*observation.task_w).sum()
+
+      def termination_fn_train(state: EnvState, observation: Observation):
+        if self.train_episode_ends_on_pair_pickup:
+            return pair_object_picked_up(params, state)
+        else:
+            goal_room_objects = index(params.task_objects, state.goal_room_idx)
+            task_object = goal_room_objects[TEST_OBJECT_IDX]
+            return (state.agent.pocket == task_object[:2]).all()
+
+      def reward_fn_test(state: EnvState, observation: Observation):
+        if self.test_episode_ends_on == 'any_pair':
+            return reward_fn_train(state, observation)
+        elif self.test_episode_ends_on == 'any_key':
+            # rewarded if pick up correct key
+            pocket = state.agent.pocket
+            goal_room_objects = index(params.task_objects, state.goal_room_idx)
+            picked_up = (pocket == goal_room_objects[KEY_IDX][:2]).all()
+            return picked_up.astype(jnp.float32)
+        else:
+            raise NotImplementedError
+
+      def termination_fn_test(state: EnvState, observation: Observation):
+        if self.test_episode_ends_on == 'any_pair':
+            return pair_object_picked_up(params, state)
+        elif self.test_episode_ends_on == 'any_key':
+            # terminate when agent picks up key.
+            pocket = state.agent.pocket
+            return pocket[0] == Tiles.KEY
+
+      def reward_fn(state: EnvState, observation: Observation):
+        return jax.lax.cond(
+          params.training,
+          reward_fn_train,
+          reward_fn_test,
+          state, observation
+        )
+
+      def termination_fn(state: EnvState, observation: Observation):
+        return jax.lax.cond(
+          params.training,
+          termination_fn_train,
+          termination_fn_test,
+          state, observation
+        )
+
+      reward = reward_fn(state, observation)
+      termination = termination_fn(state, observation)
+      return reward, termination
 
     @partial(jax.jit, static_argnums=(0,))
     def reset(
@@ -736,8 +804,7 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
         def move(position: jax.Array,
                  direction: jax.Array,
                  steps: int = 2) -> jax.Array:
-          direction = jax.lax.dynamic_index_in_dim(
-              DIRECTIONS, direction, keepdims=False)
+          direction = index(DIRECTIONS, direction)
           new_position = position + direction*steps
           return new_position
 
@@ -839,40 +906,14 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
            prev_action=self.action_onehot(action, params),
            params=params)
 
-        # checking for termination or truncation
-        def picked_up(task_object: jax.Array):
-          pocket = make_task_obj(*new_agent.pocket, visible=1,
-                                state=States.PICKED_UP, asarray=True)
-          return (pocket == task_object).all()
+        reward, terminated = jax.lax.cond(
+            new_state.room_setting,
+            self.single_room_reward_termination,
+            self.multi_room_reward_termination,
+            params, new_state, new_observation,
+        )
 
         truncated = jnp.equal(new_state.step_num, self.time_limit(params))
-        state_features = new_observation.state_features.astype(
-            jnp.float32)
-        goal_room_objects = params.task_objects[new_state.goal_room_idx]
-
-        def reward_terminated_training():
-            if self.train_episode_ends_on_pair_pickup:
-              terminated = pair_object_picked_up(params, new_state)
-            else:
-              terminated = picked_up(goal_room_objects[TRAIN_OBJECT_IDX])
-            reward = (state_features*new_observation.task_w).sum()
-            return reward, terminated
-
-        def reward_terminated_testing():
-          if self.test_episode_ends_on_key_pickup:
-            key_picked_up = new_agent.pocket[0] == Tiles.KEY
-            terminated = key_picked_up
-            reward = picked_up(goal_room_objects[KEY_IDX]).astype(jnp.float32)
-          else:
-            terminated = pair_object_picked_up(params, new_state)
-            reward = (state_features*new_observation.task_w).sum()
-          return reward, terminated
-
-        reward, terminated = jax.lax.cond(
-           params.training,
-           reward_terminated_training,
-           reward_terminated_testing
-        )
 
         step_type = jax.lax.select(
             terminated | truncated, StepType.LAST, StepType.MID)

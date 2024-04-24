@@ -21,6 +21,7 @@ import wandb
 
 from library import utils
 from library import loggers
+from library import losses
 
 from singleagent.basics import TimeStep
 from singleagent import value_based_basics as vbb
@@ -124,14 +125,21 @@ class AlphaZeroLossFn(vbb.RecurrentLossFn):
         target_net_values = self.discretizer.logits_to_scalar(
             target_preds.value_logits)
         lambda_ = jnp.ones_like(data.discount)*self.lambda_
-        lambda_ *= (1 - is_last.astype(lambda_.dtype))
 
+        lambda_ *= (1 - is_last.astype(lambda_.dtype))
         value_target = rlax.lambda_returns(
             data.reward[1:],
             data.discount[1:]*self.discount,
             target_net_values[1:],
             lambda_[1:],
         )
+        #value_target = losses.n_step_target(
+        #    target_net_values[1:],
+        #    data.reward[1:],
+        #    data.discount[1:]*self.discount,
+        #    is_last[1:],
+        #    lambda_[1:],
+        #)
         value_target = value_target*data.discount[:-1]
         value_probs_target = self.discretizer.scalar_to_probs(value_target)
 
@@ -406,7 +414,6 @@ def make_actor(
       discretizer: utils.Discretizer,
       mcts_policy: mctx.gumbel_muzero_policy,
       ) -> vbb.Actor:
-    del config
     del rng
 
     def actor_step(
@@ -465,7 +472,11 @@ def make_actor(
 
         policy_target = mcts_outputs.action_weights
         if evaluation:
-            action = jnp.argmax(policy_target, axis=-1)
+            if config.get('GREEDY_EVAL', True):
+                action = jnp.argmax(policy_target, axis=-1)
+            else:
+                rng, rng_ = jax.random.split(rng)
+                action = distrax.Categorical(probs=policy_target).sample(seed=rng_)
         else:
             rng, rng_ = jax.random.split(rng)
             action = distrax.Categorical(probs=policy_target).sample(seed=rng_)

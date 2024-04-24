@@ -396,6 +396,13 @@ def load_hydra_config(
   #---------------
   # load & update hydra config
   #---------------
+  def update_sub(config: dict, sub: str):
+    sub_config = config.get(sub, {})
+    sub_config_env_kwargs = sub_config.pop('ENV_KWARGS', {})
+    config.update(sub_config)
+    config['env']['ENV_KWARGS'] = sub_config_env_kwargs
+    return config
+
   with hydra.initialize(
     version_base=None,
     config_path=config_path):
@@ -404,13 +411,7 @@ def load_hydra_config(
     config = OmegaConf.to_container(config)
 
     # some setup to make sure env field is populated
-    hydra_env_config = config.get('env', {})
-    hydra_env_kwargs = hydra_env_config.pop('ENV_KWARGS', {})
-
-    # put everything in env config in main config
-    config.update(hydra_env_config)
-
-    config['env']['ENV_KWARGS'] = hydra_env_kwargs
+    config = update_sub(config, sub='env')
 
   # update hydra config with env config settings from sweep
   config['env']['ENV_KWARGS'].update(sweep_env_config)
@@ -419,10 +420,9 @@ def load_hydra_config(
   # update hydra config with algo config settings from sweep
   config.update(sweep_algo_config)
 
-
   try:
     if FLAGS.debug:
-      config.update(config.pop('debug', {}))
+      config = update_sub(config, sub='debug')
   except:
     pass
 
