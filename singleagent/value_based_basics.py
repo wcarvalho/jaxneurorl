@@ -125,6 +125,7 @@ class CustomTrainState(TrainState):
     target_network_params: flax.core.FrozenDict
     timesteps: int
     n_updates: int
+    n_logs: int
 
 ##############################
 # Loss function
@@ -529,8 +530,9 @@ def log_performance(
         final_eval_runner_state.observer_state,
         'evaluator_performance',
         # log trajectory details for evaluator at this period
-        # counter = number of learner updates
-        log_details_period=config.get("EVAL_LOG_PERIOD", 5_000),
+        # counter = number of times logger
+        # e.g., every 10th-log log details
+        log_details_period=config.get("EVAL_LOG_PERIOD", 10),
     )
 
     ########################
@@ -667,6 +669,7 @@ def make_train(
             tx=tx,
             timesteps=0,
             n_updates=0,
+            n_logs=0,
         )
 
         ##############################
@@ -819,15 +822,7 @@ def make_train(
             )
 
             ##############################
-            # 3. Creat next runner state
-            ##############################
-            next_runner_state = runner_state._replace(
-                train_state=train_state,
-                buffer_state=buffer_state,
-                rng=rng)
-
-            ##############################
-            # 4. Logging learner metrics + evaluation episodes
+            # 3. Logging learner metrics + evaluation episodes
             ##############################
             # ------------------------
             # log performance information
@@ -835,6 +830,12 @@ def make_train(
             log_period = max(1, int(config["LEARNER_LOG_PERIOD"]))
             is_log_time = jnp.logical_and(
                 is_learn_time, train_state.n_updates % log_period == 0
+            )
+
+            train_state = jax.lax.cond(
+                is_log_time,
+                lambda: train_state.replace(n_logs=train_state.n_logs + 1),
+                lambda: train_state,
             )
 
             jax.lax.cond(
@@ -870,7 +871,7 @@ def make_train(
             # ------------------------
             # log gradient information
             # ------------------------
-            log_period = max(1, int(config.get("GRADIENT_LOG_PERIOD", 50_000)))
+            log_period = max(1, int(config.get("GRADIENT_LOG_PERIOD", 500)))
             is_log_time = jnp.logical_and(
                 is_learn_time, train_state.n_updates % log_period == 0)
 
@@ -879,6 +880,14 @@ def make_train(
                 lambda: logger.gradient_logger(train_state, grads),
                 lambda: None,
             )
+
+            ##############################
+            # 4. Creat next runner state
+            ##############################
+            next_runner_state = runner_state._replace(
+                train_state=train_state,
+                buffer_state=buffer_state,
+                rng=rng)
 
             return next_runner_state, {}
 
