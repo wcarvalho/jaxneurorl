@@ -98,7 +98,7 @@ class TaskObserver(Observer):
     self.log_period = log_period
     self.max_episode_length = max_episode_length
     self.buffer = fbx.make_trajectory_buffer(
-        max_length_time_axis=self.max_episode_length,
+        max_length_time_axis=max_episode_length*max_num_episodes,
         min_length_time_axis=1,
         sample_batch_size=1,  # unused
         add_batch_size=1,
@@ -199,7 +199,6 @@ class TaskObserver(Observer):
 
     def update_episode(os):
       # within same episode
-
       # update return/length information
       idx = os.idx
       # update observer state
@@ -262,7 +261,7 @@ def experience_logger(
         if wandb.run is not None:
           wandb.log(metrics)
 
-        if log_details_period and ts.n_logs and (int(ts.n_logs) % int(log_details_period) == 0):
+        if log_details_period and (int(ts.n_logs) % int(log_details_period) == 0):
           timesteps = jax.tree_map(lambda x: x[0], os.timestep_buffer.experience)
           actions = jax.tree_map(lambda x: x[0], os.action_buffer.experience)
           #predictions = jax.tree_map(lambda x: x[0], os.prediction_buffer.experience)
@@ -292,7 +291,6 @@ def experience_logger(
           #################
           # plot
           #################
-
           def panel_title_fn(timesteps, i):
             task_name = get_task_name(
                 room_setting=int(timesteps.state.room_setting[i]),

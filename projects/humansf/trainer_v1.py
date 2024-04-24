@@ -76,8 +76,8 @@ def run_single(
     num_rooms = config['env']['ENV_KWARGS'].pop('NUM_ROOMS', 3)
     symbolic = config['env']['ENV_KWARGS'].pop('symbolic', False)
     num_tiles = config['env']['ENV_KWARGS'].pop('NUM_TILES', 16)
-    end_on_pair = config['env']['ENV_KWARGS'].pop('END_ON_PAIR', False)
-    test_end_on_key = config['env']['ENV_KWARGS'].pop('TEST_END_ON_KEY', False)
+    train_end_pair = config['env']['ENV_KWARGS'].pop('TRAIN_END_PAIR', False)
+    test_end_on = config['env']['ENV_KWARGS'].pop('TEST_END_ON', 'any_key')
 
     maze_config = keyroom.shorten_maze_config(
        maze_config, num_rooms)
@@ -88,15 +88,14 @@ def run_single(
       width=num_tiles,
       **config['env']['ENV_KWARGS'])
 
-
     if symbolic:
       env = keyroom_symbolic.KeyRoomSymbolic()
       env_params = env.default_params(**default_params_kwargs)
       action_names = keyroom_symbolic.get_action_names(env_params)
     else:
       env = keyroom.KeyRoom(
-        train_episode_ends_on_pair_pickup=end_on_pair,
-        test_episode_ends_on_key_pickup=test_end_on_key)
+        train_episode_ends_on_pair_pickup=train_end_pair,
+        test_episode_ends_on=test_end_on)
 
       env_params = env.default_params(**default_params_kwargs)
       action_names = {
@@ -239,10 +238,10 @@ def sweep(search: str = ''):
     }
     space = [
         {
-            "group": tune.grid_search(['qlearning-74']),
+            "group": tune.grid_search(['qlearning-77']),
             "alg": tune.grid_search(['qlearning']),
-            'env.END_ON_PAIR': tune.grid_search([True, False]),
-            'env.TEST_END_ON_KEY': tune.grid_search([True, False]),
+            'env.TRAIN_END_PAIR': tune.grid_search([True, False]),
+            'env.TEST_END_ON': tune.grid_search(['any_pair', 'any_key']),
             **shared,
         },
       ]
@@ -252,12 +251,22 @@ def sweep(search: str = ''):
     }
     space = [
         {
-            "group": tune.grid_search(['alpha-5']),
+            "group": tune.grid_search(['alpha-pair-8']),
             "alg": tune.grid_search(['alphazero']),
-            "NUM_SIMULATIONS": tune.grid_search([2, 4, 8]),
+            "NUM_SIMULATIONS": tune.grid_search([2, 4]),
+            "TRAINING_INTERVAL": tune.grid_search([1, 10]),
+            'env.TEST_END_ON': tune.grid_search(['any_pair']),
+            'env.TRAIN_END_PAIR': tune.grid_search([True, False]),
+            **shared,
+        },
+        {
+            "group": tune.grid_search(['alpha-key-8']),
+            "alg": tune.grid_search(['alphazero']),
+            "NUM_SIMULATIONS": tune.grid_search([2, 4]),
             #"MAX_VALUE": tune.grid_search([2, 4, 8]),
             "TRAINING_INTERVAL": tune.grid_search([1, 10]),
-            'env.END_ON_PAIR': tune.grid_search([True, False]),
+            'env.TEST_END_ON': tune.grid_search(['any_key']),
+            'env.TRAIN_END_PAIR': tune.grid_search([True, False]),
             **shared,
         },
 
@@ -265,7 +274,6 @@ def sweep(search: str = ''):
   elif search == 'env':
     shared = {
       'env.NUM_TILES': tune.grid_search([16, 19]),
-      'env.END_ON_PAIR': tune.grid_search([True, False]),
     }
     space = [
         #{

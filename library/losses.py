@@ -47,7 +47,7 @@ def q_learning_lambda_td(
         stop_target_gradients=stop_target_gradients)
     return v_tm1, target_mt1
 
-def q_learning_n_step_target(
+def n_step_target(
         v_t: jax.Array,
         r_t: jax.Array,
         discount_t: jax.Array,
@@ -81,7 +81,7 @@ def q_learning_n_step_td(
     Only difference is is_last_t is here.
     """
     q_a_t = rlax.batched_index(target_q_t, a_t)
-    target_mt1 = q_learning_n_step_target(
+    target_mt1 = n_step_target(
         r_t=r_t,
         v_t=q_a_t,
         discount_t=discount_t,
