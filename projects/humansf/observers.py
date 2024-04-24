@@ -262,7 +262,7 @@ def experience_logger(
         if wandb.run is not None:
           wandb.log(metrics)
 
-        if log_details_period and (int(ts.n_updates) % int(log_details_period) == 0):
+        if log_details_period and ts.n_logs and (int(ts.n_logs) % int(log_details_period) == 0):
           timesteps = jax.tree_map(lambda x: x[0], os.timestep_buffer.experience)
           actions = jax.tree_map(lambda x: x[0], os.action_buffer.experience)
           #predictions = jax.tree_map(lambda x: x[0], os.prediction_buffer.experience)
