@@ -3,38 +3,6 @@ import chex
 import jax
 import rlax
 
-
-#def lambda_returns(
-#    r_t: jax.Array,
-#    discount_t: jax.Array,
-#    v_t: jax.Array,
-#    is_last_t: Optional[jax.Array]=None,
-#    lambda_: chex.Numeric = 1.,
-#    stop_target_gradients: bool = False,
-#) -> jax.Array:
-#  if is_last_t is None:
-#    is_last_t = jax.numpy.zeros_like(discount_t)
-#  chex.assert_rank([r_t, discount_t, v_t, is_last_t,
-#                   lambda_], [1, 1, 1, 1, {0, 1}])
-#  chex.assert_type([r_t, discount_t, v_t, is_last_t, lambda_], float)
-#  chex.assert_equal_shape([r_t, discount_t, v_t, is_last_t])
-
-#  # If scalar make into vector.
-#  lambda_ = jax.numpy.ones_like(discount_t) * lambda_ * (1 - is_last_t)
-
-#  # Work backwards to compute `G_{T-1}`, ..., `G_0`.
-#  def _body(acc, xs):
-#    returns, discounts, values, lambda_ = xs
-#    acc = returns + discounts * ((1-lambda_) * values + lambda_ * acc)
-#    return acc, acc
-
-#  _, returns = jax.lax.scan(
-#      _body, v_t[-1], (r_t, discount_t, v_t, lambda_), reverse=True)
-
-#  return jax.lax.select(stop_target_gradients,
-#                        jax.lax.stop_gradient(returns),
-#                        returns)
-
 def q_learning_lambda_target(
     q_t: jax.Array,
     r_t: jax.Array,
@@ -65,8 +33,9 @@ def q_learning_lambda_td(
     is_last_t: jax.Array,
     lambda_: jax.Array,
     stop_target_gradients: bool = True):
-    """Essentially the same as rlax.q_lambda except we use selector actions on q-values, not average.
-      This makes it like Q-learning.
+    """Essentially the same as rlax.q_lambda except we use selector actions on q-values, not average. This makes it like Q-learning.
+      
+      Other difference is is_last_t is here.
     """
 
     v_tm1 = rlax.batched_index(q_tm1, a_tm1)
@@ -77,3 +46,48 @@ def q_learning_lambda_td(
         lambda_=lambda_,
         stop_target_gradients=stop_target_gradients)
     return v_tm1, target_mt1
+
+def q_learning_n_step_target(
+        v_t: jax.Array,
+        r_t: jax.Array,
+        discount_t: jax.Array,
+        is_last_t: jax.Array,
+        lambda_: jax.Array,
+        n: int = 5,
+        stop_target_gradients: bool = True
+):
+   lambda_ = jax.numpy.ones_like(discount_t) * lambda_ * (1 - is_last_t)
+   return rlax.n_step_bootstrapped_returns(
+      r_t=r_t,
+      discount_t=discount_t,
+      v_t=v_t,
+      lambda_t=lambda_,
+      n=n,
+      stop_target_gradients=stop_target_gradients
+   )
+
+def q_learning_n_step_td(
+        q_tm1: jax.Array,
+        a_tm1: jax.Array,
+        target_q_t: jax.Array,
+        a_t: jax.Array,
+        r_t: jax.Array,
+        discount_t: jax.Array,
+        is_last_t: jax.Array,
+        lambda_: jax.Array,
+        n: int = 5,
+        stop_target_gradients: bool = True):
+    """Essentially the same as rlax.n_step_q_learning.
+    Only difference is is_last_t is here.
+    """
+    q_a_t = rlax.batched_index(target_q_t, a_t)
+    target_mt1 = q_learning_n_step_target(
+        r_t=r_t,
+        v_t=q_a_t,
+        discount_t=discount_t,
+        is_last_t=is_last_t,
+        lambda_=lambda_,
+        n=n,
+        stop_target_gradients=stop_target_gradients)
+    q_a_tm1 = rlax.batched_index(q_tm1, a_tm1)
+    return q_a_tm1, target_mt1
