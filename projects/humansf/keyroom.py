@@ -193,9 +193,10 @@ class EnvState(struct.PyTreeNode, Generic[EnvCarryT]):
     # task: Task
     carry: EnvCarryT
     room_setting: int
-    feature_weights: jax.Array
+    task_w: jax.Array
     goal_room_idx: jax.Array
     task_object_idx: jax.Array
+    offtask_w: Optional[jax.Array] = None
     task_state: Optional[TaskState] = None
 
 def convert_dict_to_types(maze_dict):
@@ -397,7 +398,7 @@ def make_observation(state: EnvState, prev_action: jax.Array, params: EnvParams)
       pocket=minigrid_common.make_binary_vector(state.agent.pocket),
       state_features=state.task_state.features.reshape(-1),
       has_occurred=(state.task_state.feature_counts > 0).reshape(-1),
-      task_w=state.feature_weights.reshape(-1),
+      task_w=state.task_w.reshape(-1),
       direction=direction,
       local_position=local_position,
       position=global_position,
@@ -486,7 +487,15 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
       )
 
     def singleroom_problem(self, params: KeyRoomEnvParams, rng: jax.Array) -> State[EnvCarry]:
+        """For single room, pick final room. place both objects. select 1 as task object.
 
+        Args:
+            params (KeyRoomEnvParams): _description_
+            rng (jax.Array): _description_
+
+        Returns:
+            State[EnvCarry]: _description_
+        """
         #------------------
         # generate grid
         #------------------
@@ -501,13 +510,18 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
         sample_coordinates_p = partial(sample_coordinates, roomH=roomH, roomW=roomW)
 
         #------------------
-        # place test objects in room
+        # place objects in room
         #------------------
         pairs = params.maze_config['pairs']
-        for _, test_obj in pairs:
-          grid, rng = place_in_room_p(
-              1, 1, rng, grid,
-              make_obj(*test_obj, visible=1))
+        goal_room_idx = jax.random.randint(
+            rng, shape=(), minval=0, maxval=len(pairs))
+        pair = index(pairs, goal_room_idx)
+        grid, rng = place_in_room_p(
+            1, 1, rng, grid,
+            make_obj(*pair[0], visible=1))
+        grid, rng = place_in_room_p(
+            1, 1, rng, grid,
+            make_obj(*pair[1], visible=1))
 
         #------------------
         # create agent
@@ -524,12 +538,16 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
         #------------------
         # define task
         #------------------
-        goal_room_idx = jax.random.randint(
-            rng, shape=(), minval=0, maxval=len(pairs))
         goal_room = jax.nn.one_hot(goal_room_idx, len(pairs))
-
-        # w-vector
-        feature_weights = params.test_w*goal_room[:, None]
+        # [num_rooms, task_dim]
+        rng, rng_ = jax.random.split(rng)
+        train_w = params.train_w*goal_room[:, None]
+        test_w = params.test_w*goal_room[:, None]
+        task_w, offtask_w = jax.lax.cond(
+            jax.random.bernoulli(rng_),
+            lambda: (train_w, test_w),
+            lambda: (test_w, train_w),
+        )
 
         state = EnvState(
             key=rng,
@@ -542,7 +560,8 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
             room_setting=jnp.asarray(0, jnp.int32),
             goal_room_idx=goal_room_idx,
             task_object_idx=jnp.asarray(1, jnp.int32),
-            feature_weights=feature_weights,
+            task_w=task_w,
+            offtask_w=offtask_w,
             carry=EnvCarry(),
         )
         return state
@@ -672,6 +691,7 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
           get_train_or_test,
           rng_,
         )
+        offtask_w = params.test_w*goal_room[:, None]
 
         state = EnvState(
             key=rng,
@@ -684,7 +704,8 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
             task_object_idx=task_object_idx,
             room_setting=jnp.asarray(1, jnp.int32),
             goal_room_idx=goal_room_idx,
-            feature_weights=feature_weights,
+            task_w=feature_weights,
+            offtask_w=offtask_w,
             carry=EnvCarry(),
         )
         return state
@@ -767,7 +788,7 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
       termination = termination_fn(state, observation)
       return reward, termination
 
-    #@partial(jax.jit, static_argnums=(0,))
+    @partial(jax.jit, static_argnums=(0,))
     def reset(
        self, 
        key: jax.random.KeyArray,
@@ -872,7 +893,7 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
 
         return new_grid, new_agent, _
 
-    #@partial(jax.jit, static_argnums=(0,))
+    @partial(jax.jit, static_argnums=(0,))
     def step(self,
              key: jax.random.KeyArray,
              timestep: TimeStep[EnvCarryT],
