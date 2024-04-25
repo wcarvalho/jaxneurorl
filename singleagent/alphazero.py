@@ -170,7 +170,7 @@ class AlphaZeroLossFn(vbb.RecurrentLossFn):
         
         metrics = {
             "0.0.total_loss": total_loss,
-            "0.0.td-error": td_error,
+            "0.0.td-error": jnp.abs(td_error),
             '0.1.policy_loss': policy_loss,
             '0.2.value_loss': value_loss,
         }
@@ -413,8 +413,10 @@ def make_actor(
       rng: jax.random.KeyArray,
       discretizer: utils.Discretizer,
       mcts_policy: mctx.gumbel_muzero_policy,
+      eval_mcts_policy: Optional[mctx.gumbel_muzero_policy] = None,
       ) -> vbb.Actor:
     del rng
+    eval_mcts_policy = eval_mcts_policy or mcts_policy
 
     def actor_step(
             train_state: vbb.TrainState,
@@ -451,9 +453,11 @@ def make_actor(
         # [B,...] --> [B, 1, ...]
         root = jax.tree_map(lambda x: x[:, None], root)
         rng, improve_key = jax.random.split(rng)
+
         def apply_mcts_policy(root_, discount_):
             # 1 step of policy improvement
-            return mcts_policy(
+            policy = eval_mcts_policy if evaluation else mcts_policy
+            return policy(
                 params=train_state.params,
                 rng_key=improve_key,
                 root=root_,

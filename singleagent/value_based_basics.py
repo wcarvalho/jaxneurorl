@@ -201,9 +201,9 @@ class RecurrentLossFn:
     # Unroll on sequences to get online and target Q-Values.
     #--------------------------
     key_grad, rng_1, rng_2 = jax.random.split(key_grad, 3)
-    online_preds, online_state = unroll(
+    online_preds, _ = unroll(
         params, online_state, data.timestep, rng_1)
-    target_preds, target_state = unroll(
+    target_preds, _ = unroll(
         target_params, target_state, data.timestep, rng_2)
 
     # -----------------------
@@ -572,7 +572,8 @@ def log_performance(
     logger.experience_logger(
         runner_state.train_state,
         final_eval_runner_state.observer_state,
-        'actor_performance'
+        'actor_performance',
+        log_details_period=config.get("EVAL_LOG_PERIOD_ACTOR", 20),
     )
 
 def make_train(

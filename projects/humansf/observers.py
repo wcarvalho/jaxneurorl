@@ -106,7 +106,7 @@ class TaskObserver(Observer):
         period=1,
     )
     self.task_info_buffer = fbx.make_trajectory_buffer(
-        max_length_time_axis=max_num_episodes,
+        max_length_time_axis=max_num_episodes*10,
         min_length_time_axis=1,
         sample_batch_size=1,  # unused
         add_batch_size=1,

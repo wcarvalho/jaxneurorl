@@ -412,14 +412,13 @@ def pair_object_picked_up(params, state):
     """True if any object in pairs is picked up."""
     pairs = params.maze_config['pairs'].reshape(-1, 2)
     pair_object_picked_up = (pairs == state.agent.pocket[None]).all(-1)
-
     return pair_object_picked_up.any()
 
 class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
 
     def __init__(self,
                  train_episode_ends_on_pair_pickup: bool = True,
-                 test_episode_ends_on: bool = True,
+                 test_episode_ends_on: str = 'any_pair',
                  name='keyroom'):
         super().__init__()
         self.name = name
@@ -540,9 +539,9 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
             local_agent_position=get_local_agent_position(
                 agent.position, *grid.shape[:2]),
             room_grid=get_room_grid(grid=grid, agent=agent),
-            room_setting=0,
+            room_setting=jnp.asarray(0, jnp.int32),
             goal_room_idx=goal_room_idx,
-            task_object_idx=1,
+            task_object_idx=jnp.asarray(1, jnp.int32),
             feature_weights=feature_weights,
             carry=EnvCarry(),
         )
@@ -646,7 +645,6 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
         #------------------
         goal_room_idx = jax.random.randint(rng, shape=(), minval=0, maxval=len(keys))
         goal_room = jax.nn.one_hot(goal_room_idx, len(keys))
-        goal_room_objects = params.task_objects[goal_room_idx]
 
         def get_train_object(rng):
            feature_weights = params.train_w*goal_room[:, None]
@@ -684,7 +682,7 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
                 agent.position, *grid.shape[:2]),
             room_grid=get_room_grid(grid=grid, agent=agent),
             task_object_idx=task_object_idx,
-            room_setting=1,
+            room_setting=jnp.asarray(1, jnp.int32),
             goal_room_idx=goal_room_idx,
             feature_weights=feature_weights,
             carry=EnvCarry(),
@@ -705,7 +703,6 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
           # terminate when task object has been picked up
           goal_room_objects = params.task_objects[state.goal_room_idx]
           task_object = goal_room_objects[TEST_OBJECT_IDX]
-          import ipdb; ipdb.set_trace()
           return (pocket == task_object).all()
         else:
           # terminate when __anything__ has been picked up
@@ -717,37 +714,37 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
 
     def multi_room_reward_termination(self, params, state: EnvState, observation: Observation):
 
-      def reward_fn_train(state: EnvState, observation: Observation):
-        state_features = observation.state_features.astype(
+      def reward_fn_train(s: EnvState, o: Observation):
+        state_features = o.state_features.astype(
           jnp.float32)
-        return (state_features*observation.task_w).sum()
+        return (state_features*o.task_w).sum()
 
-      def termination_fn_train(state: EnvState, observation: Observation):
-        if self.train_episode_ends_on_pair_pickup:
-            return pair_object_picked_up(params, state)
-        else:
-            goal_room_objects = index(params.task_objects, state.goal_room_idx)
-            task_object = goal_room_objects[TEST_OBJECT_IDX]
-            return (state.agent.pocket == task_object[:2]).all()
-
-      def reward_fn_test(state: EnvState, observation: Observation):
+      def reward_fn_test(s: EnvState, o: Observation):
         if self.test_episode_ends_on == 'any_pair':
-            return reward_fn_train(state, observation)
+            return reward_fn_train(s, o)
         elif self.test_episode_ends_on == 'any_key':
             # rewarded if pick up correct key
-            pocket = state.agent.pocket
-            goal_room_objects = index(params.task_objects, state.goal_room_idx)
+            pocket = s.agent.pocket
+            goal_room_objects = index(params.task_objects, s.goal_room_idx)
             picked_up = (pocket == goal_room_objects[KEY_IDX][:2]).all()
             return picked_up.astype(jnp.float32)
         else:
             raise NotImplementedError
 
-      def termination_fn_test(state: EnvState, observation: Observation):
+      def termination_fn_train(s: EnvState, o: Observation):
+        if self.train_episode_ends_on_pair_pickup:
+            return pair_object_picked_up(params, s)
+        else:
+            goal_room_objects = index(params.task_objects, s.goal_room_idx)
+            task_object = goal_room_objects[TRAIN_OBJECT_IDX]
+            return (s.agent.pocket == task_object[:2]).all()
+
+      def termination_fn_test(s: EnvState, o: Observation):
         if self.test_episode_ends_on == 'any_pair':
-            return pair_object_picked_up(params, state)
+            return pair_object_picked_up(params, s)
         elif self.test_episode_ends_on == 'any_key':
             # terminate when agent picks up key.
-            pocket = state.agent.pocket
+            pocket = s.agent.pocket
             return pocket[0] == Tiles.KEY
 
       def reward_fn(state: EnvState, observation: Observation):
@@ -770,7 +767,7 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
       termination = termination_fn(state, observation)
       return reward, termination
 
-    @partial(jax.jit, static_argnums=(0,))
+    #@partial(jax.jit, static_argnums=(0,))
     def reset(
        self, 
        key: jax.random.KeyArray,
@@ -875,8 +872,7 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
 
         return new_grid, new_agent, _
 
-
-    @partial(jax.jit, static_argnums=(0,))
+    #@partial(jax.jit, static_argnums=(0,))
     def step(self,
              key: jax.random.KeyArray,
              timestep: TimeStep[EnvCarryT],
@@ -907,7 +903,7 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
            params=params)
 
         reward, terminated = jax.lax.cond(
-            new_state.room_setting,
+            new_state.room_setting==jnp.asarray(0, jnp.int32),
             self.single_room_reward_termination,
             self.multi_room_reward_termination,
             params, new_state, new_observation,

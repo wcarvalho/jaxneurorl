@@ -396,11 +396,13 @@ def load_hydra_config(
   #---------------
   # load & update hydra config
   #---------------
+  all_env_kwargs = dict()
+
   def update_sub(config: dict, sub: str):
     sub_config = config.get(sub, {})
     sub_config_env_kwargs = sub_config.pop('ENV_KWARGS', {})
     config.update(sub_config)
-    config['env']['ENV_KWARGS'] = sub_config_env_kwargs
+    all_env_kwargs.update(sub_config_env_kwargs)
     return config
 
   with hydra.initialize(
@@ -414,7 +416,7 @@ def load_hydra_config(
     config = update_sub(config, sub='env')
 
   # update hydra config with env config settings from sweep
-  config['env']['ENV_KWARGS'].update(sweep_env_config)
+  all_env_kwargs.update(sweep_env_config)
   config['ENV_NAME'] = env_name = config["env"].get("ENV_NAME", 'env')
  
   # update hydra config with algo config settings from sweep
@@ -425,6 +427,8 @@ def load_hydra_config(
       config = update_sub(config, sub='debug')
   except:
     pass
+
+  config['env']['ENV_KWARGS'] = all_env_kwargs
 
   if verbose:
     print("="*50)
