@@ -59,6 +59,7 @@ from projects.humansf.minigrid_common import AutoResetWrapper
 from projects.humansf import observers
 from projects.humansf import alphazero
 from projects.humansf import qlearning
+from projects.humansf import offtask_dyna
 
 from singleagent import value_based_basics as vbb
 
@@ -76,8 +77,8 @@ def run_single(
     num_rooms = config['env']['ENV_KWARGS'].pop('NUM_ROOMS', 3)
     symbolic = config['env']['ENV_KWARGS'].pop('symbolic', False)
     num_tiles = config['env']['ENV_KWARGS'].pop('NUM_TILES', 16)
-    train_end_pair = config['env']['ENV_KWARGS'].pop('TRAIN_END_PAIR', False)
-    test_end_on = config['env']['ENV_KWARGS'].pop('TEST_END_ON', 'any_key')
+    train_end_pair = config['env']['ENV_KWARGS'].pop('TRAIN_END_PAIR', True)
+    test_end_on = config['env']['ENV_KWARGS'].pop('TEST_END_ON', 'any_pair')
 
     maze_config = keyroom.shorten_maze_config(
        maze_config, num_rooms)
@@ -177,6 +178,11 @@ def run_single(
           max_depth=config.get('MAX_SIM_DEPTH', None),
           num_simulations=config.get('NUM_SIMULATIONS', 4),
           gumbel_scale=config.get('GUMBEL_SCALE', 1.0))
+      eval_mcts_policy = functools.partial(
+          mctx.gumbel_muzero_policy,
+          max_depth=config.get('MAX_SIM_DEPTH', None),
+          num_simulations=config.get('NUM_EVAL_SIMULATIONS', 50),
+          gumbel_scale=config.get('GUMBEL_SCALE', 1.0))
 
       make_train = functools.partial(
           vbb.make_train,
@@ -190,12 +196,33 @@ def run_single(
           make_actor=functools.partial(
               alphazero.make_actor,
               discretizer=discretizer,
-              mcts_policy=mcts_policy),
+              mcts_policy=mcts_policy,
+              eval_mcts_policy=eval_mcts_policy),
           make_logger=functools.partial(
             logger.make_logger,
             maze_config=maze_config,
             get_task_name=get_task_name,
             action_names=action_names,
+            ),
+      )
+    elif alg_name == 'dynaq':
+      make_train = functools.partial(
+          vbb.make_train,
+          make_agent=offtask_dyna.make_agent,
+          make_optimizer=offtask_dyna.make_optimizer,
+          make_loss_fn_class=offtask_dyna.make_loss_fn_class,
+          make_actor=offtask_dyna.make_actor,
+          make_logger=functools.partial(
+            logger.make_logger,
+            maze_config=maze_config,
+            get_task_name=get_task_name,
+            action_names=action_names,
+            learner_log_extra=functools.partial(
+              offtask_dyna.learner_log_extra,
+              config=config,
+              action_names=action_names,
+              maze_config=maze_config,
+              )
             ),
       )
 
@@ -238,10 +265,10 @@ def sweep(search: str = ''):
     }
     space = [
         {
-            "group": tune.grid_search(['qlearning-77']),
+            "group": tune.grid_search(['qlearning-81']),
             "alg": tune.grid_search(['qlearning']),
             'env.TRAIN_END_PAIR': tune.grid_search([True, False]),
-            'env.TEST_END_ON': tune.grid_search(['any_pair', 'any_key']),
+            'env.TEST_END_ON': tune.grid_search(['any_key', 'any_pair']),
             **shared,
         },
       ]
@@ -251,61 +278,21 @@ def sweep(search: str = ''):
     }
     space = [
         {
-            "group": tune.grid_search(['alpha-pair-8']),
+            "group": tune.grid_search(['alpha-9']),
             "alg": tune.grid_search(['alphazero']),
-            "NUM_SIMULATIONS": tune.grid_search([2, 4]),
-            "TRAINING_INTERVAL": tune.grid_search([1, 10]),
-            'env.TEST_END_ON': tune.grid_search(['any_pair']),
-            'env.TRAIN_END_PAIR': tune.grid_search([True, False]),
-            **shared,
-        },
-        {
-            "group": tune.grid_search(['alpha-key-8']),
-            "alg": tune.grid_search(['alphazero']),
-            "NUM_SIMULATIONS": tune.grid_search([2, 4]),
-            #"MAX_VALUE": tune.grid_search([2, 4, 8]),
-            "TRAINING_INTERVAL": tune.grid_search([1, 10]),
-            'env.TEST_END_ON': tune.grid_search(['any_key']),
-            'env.TRAIN_END_PAIR': tune.grid_search([True, False]),
-            **shared,
-        },
-
-      ]
-  elif search == 'env':
-    shared = {
-      'env.NUM_TILES': tune.grid_search([16, 19]),
-    }
-    space = [
-        #{
-        #    "config_name": tune.grid_search(['alpha_keyroom']),
-        #    "group": tune.grid_search(['alpha-4']),
-        #    "alg": tune.grid_search(['alphazero']),
-        #    "NUM_SIMULATIONS": tune.grid_search([4]),
-        #    **shared,
-        #},
-        {
-            "config_name": tune.grid_search(['alpha_keyroom']),
-            "group": tune.grid_search(['alpha-4']),
-            "alg": tune.grid_search(['alphazero']),
-            "NUM_SIMULATIONS": tune.grid_search([4]),
+            "NUM_EVAL_SIMULATIONS": tune.grid_search([50, 4, 8, 16, 25]),
+            "TRAINING_INTERVAL": tune.grid_search([1]),
             **shared,
         },
       ]
-  elif search == 'bench':
+  elif search == 'qdyna':
     shared = {
+      "config_name": tune.grid_search(['dyna_keyroom']),
     }
     space = [
         {
-            "group": tune.grid_search(['benchmark-1']),
-            "config_name": tune.grid_search(['ql_keyroom']),
-            "alg": tune.grid_search(['qlearning']),
-            **shared,
-        },
-        {
-            "group": tune.grid_search(['benchmark-1']),
-            "config_name": tune.grid_search(['alpha_keyroom']),
-            "alg": tune.grid_search(['alphazero']),
-            "MAX_SIM_DEPTH": tune.grid_search([4, 8, 16]),
+            "group": tune.grid_search(['dyna-1']),
+            "alg": tune.grid_search(['dyna']),
             **shared,
         },
       ]

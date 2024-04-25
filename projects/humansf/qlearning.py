@@ -37,7 +37,6 @@ AgentState = flax.struct.PyTreeNode
 RNNInput = vbb.RNNInput
 R2D2LossFn = base_agent.R2D2LossFn
 Predictions = base_agent.Predictions
-EpsilonGreedy = base_agent.LinearDecayEpsilonGreedy
 make_optimizer = base_agent.make_optimizer
 make_loss_fn_class = base_agent.make_loss_fn_class
 make_actor = base_agent.make_actor
