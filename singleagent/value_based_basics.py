@@ -148,6 +148,7 @@ class RecurrentLossFn:
 
   network: nn.Module
   discount: float = 0.99
+  lambda_: float = .9
   tx_pair: rlax.TxPair = rlax.IDENTITY_PAIR
   burn_in_length: int = None
 
@@ -236,7 +237,7 @@ class RecurrentLossFn:
 
 class RlRnnCell(nn.Module):
     hidden_dim: int
-    cell_type: str = "LSTMCell"
+    cell_type: str = "OptimizedLSTMCell"
 
     def setup(self):
         cell_constructor = getattr(nn, self.cell_type)
@@ -250,11 +251,15 @@ class RlRnnCell(nn.Module):
         rng: PRNGKey,
         ):
         """Applies the module."""
-        # [B, D]
+        # [B, D] or [D]
 
         def conditional_reset(cond, init, prior):
-          # [B, D]
-          return jnp.where(cond[:, np.newaxis], init, prior)
+          if cond.ndim == 1:
+            # [B, D]
+            return jnp.where(cond[:, np.newaxis], init, prior)
+          else:
+            # [D]
+            return jnp.where(cond[np.newaxis], init, prior)
 
         # [B, ...]
         init_state = self.initialize_carry(
@@ -269,6 +274,15 @@ class RlRnnCell(nn.Module):
            raise NotImplementedError(self.cell_type)
 
         return self.cell(input_state, x)
+
+    def output_from_state(self, state):
+        if "lstm" in self.cell_type.lower():
+            return state[1]
+        elif 'gru' in self.cell_type.lower():
+            import ipdb; ipdb.set_trace()
+            return state
+        else:
+           raise NotImplementedError(self.cell_type)
 
     def initialize_carry(
         self, rng: PRNGKey, batch_dims: Tuple[int, ...]
@@ -288,7 +302,7 @@ class RlRnnCell(nn.Module):
 
 class ScannedRNN(nn.Module):
     hidden_dim: int
-    cell_type: str = "LSTMCell"
+    cell_type: str = "OptimizedLSTMCell"
     unroll_output_state: bool = False  # return state at all time-points
 
     def initialize_carry(self, *args, **kwargs):
@@ -332,11 +346,14 @@ class ScannedRNN(nn.Module):
 
         return scan(self.cell, state, (xs.obs, xs.reset))
 
+    def output_from_state(self, state):
+        return self.cell.output_from_state(state)
+
 
 
 class DummyRNN(nn.Module):
     hidden_dim: int = 0
-    cell_type: str = "LSTMCell"
+    cell_type: str = "OptimizedLSTMCell"
     unroll_output_state: bool = False  # return state at all time-points
 
     def __call__(self, state, x: RNNInput, rng: PRNGKey):

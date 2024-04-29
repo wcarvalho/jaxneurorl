@@ -88,16 +88,23 @@ class KeyroomObsEncoder(nn.Module):
         ###################
         # [B, H, W, C]
         grid = obs.image
-        assert grid.ndim == 4
+        assert grid.ndim in (3, 4)
         grid = nn.Conv(
             self.embed_hidden_dim, (1, 1),
             kernel_init=initialization, use_bias=False)(grid)
 
         # turn into vector
-        grid = grid.reshape(grid.shape[0], -1)
+        if grid.ndim == 4:
+            grid = grid.reshape(grid.shape[0], -1)
+        elif grid.ndim == 3:
+            grid = grid.reshape(-1)
+        else:
+           raise NotImplementedError
         grid = MLP(self.grid_hidden_dim,
                    self.num_grid_layers)(grid)
 
+        if grid.ndim == 3:
+           import ipdb; ipdb.set_trace()
         ###################
         # combine
         ###################

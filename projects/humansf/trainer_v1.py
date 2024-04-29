@@ -285,14 +285,16 @@ def sweep(search: str = ''):
             **shared,
         },
       ]
-  elif search == 'qdyna':
+  elif search == 'dynaq':
     shared = {
       "config_name": tune.grid_search(['dyna_keyroom']),
     }
     space = [
         {
             "group": tune.grid_search(['dyna-1']),
-            "alg": tune.grid_search(['dyna']),
+            "alg": tune.grid_search(['dynaq']),
+            "DYNA_COEFF": tune.grid_search([1.0, 0.0]),
+            "NUM_SIMULATIONS": tune.grid_search([2, 15]),
             **shared,
         },
       ]
