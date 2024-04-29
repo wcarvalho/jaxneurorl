@@ -291,8 +291,8 @@ class OfftaskDyna(vbb.RecurrentLossFn):
             # --------------
             # [T-1, B, ...]
             # for now, just a single off-task goal
-            # TODO: generalize to deal with multi-dimensional
-            # task vectors. currently assumes should be flat
+            # TODO: generalize to multiple
+            # TODO: right now, rely on task being part of observation. next step should not be.
             offtask_w = x_t.state.offtask_w
 
             x_t = x_t.replace(
@@ -316,8 +316,8 @@ class OfftaskDyna(vbb.RecurrentLossFn):
                         h_tm1_target,
                         rngs,
                     )
-            import ipdb
-            ipdb.set_trace()
+            dyna_td_error = loss_mask[:-1]*dyna_td_error.mean(axis=(2, 3))
+            dyna_batch_loss = loss_mask[:-1]*dyna_batch_loss.mean(axis=(2))
 
             td_error += dyna_td_error
 
@@ -325,10 +325,10 @@ class OfftaskDyna(vbb.RecurrentLossFn):
 
             # update metrics.
             # first label online loss with online
-            metrics = {f'online/{k}': v for k,v in metrics}
+            metrics = {f'online/{k}': v for k,v in metrics.items()}
             # then add dyna metrics
             metrics.update(
-                {f'dyna/{k}': v for k, v in dyna_metrics})
+                {f'dyna/{k}': v for k, v in dyna_metrics.items()})
 
         return td_error, batch_loss, metrics
 
@@ -449,9 +449,8 @@ class OfftaskDyna(vbb.RecurrentLossFn):
         is_last_t = make_float(timesteps_t.last())  # either termination or truncation
 
         # time-step of termination and everything afterwards is masked out
-        terminated_t = jnp.cumsum(is_terminal_t)
-        loss_mask_t = make_float(terminated_t > 0)[:-1]
-
+        terminated_t = jnp.cumsum(is_terminal_t, 0)
+        loss_mask_t = make_float(terminated_t > 0)
 
         return self.loss_fn(
             online_preds=preds_t_online,
