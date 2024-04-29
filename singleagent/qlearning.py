@@ -50,7 +50,7 @@ class R2D2LossFn(vbb.RecurrentLossFn):
 
   tx_pair: rlax.TxPair = rlax.IDENTITY_PAIR
   extract_q: Callable[[jax.Array], jax.Array] = lambda preds: preds.q_vals
-  lambda_: float = .9
+
 
   def error(self, data, online_preds, online_state, target_preds, target_state, steps, **kwargs):
     """R2D2 learning.
@@ -97,7 +97,7 @@ class R2D2LossFn(vbb.RecurrentLossFn):
     batch_loss = 0.5 * jnp.square(batch_td_error)
 
     # [B]
-    batch_loss_mean = vbb.masked_mean(batch_loss, loss_mask)
+    batch_loss_mean = (batch_loss*loss_mask).mean(0)
 
     metrics = {
         '0.q_loss': batch_loss.mean(),

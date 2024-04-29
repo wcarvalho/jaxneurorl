@@ -2,9 +2,10 @@
 Dyna with the ability to do off-task simulation.
 """
 
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Union
 import functools
 
+import distrax
 import jax
 import jax.numpy as jnp
 import flax
@@ -18,6 +19,7 @@ from singleagent.basics import TimeStep
 from singleagent import value_based_basics as vbb
 from singleagent import qlearning as base_agent
 from projects.humansf import qlearning
+from projects.humansf.networks import KeyroomObsEncoder
 
 Agent = nn.Module
 Params = flax.core.FrozenDict
@@ -33,206 +35,442 @@ class AgentState:
 
 @struct.dataclass
 class Predictions:
-    policy_logits: jax.Array
-    value_logits: jax.Array
+    q_vals: jax.Array
     state: AgentState
 
 
-def simulate_trajectory(
-        agent,
+@struct.dataclass
+class SimulationOutput:
+    actions: jax.Array
+    predictions: Predictions
+
+
+def concat_pytrees(tree1, tree2, **kwargs):
+    return jax.tree_map(lambda x, y: jnp.concatenate((x, y), **kwargs), tree1, tree2)
+
+def add_time(v): return jax.tree_map(lambda x: x[None], v)
+def concat_first_rest(first, rest):
+    # init: [N, ...]
+    # rest: [T, N, ...]
+    # output: [T+1, N, ...]
+    return jax.vmap(concat_pytrees, 1, 1)(add_time(first), rest)
+
+def simulate_n_trajectories(
+        x_t: TimeStep,
+        h_tm1: RnnState,
+        rng:jax.random.PRNGKey,
+        network: nn.Module,
+        params: Params,
+        temperatures: Optional[jax.Array] = None,
+        num_steps: int = 5,
+        num_simulations: int = 5,
     ):
+    """
+    
+    return predictions and actions for every time-step including the current one.
 
-    def _single_step(prior_agent_state):
-        """
-        1. sample action
-        2. apply model
-        3. predict next time-step
-        """
+    This first applies the model to the current time-step and then simulates T more time-steps. 
+    Output is T+1.
 
-        predictions = agent.apply(prior_agent_state, timestep, rng)
-        q_values = predictions.q_vals
-        # prepare rngs for actions and step
-        rng, rng_a, rng_s = jax.random.split(rng, 3)
+    Args:
+        x_t (TimeStep): [D]
+        h_tm1 (RnnState): [D]
+        rng (jax.random.PRNGKey): _description_
+        network (nn.Module): _description_
+        params (Params): _description_
+        temperatures (jax.Array): _description_
+        num_steps (int, optional): _description_. Defaults to 5.
+        num_simulations (int, optional): _description_. Defaults to 5.
 
-        preds, action, agent_state = actor_step_fn(
-            rs.train_state,
-            prior_agent_state,
-            prior_timestep,
-            rng_a)
+    Returns:
+        _type_: _description_
+    """
+    if temperatures is None:
+       temperatures = jnp.ones(num_simulations)
+    assert len(temperatures) == num_simulations
 
-        transition = Transition(
-            prior_timestep,
-            action=action,
-            extras=FrozenDict(preds=preds, agent_state=prior_agent_state))
+    def policy_fn(q_values, temp, rng_):
+       # q_values: [N, A] or [A]
+       # temp: [N] or []
+       logits = q_values / jnp.expand_dims(temp, -1)
+       return distrax.Categorical(
+           logits=logits).sample(seed=rng_)
 
-        # take step in env
-        timestep = env_step_fn(rng_s, prior_timestep, action, env_params)
+    def initial_predictions(x, prior_s, temp, rng_):
+        preds, s = network.apply(params, prior_s, x, rng_)
+        action = policy_fn(
+           preds.q_vals,
+           temp, rng_
+        )
+        return preds, action
 
-        # update observer with data (used for logging)
-        if observer is not None:
-         observer_state = observer.observe(
-             observer_state=observer_state,
-             next_timestep=timestep,
-             predictions=preds,
-             action=action)
+    # by giving state as input and returning, will
+    # return copies. 1 for each sampled action.
+    rng, rng_ = jax.random.split(rng)
 
-
-        rs = rs._replace(
-            timestep=timestep,
-            agent_state=agent_state,
-            observer_state=observer_state,
-            rng=rng,
+    # one for each simulation
+    # [N, ...], [N]
+    init_preds_t, init_a_t = jax.vmap(
+        initial_predictions,
+        in_axes=(None, None, 0, 0),
+        out_axes=(0)
+        )(x_t,           # [D]
+          h_tm1,         # [D]
+          temperatures,  # [N]
+          jax.random.split(rng_, num_simulations)
         )
 
-        return rs, transition
+    def _single_model_step(carry, inputs):
+        del inputs  # unused
+        (s, a, rng) = carry
 
-    return jax.lax.scan(f=_single_step, init=runner_state, xs=None, length=num_steps)
+        ###########################
+        # 1. use state + action to predict next state
+        ###########################
+        rng, rng_ = jax.random.split(rng)
+        next_preds, _ = network.apply(
+            params, s, a, rng_,
+            method=network.apply_model)
+
+        ###########################
+        # 2. get actions at next state
+        ###########################
+        # [N]
+        next_a = policy_fn(
+            next_preds.q_vals,
+            temperatures,
+            rng_,
+        )
+        carry = (next_preds.state, next_a, rng)
+        sim_output = SimulationOutput(
+            predictions=next_preds,
+            actions=next_a,
+        )
+        return carry, sim_output
+
+    ################
+    # get simulation ouputs
+    ################
+    initial_carry = (init_preds_t.state, init_a_t, rng)
+    _, sim_outputs = jax.lax.scan(
+        f=_single_model_step,
+        init=initial_carry,
+        xs=None, length=num_steps)
+
+    # sim_outputs.predictions: [T, N, ...]
+    # concat [1, ...] with [N, T, ...]
+    return SimulationOutput(
+        predictions=concat_first_rest(
+            init_preds_t, sim_outputs.predictions),
+        actions=concat_first_rest(init_a_t, sim_outputs.actions),
+    )
 
 
 @struct.dataclass
-class OfftaskDyna(base_agent.R2D2LossFn):
+class OfftaskDyna(vbb.RecurrentLossFn):
 
-  """Loss function for off-task dyna
-  """
+    """Loss function for off-task dyna.
 
-  def loss_fn(
-      self,
-      online_preds,
-      target_preds,
-      actions,
-      rewards,
-      discounts,
-      is_last,
-      is_terminal,
-      loss_mask,
-      lambda_,
-      ):
-    # Get N-step transformed TD error and loss.
-    batch_td_error_fn = jax.vmap(
-        losses.q_learning_lambda_td,
-        in_axes=1,
-        out_axes=1)
+    Note: this assumes the agent uses the ground-truth environment as the environment model.
+    """
+    num_simulations: int = 15
+    simulation_length: int = 5
+    dyna_coeff: float = 1.0
 
-    # [T, B]
-    selector_actions = jnp.argmax(online_preds.q_vals, axis=-1)  # [T+1, B]
-    q_t, target_q_t = batch_td_error_fn(
-        online_preds.q_vals[:-1],  # [T+1] --> [T]
-        actions[:-1],    # [T+1] --> [T]
-        target_preds.q_vals[1:],  # [T+1] --> [T]
-        selector_actions[1:],  # [T+1] --> [T]
-        rewards[1:],        # [T+1] --> [T]
-        discounts[1:],
-        is_last[1:],
-        lambda_[1:])      # [T+1] --> [T]
+    temp_dist: distrax.Distribution = distrax.Gamma(concentration=1, rate=.5)
 
-    # ensure target = 0 when episode terminates
-    target_q_t = target_q_t*is_terminal[:-1]
-    batch_td_error = target_q_t - q_t
-    batch_td_error = batch_td_error*loss_mask
+    def loss_fn(
+        self,
+        online_preds,
+        target_preds,
+        actions,
+        rewards,
+        is_last,
+        is_terminal,
+        loss_mask,
+        ):
 
-    # [T, B]
-    batch_loss = 0.5 * jnp.square(batch_td_error)
+        discounts = is_terminal*self.discount
+        lambda_ = jnp.ones_like(is_terminal)*self.lambda_
 
-    # [B]
-    batch_loss_mean = (batch_loss*loss_mask).sum(0)
+        # Get N-step transformed TD error and loss.
+        batch_td_error_fn = jax.vmap(
+            losses.q_learning_lambda_td,
+            in_axes=1,
+            out_axes=1)
 
-    metrics = {
-        '0.q_loss': batch_loss.mean(),
-        '0.q_td': jnp.abs(batch_td_error).mean(),
-        '1.reward': rewards[1:].mean(),
-        'z.q_mean': online_preds.q_vals.mean(),
-        'z.q_var': online_preds.q_vals.var(),
-        }
+        # [T, B]
+        selector_actions = jnp.argmax(online_preds.q_vals, axis=-1)  # [T+1, B]
+        q_t, target_q_t = batch_td_error_fn(
+            online_preds.q_vals[:-1],  # [T+1] --> [T]
+            actions[:-1],    # [T+1] --> [T]
+            target_preds.q_vals[1:],  # [T+1] --> [T]
+            selector_actions[1:],  # [T+1] --> [T]
+            rewards[1:],        # [T+1] --> [T]
+            discounts[1:],
+            is_last[1:],
+            lambda_[1:])      # [T+1] --> [T]
 
-    return batch_td_error, batch_loss_mean, metrics
+        # ensure target = 0 when episode terminates
+        target_q_t = target_q_t*is_terminal[:-1]
+        batch_td_error = target_q_t - q_t
+        batch_td_error = batch_td_error*loss_mask[:-1]
 
+        # [T, B]
+        batch_loss = 0.5 * jnp.square(batch_td_error)
 
-  def error(self, data, online_preds, online_state, target_preds, target_state, steps, **kwargs):
+        # [B]
+        batch_loss_mean = (batch_loss*loss_mask[:-1]).mean(0)
 
-    ##################
-    ## Q-learning loss on batch of data
-    ##################
-    #online_td_error, online_batch_loss, online_metrics = self.loss_fn(
-    #  online_preds=None,
-    #  target_preds=None,
-    #  actions=None,
-    #  rewards=None,
-    #  discounts=None,
-    #  is_last=None,
-    #  is_terminal=None,
-    #  loss_mask=None,
-    #  lambda_=None,
-    #  )
+        metrics = {
+            '0.q_loss': batch_loss.mean(),
+            '0.q_td': jnp.abs(batch_td_error).mean(),
+            '1.reward': rewards[1:].mean(),
+            'z.q_mean': online_preds.q_vals.mean(),
+            'z.q_var': online_preds.q_vals.var(),
+            }
 
-    #################
-    # Dyna Q-learning loss over simulated data
-    #################
-    import ipdb; ipdb.set_trace()
-    # vmap over batch axis=1
-    sg = lambda x: jax.lax.stop_gradient(x)
-    # get states at t=1, ....
-    starting_state_online = jax.tree_map(lambda x: sg(x[:-1]), online_preds.state)
-    starting_state_target = jax.tree_map(lambda x: sg(x[:-1]), target_preds.state)
-    # get time-steps at t=2, ...
-    timesteps = jax.tree_map(lambda x: x[1:], data.timesteps)
+        return batch_td_error, batch_loss_mean, metrics
 
-    dyna_td_error, dyna_batch_loss, dyna_metrics = jax.vmap(jax.vmap(
-      self.dyna_loss_fn))(timesteps, starting_state_online, starting_state_target)
+    def error(self,
+        data,
+        online_preds: Predictions,
+        online_state: AgentState,
+        target_preds: Predictions,
+        target_state: AgentState,
+        params: Params,
+        target_params: Params,
+        steps: int,
+        key_grad: jax.random.PRNGKey,
+        **kwargs):
+
+        ##################
+        ## Q-learning loss on batch of data
+        ##################
+        def make_float(x): return x.astype(jnp.float32)
+
+        # prepare data
+        is_terminal = data.timestep.discount
+        # either termination or truncation
+        is_last = make_float(data.timestep.last())
+
+        # truncated is discount on AND is last
+        truncated = (is_terminal+is_last) > 1
+        loss_mask = make_float(1-truncated)
+
+        td_error, batch_loss, metrics = self.loss_fn(
+            online_preds=online_preds,
+            target_preds=target_preds,
+            actions=data.action,
+            rewards=data.reward,
+            is_last=is_last,
+            is_terminal=is_terminal,
+            loss_mask=loss_mask,
+            )
+
+        #################
+        # Dyna Q-learning loss over simulated data
+        #################
+        if self.dyna_coeff > 0.0:
+            sg = lambda x: jax.lax.stop_gradient(x)
+            # get states at t=1, ....
+            # tm1 = t-1
+            # [T-1, B, ...]
+            h_tm1_online = jax.tree_map(
+                lambda x: sg(x[:-1]), online_preds.state.rnn_state)
+            h_tm1_target = jax.tree_map(
+                lambda x: sg(x[:-1]), target_preds.state.rnn_state)
+
+            # get time-steps at t=2, ...
+            # [T-1, B, ...]
+            x_t = jax.tree_map(
+                lambda x: sg(x[1:]), online_preds.state.timestep)
+
+            #--------------
+            # get off task goal and place in timestep
+            # --------------
+            # [T-1, B, ...]
+            # for now, just a single off-task goal
+            # TODO: generalize to deal with multi-dimensional
+            # task vectors. currently assumes should be flat
+            offtask_w = x_t.state.offtask_w
+
+            x_t = x_t.replace(
+                state=x_t.state.replace(
+                    task_w=offtask_w))
+
+            T, B = offtask_w.shape[:2]
+            rngs = jax.random.split(key_grad, T*B)
+            rngs = rngs.reshape(T, B, -1)
+
+            dyna_loss_fn = functools.partial(
+                self.dyna_loss_fn,
+                params=params,
+                target_params=target_params)
+
+            # vmap over batch + time
+            dyna_loss_fn = jax.vmap(jax.vmap(dyna_loss_fn))
+            dyna_td_error, dyna_batch_loss, dyna_metrics = dyna_loss_fn(
+                        x_t,
+                        h_tm1_online,
+                        h_tm1_target,
+                        rngs,
+                    )
+            import ipdb
+            ipdb.set_trace()
+
+            td_error += dyna_td_error
+
+            batch_loss += dyna_batch_loss
+
+            # update metrics.
+            # first label online loss with online
+            metrics = {f'online/{k}': v for k,v in metrics}
+            # then add dyna metrics
+            metrics.update(
+                {f'dyna/{k}': v for k, v in dyna_metrics})
+
+        return td_error, batch_loss, metrics
 
     def dyna_loss_fn(
         self,
-        timestep: TimeStep,
-        online_state: jax.Array,
-        target_state: jax.Array):
-      """
+        x_t: TimeStep,
+        h_tm1_online: jax.Array,
+        h_tm1_target: jax.Array,
+        rng: jax.random.PRNGKey,
+        params,
+        target_params,
+        ):
+        """
 
-      Algorithm:
-      - Sample G (off-task) goals
-      - for each goal, sample N trajectories
-      - compute loss over trajectories
+        Algorithm:
+        - Sample G (off-task) goals
+        - for each goal, sample N trajectories
+        - compute loss over trajectories
 
-      Args:
-          data (vbb.AcmeBatchData): [D]
-          online_state (jax.Array): [D]
-          target_state (jax.Array): [D]
-      """
+        Details:
+        - for each
 
-      ################
-      # Sample goals
-      ################
-      # [D]
-      # for now, just a single off-task goal
-      offtask_w = timestep.state.offtask_w
-      timestep = timestep.replace(
-         state=timestep.state.replace(
-            task_w=offtask_w))
+        Args:
+            x_t (TimeStep): [D], timestep at t
+            h_tm1 (jax.Array): [D], rnn-state at t-1
+            h_tm1_target (jax.Array): [D], rnn-state at t-1 from target network
+        """
 
-      ################
-      # Sample trajectories
-      ################
-      # [G, N, ...]
+        ################
+        # Sample trajectories
+        ################
+        # what do you need to simulate a trajectory?
+        # need a network with model, history fn, etc.
+        # need an initial agent state
+        # need an rng
+        # will first simulate trajectory using online parameters
+        # input = (a) network (b) initial state (c) rng
+        # output = (a) online_states (b) online_preds (c) actions
+        # GIVEN: s_0, simulation_length=2
+        # OUTPUT: a_0, s_1, a_1, s_2
+        #   also: online_preds
 
-      self.sample_trajectories(timestep)
+        rng, rng_ = jax.random.split(rng)
+        temperatures = self.temp_dist.sample(
+            seed=rng_,
+            sample_shape=(self.num_simulations,))
 
-      ################
-      # Apply loss function to trajectories
-      ################
-      dyna_td_error, dyna_batch_loss, dyna_metrics = self.loss_fn(
-        online_preds=None,
-        target_preds=None,
-        actions=None,
-        rewards=None,
-        discounts=None,
-        is_last=None,
-        is_terminal=None,
-        loss_mask=None,
-        lambda_=None,
+        rng, rng_ = jax.random.split(rng)
+        # [num_sim, ...]
+        sim_outputs_t = simulate_n_trajectories(
+            x_t=x_t,
+            h_tm1=h_tm1_online,
+            rng=rng_,
+            network=self.network,
+            params=params,
+            num_steps=self.simulation_length,
+            num_simulations=self.num_simulations,
+            temperatures=temperatures,
+        )
+        preds_t_online = sim_outputs_t.predictions
+
+        ################################
+        # function to copy something n times
+        ################################
+        def identity(y, n): return y
+        def repeat_num_sim(x):
+            return jax.vmap(
+                identity, (None, 0), 0)(
+                    x, jnp.arange(self.num_simulations))
+
+        ################################
+        # get target_preds for this data
+        ################################
+        # prediction for t=1
+        rng, rng_ = jax.random.split(rng)
+
+        # [D]
+        first_preds_target, _ = self.network.apply(
+            target_params, h_tm1_target, x_t, rng_)
+
+        # [N, D]
+        init_state = repeat_num_sim(first_preds_target.state)
+
+        # [T, N]
+        simulation_actions = sim_outputs_t.actions[:-1]
+        # prediction for t=2,...
+        # [T+1, N, ...]
+        _, rest_preds_target = self.network.apply(
+            target_params,
+            init_state,
+            simulation_actions,
+            rng_,
+            method=self.network.unroll_model)
+
+        # [1, D]
+        first_preds_target = add_time(first_preds_target)
+
+        # prediction for t=1,2,...
+        # [T+1, N, D]
+        preds_t_target = jax.vmap(concat_pytrees, (None, 1), 1)(
+            first_preds_target, # [1, D]
+            rest_preds_target,  # [T, N, D]
+        )
+
+        ################################
+        # get timestep information
+        ################################
+        # agent state stores current state, so should have all of them
+        timesteps_t: TimeStep = preds_t_online.state.timestep
+
+        ################
+        # Apply loss function to trajectories
+        ################
+        make_float = lambda x: x.astype(jnp.float32)
+        
+        # prepare data
+        is_terminal_t = timesteps_t.discount
+        is_last_t = make_float(timesteps_t.last())  # either termination or truncation
+
+        # time-step of termination and everything afterwards is masked out
+        terminated_t = jnp.cumsum(is_terminal_t)
+        loss_mask_t = make_float(terminated_t > 0)[:-1]
+
+
+        return self.loss_fn(
+            online_preds=preds_t_online,
+            target_preds=preds_t_target,
+            actions=sim_outputs_t.actions,
+            rewards=timesteps_t.reward,
+            is_last=is_last_t,
+            is_terminal=is_terminal_t,
+            loss_mask=loss_mask_t,
         )
 
 def make_loss_fn_class(config) -> vbb.RecurrentLossFn:
-  return functools.partial(
-     OfftaskDyna,
-     discount=config['GAMMA'])
+    return functools.partial(
+        OfftaskDyna,
+        discount=config['GAMMA'],
+        num_simulations=config.get('NUM_SIMULATIONS', 15),
+        simulation_length=config.get('SIMULATION_LENGTH', 5),
+        dyna_coeff=config.get('DYNA_COEFF', 1.0),
+        )
 
 class Block(nn.Module):
   features: int
@@ -258,7 +496,7 @@ class MLP(nn.Module):
     return x
 
 
-class AlphaZeroAgent(nn.Module):
+class DynaAgentEnvModel(nn.Module):
 
     action_dim: int
 
@@ -266,14 +504,10 @@ class AlphaZeroAgent(nn.Module):
     rnn: vbb.ScannedRNN
     env: environment.Environment
     env_params: environment.EnvParams
-    test_env_params: environment.EnvParams
-
-    num_bins: int = 101
 
     def setup(self):
 
-        self.policy_fn = MLP(hidden_dim=512, num_layers=1, out_dim=self.action_dim)
-        self.value_fn = MLP(hidden_dim=512, num_layers=1, out_dim=self.num_bins)
+        self.q_fn = MLP(hidden_dim=512, num_layers=1, out_dim=self.action_dim)
 
     def initialize(self, x: TimeStep):
         """Only used for initialization."""
@@ -283,14 +517,23 @@ class AlphaZeroAgent(nn.Module):
         rnn_state = self.initialize_carry(rng, batch_dims)
         predictions, rnn_state = self.__call__(rnn_state, x, rng)
         dummy_action = jnp.zeros(batch_dims, dtype=jnp.int32)
-
-        state = jax.tree_map(lambda x: x[:, None], predictions.state)
-        dummy_action = jax.tree_map(lambda x: x[:, None], dummy_action)
-        jax.vmap(self.apply_model, (0,0,None), 0)(state, dummy_action, rng)
+        self.apply_model(predictions.state, dummy_action, rng)
 
     def initialize_carry(self, *args, **kwargs):
         """Initializes the RNN state."""
         return self.rnn.initialize_carry(*args, **kwargs)
+
+    def predict(self, state: AgentState, rng: jax.random.PRNGKey):
+
+        import ipdb; ipdb.set_trace()
+        rnn_out = self.rnn.output_from_state(state.rnn_state)
+        q_vals = self.q_fn(rnn_out)
+
+        predictions = Predictions(
+            q_vals=q_vals,
+            state=state)
+
+        return predictions
 
     def __call__(self, rnn_state, x: TimeStep, rng: jax.random.KeyArray) -> Tuple[Predictions, RnnState]:
 
@@ -301,11 +544,9 @@ class AlphaZeroAgent(nn.Module):
         rng, _rng = jax.random.split(rng)
         new_rnn_state, rnn_out = self.rnn(rnn_state, rnn_in, _rng)
 
-        policy_logits = self.policy_fn(rnn_out)
-        value_logits = self.value_fn(rnn_out)
+        q_vals = self.q_fn(rnn_out)
         predictions = Predictions(
-            policy_logits=policy_logits,
-            value_logits=value_logits,
+            q_vals=q_vals,
             state=AgentState(
                 timestep=x,
                 rnn_state=new_rnn_state)
@@ -322,14 +563,14 @@ class AlphaZeroAgent(nn.Module):
 
         rnn_in = vbb.RNNInput(obs=embedding, reset=xs.first())
         rng, _rng = jax.random.split(rng)
+
+        # [B, D], [T, B, D]
         new_rnn_state, new_rnn_states = self.rnn.unroll(rnn_state, rnn_in, _rng)
 
-        rnn_out = new_rnn_states[1]
-        policy_logits = jax.vmap(self.policy_fn)(rnn_out)
-        value_logits = jax.vmap(self.value_fn)(rnn_out)
+        rnn_out = self.rnn.output_from_state(new_rnn_states)
+        q_vals = jax.vmap(self.q_fn)(rnn_out)
         predictions = Predictions(
-            policy_logits=policy_logits,
-            value_logits=value_logits,
+            q_vals=q_vals,
             state=AgentState(
                 timestep=xs,
                 rnn_state=new_rnn_states)
@@ -341,27 +582,73 @@ class AlphaZeroAgent(nn.Module):
           state: AgentState,
           action: jnp.ndarray,
           rng: jax.random.KeyArray,
-          evaluation: bool = False,
       ) -> Tuple[Predictions, RnnState]:
         """This applies the model to each element in the state, action vectors.
-
         Args:
-            state (State): states. [1, D]
-            action (jnp.ndarray): actions to take on states. [1]
-
+            state (State): states. [B, D]
+            action (jnp.ndarray): actions to take on states. [B]
         Returns:
             Tuple[ModelOutput, State]: muzero outputs and new states for 
               each state state action pair.
         """
-        assert action.shape[0] == 1, 'function only accepts batchsize=1 due to inability to vmap over environment. please use vmap to get these dimensions.'
+        # take one step forward in the environment
+        B = action.shape[0]
         rng, rng_ = jax.random.split(rng)
-        env_params = self.test_env_params if evaluation else self.env_params
-        timestep = jax.tree_map(lambda x: x[0], state.timestep)
-        next_timestep = self.env.step(rng_, timestep, action[0], env_params)
-        next_timestep = jax.tree_map(lambda x: x[None], next_timestep)
+        def env_step(s, a, rng_): 
+           return self.env.step(rng_, s.timestep, a, self.env_params)
+        next_timestep = jax.vmap(env_step)(
+            state, action, jax.random.split(rng_, B))
 
+        # compute predictions for next time-step
         rng, rng_ = jax.random.split(rng)
-        return self.__call__(state.rnn_state, next_timestep, rng_)
+        predictions, new_rnn_state =  self.__call__(state.rnn_state, next_timestep, rng_)
+        return predictions, new_rnn_state
+
+    def unroll_model(
+        self,
+        state: AgentState,
+        actions: jnp.ndarray,
+        rng: jax.random.KeyArray,
+    ) -> Tuple[Predictions, RnnState]:
+        """This applies the model recursively to the state using the sequence of actions.
+        Args:
+            state (State): states. [B, D]
+            action (jnp.ndarray): actions to take on states. [T, B]
+        Returns:
+            Tuple[ModelOutput, State]: muzero outputs and new states for 
+              each state state action pair.
+        """
+        #def body_fn(carry, inputs):
+        #    action = inputs
+        #    state, rng_ = carry
+        #    rng_, rng__ = jax.random.split(rng_)
+        #    predictions, _ = self.apply_model(state, action, rng__)
+        #    carry = (predictions.state, rng)
+        #    return carry, predictions
+
+        #return jax.lax.scan(
+        #    f=body_fn,
+        #    init=(state, rng),
+        #    xs=actions)
+
+
+        def body_fn(model, carry, inputs):
+            action = inputs
+            state, rng_ = carry
+            rng_, rng__ = jax.random.split(rng_)
+            predictions, _ = model.apply_model(
+                state, action, rng__)
+            carry = (predictions.state, rng)
+            return carry, predictions
+
+        scan = nn.scan(
+            body_fn,
+            variable_broadcast="params",
+            split_rngs={"params": False},
+            in_axes=0,
+            out_axes=0
+        )
+        return scan(self, (state, rng), actions)
 
 
 def make_agent(
@@ -370,22 +657,23 @@ def make_agent(
         env_params: environment.EnvParams,
         example_timestep: TimeStep,
         rng: jax.random.KeyArray,
-        test_env_params: Optional[environment.EnvParams] = None,
         ) -> Tuple[nn.Module, Params, vbb.AgentResetFn]:
 
-    test_env_params = test_env_params or env_params
-    agent = AlphaZeroAgent(
-        action_dim=env.action_space(env_params).n,
-        observation_encoder=MLP(
-           hidden_dim=config["AGENT_HIDDEN_DIM"],
-           num_layers=1),
+    agent = DynaAgentEnvModel(
+        action_dim=env.num_actions(env_params),
+        observation_encoder=KeyroomObsEncoder(
+            embed_hidden_dim=config["AGENT_HIDDEN_DIM"],
+            init=config.get('ENCODER_INIT', 'word_init'),
+            grid_hidden_dim=config.get('GRID_HIDDEN', 256),
+            num_embed_layers=config['NUM_EMBED_LAYERS'],
+            num_grid_layers=config['NUM_GRID_LAYERS'],
+            num_joint_layers=config['NUM_ENCODER_LAYERS'],
+        ),
         rnn=vbb.ScannedRNN(
-            hidden_dim=config["AGENT_HIDDEN_DIM"],
+            hidden_dim=config.get("AGENT_RNN_DIM", 128),
             unroll_output_state=True),
-        num_bins=config['NUM_BINS'],
         env=env,
         env_params=env_params,
-        test_env_params=test_env_params,
     )
 
     rng, _rng = jax.random.split(rng)
@@ -394,7 +682,7 @@ def make_agent(
         method=agent.initialize)
 
     def reset_fn(params, example_timestep, reset_rng):
-      batch_dims = example_timestep.observation.shape[:-1]
+      batch_dims = example_timestep.reward.shape
       return agent.apply(
           params,
           batch_dims=batch_dims,
