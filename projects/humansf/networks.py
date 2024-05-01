@@ -74,10 +74,10 @@ class KeyroomObsEncoder(nn.Module):
         # [B, D]
         vector_inputs = (
             embed(obs.direction),       # 1-hot
-            embed(obs.state_features),  # binary
-            embed(obs.has_occurred),    # binary
+            #embed(obs.state_features),  # binary
+            #embed(obs.has_occurred),    # binary
             embed(obs.local_position),  # binary
-            embed(obs.position),        # binary
+            #embed(obs.position),        # binary
             embed(obs.pocket),          # binary
             embed(obs.prev_action),          # binary
         )
