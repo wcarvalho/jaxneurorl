@@ -275,7 +275,6 @@ class AlphaZeroAgent(nn.Module):
     def __call__(self, rnn_state, x: TimeStep, rng: jax.random.KeyArray) -> Tuple[Predictions, RnnState]:
 
         embedding = self.observation_encoder(x.observation)
-        embedding = nn.relu(embedding)
 
         rnn_in = vbb.RNNInput(obs=embedding, reset=x.first())
         rng, _rng = jax.random.split(rng)
@@ -298,15 +297,14 @@ class AlphaZeroAgent(nn.Module):
         # xs: [T, B]
 
         embedding = jax.vmap(self.observation_encoder)(xs.observation)
-        embedding = nn.relu(embedding)
 
         rnn_in = vbb.RNNInput(obs=embedding, reset=xs.first())
         rng, _rng = jax.random.split(rng)
         new_rnn_state, new_rnn_states = self.rnn.unroll(rnn_state, rnn_in, _rng)
 
-        rnn_out = new_rnn_states[1]
-        policy_logits = jax.vmap(self.policy_fn)(rnn_out)
-        value_logits = jax.vmap(self.value_fn)(rnn_out)
+        rnn_out = self.rnn.output_from_state(new_rnn_states)
+        policy_logits = nn.BatchApply(self.policy_fn)(rnn_out)
+        value_logits = nn.BatchApply(self.value_fn)(rnn_out)
         predictions = Predictions(
             policy_logits=policy_logits,
             value_logits=value_logits,

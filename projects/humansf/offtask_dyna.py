@@ -13,19 +13,24 @@ from flax import struct
 import flax.linen as nn
 from gymnax.environments import environment
 
-from library import losses
+import numpy as np
+import rlax
+import matplotlib.pyplot as plt
+import wandb
 
+from library import losses
 from singleagent.basics import TimeStep
 from singleagent import value_based_basics as vbb
 from singleagent import qlearning as base_agent
 from projects.humansf import qlearning
 from projects.humansf.networks import KeyroomObsEncoder
+from projects.humansf import keyroom
+from projects.humansf.visualizer import plot_frames
 
 Agent = nn.Module
 Params = flax.core.FrozenDict
 make_actor = base_agent.make_actor
 make_optimizer = base_agent.make_optimizer
-learner_log_extra = qlearning.learner_log_extra
 RnnState = jax.Array
 
 @struct.dataclass
@@ -44,6 +49,7 @@ class SimulationOutput:
     actions: jax.Array
     predictions: Predictions
 
+def make_float(x): return x.astype(jnp.float32)
 
 def concat_pytrees(tree1, tree2, **kwargs):
     return jax.tree_map(lambda x, y: jnp.concatenate((x, y), **kwargs), tree1, tree2)
@@ -177,10 +183,13 @@ class OfftaskDyna(vbb.RecurrentLossFn):
     simulation_length: int = 5
     dyna_coeff: float = 1.0
 
+    stop_dyna_gradient: bool = True
+
     temp_dist: distrax.Distribution = distrax.Gamma(concentration=1, rate=.5)
 
     def loss_fn(
         self,
+        timestep,
         online_preds,
         target_preds,
         actions,
@@ -190,7 +199,9 @@ class OfftaskDyna(vbb.RecurrentLossFn):
         loss_mask,
         ):
 
-        discounts = is_terminal*self.discount
+        rewards = make_float(rewards)
+        is_last = make_float(is_last)
+        discounts = make_float(is_terminal)*self.discount
         lambda_ = jnp.ones_like(is_terminal)*self.lambda_
 
         # Get N-step transformed TD error and loss.
@@ -230,7 +241,17 @@ class OfftaskDyna(vbb.RecurrentLossFn):
             'z.q_var': online_preds.q_vals.var(),
             }
 
-        return batch_td_error, batch_loss_mean, metrics
+        log_info = {
+            'timesteps': timestep,
+            'actions': actions,
+            'td_errors': batch_td_error,                 # [T]
+            'loss_mask': loss_mask,                 # [T]
+            'q_values': online_preds.q_vals,    # [T, B]
+            'q_loss': batch_loss,                        #[ T, B]
+            'q_target': target_q_t,
+        }
+
+        return batch_td_error, batch_loss_mean, metrics, log_info
 
     def error(self,
         data,
@@ -247,7 +268,6 @@ class OfftaskDyna(vbb.RecurrentLossFn):
         ##################
         ## Q-learning loss on batch of data
         ##################
-        def make_float(x): return x.astype(jnp.float32)
 
         # prepare data
         is_terminal = data.timestep.discount
@@ -258,7 +278,8 @@ class OfftaskDyna(vbb.RecurrentLossFn):
         truncated = (is_terminal+is_last) > 1
         loss_mask = make_float(1-truncated)
 
-        td_error, batch_loss, metrics = self.loss_fn(
+        td_error, batch_loss, metrics, log_info = self.loss_fn(
+            timestep=data.timestep,
             online_preds=online_preds,
             target_preds=target_preds,
             actions=data.action,
@@ -268,11 +289,20 @@ class OfftaskDyna(vbb.RecurrentLossFn):
             loss_mask=loss_mask,
             )
 
+        # first label online loss with online
+        metrics = {f'online/{k}': v for k,v in metrics.items()}
+        log_info = {
+            'online': log_info,
+            'n_updates': steps,
+            }
         #################
         # Dyna Q-learning loss over simulated data
         #################
         if self.dyna_coeff > 0.0:
-            sg = lambda x: jax.lax.stop_gradient(x)
+            if self.stop_dyna_gradient:
+                sg = lambda x: jax.lax.stop_gradient(x)
+            else:
+                sg = lambda x: x
             # get states at t=1, ....
             # tm1 = t-1
             # [T-1, B, ...]
@@ -297,7 +327,9 @@ class OfftaskDyna(vbb.RecurrentLossFn):
 
             x_t = x_t.replace(
                 state=x_t.state.replace(
-                    task_w=offtask_w))
+                    step_num=jnp.zeros_like(x_t.state.step_num),
+                    task_w=offtask_w,
+                    ))
 
             T, B = offtask_w.shape[:2]
             rngs = jax.random.split(key_grad, T*B)
@@ -310,25 +342,27 @@ class OfftaskDyna(vbb.RecurrentLossFn):
 
             # vmap over batch + time
             dyna_loss_fn = jax.vmap(jax.vmap(dyna_loss_fn))
-            dyna_td_error, dyna_batch_loss, dyna_metrics = dyna_loss_fn(
+            dyna_td_error, dyna_batch_loss, dyna_metrics, dyna_log_info = dyna_loss_fn(
                         x_t,
                         h_tm1_online,
                         h_tm1_target,
                         rngs,
                     )
-            dyna_td_error = loss_mask[:-1]*dyna_td_error.mean(axis=(2, 3))
-            dyna_batch_loss = loss_mask[:-1]*dyna_batch_loss.mean(axis=(2))
+            dyna_td_error = dyna_td_error.mean(axis=(2, 3))
+            dyna_batch_loss = dyna_batch_loss.mean(axis=(2))
 
             td_error += dyna_td_error
 
             batch_loss += dyna_batch_loss
 
-            # update metrics.
-            # first label online loss with online
-            metrics = {f'online/{k}': v for k,v in metrics.items()}
-            # then add dyna metrics
+            # update metrics with dyna metrics
             metrics.update(
                 {f'dyna/{k}': v for k, v in dyna_metrics.items()})
+
+            log_info['dyna'] = dyna_log_info
+
+        if self.logger.learner_log_extra is not None:
+            self.logger.learner_log_extra(log_info)
 
         return td_error, batch_loss, metrics
 
@@ -442,17 +476,16 @@ class OfftaskDyna(vbb.RecurrentLossFn):
         ################
         # Apply loss function to trajectories
         ################
-        make_float = lambda x: x.astype(jnp.float32)
-        
         # prepare data
         is_terminal_t = timesteps_t.discount
         is_last_t = make_float(timesteps_t.last())  # either termination or truncation
 
         # time-step of termination and everything afterwards is masked out
-        terminated_t = jnp.cumsum(is_terminal_t, 0)
+        terminated_t = jnp.cumsum(is_last_t, 0)
         loss_mask_t = make_float(terminated_t > 0)
 
         return self.loss_fn(
+            timestep=timesteps_t,
             online_preds=preds_t_online,
             target_preds=preds_t_target,
             actions=sim_outputs_t.actions,
@@ -469,7 +502,160 @@ def make_loss_fn_class(config) -> vbb.RecurrentLossFn:
         num_simulations=config.get('NUM_SIMULATIONS', 15),
         simulation_length=config.get('SIMULATION_LENGTH', 5),
         dyna_coeff=config.get('DYNA_COEFF', 1.0),
+        stop_dyna_gradient=config.get('STOP_DYNA_GRAD', True)
         )
+
+def learner_log_extra(
+        data: dict,
+        config: dict,
+        action_names: dict,
+        maze_config: dict,
+        ):
+
+    def log_data(
+        key: str, 
+        timesteps: TimeStep,
+        actions: np.array,
+        td_errors: np.array,
+        loss_mask: np.array,
+        q_values: np.array,
+        q_loss: np.array,
+        q_target: np.array,
+        ):
+
+        # Extract the relevant data
+        # only use data from batch dim = 0
+        # [T, B, ...] --> # [T, ...]
+
+        discounts = timesteps.discount
+        rewards = timesteps.reward
+        q_values_taken = rlax.batched_index(q_values, actions)
+
+        # Create a figure with three subplots
+        width = .3
+        nT = len(rewards)  # e.g. 20 --> 8
+        fig, (ax1, ax2, ax3, ax4) = plt.subplots(4, 1, figsize=(int(width*nT), 16))
+
+        # Plot rewards and q-values in the top subplot
+        def format(ax):
+            ax.set_xlabel('Time')
+            ax.grid(True)
+            ax.set_xticks(range(0, len(rewards), 1))
+        ax1.plot(rewards, label='Rewards')
+        ax1.plot(q_values_taken, label='Q-Values')
+        ax1.plot(q_target, label='Q-Targets')
+        ax1.set_title('Rewards and Q-Values')
+        format(ax1)
+        ax1.legend()
+
+        # Plot TD errors in the middle subplot
+        ax2.plot(td_errors)
+        format(ax2)
+        ax2.set_title('TD Errors')
+
+        # Plot Q-loss in the bottom subplot
+        ax3.plot(q_loss)
+        format(ax3)
+        ax3.set_title('Q-Loss')
+
+        # Plot episode quantities
+        is_last = timesteps.last()
+        ax4.plot(discounts, label='Discounts')
+        ax4.plot(loss_mask, label='mask')
+        ax4.plot(is_last, label='is_last')
+        format(ax4)
+        ax4.set_title('Episode markers')
+        ax4.legend()
+
+        # Adjust the spacing between subplots
+        #plt.tight_layout()
+        # log
+        if wandb.run is not None:
+            wandb.log({f"learner_example/{key}/q-values": wandb.Image(fig)})
+        plt.close(fig)
+
+        ##############################
+        # plot images of env
+        ##############################
+        # ------------
+        # get images
+        # ------------
+
+        #state_images = []
+        obs_images = []
+        max_len = min(config.get("MAX_EPISODE_LOG_LEN", 40), len(rewards))
+        for idx in range(max_len):
+            index = lambda y: jax.tree_map(lambda x: x[idx], y)
+            #state_image = rgb_render(
+            #    timesteps.state.grid[idx],
+            #    index(timesteps.state.agent),
+            #    env_params.view_size,
+            #    tile_size=8)
+            obs_image = keyroom.render_room(
+                index(timesteps.state),
+                tile_size=8)
+            #state_images.append(state_image)
+            obs_images.append(obs_image)
+
+        # ------------
+        # plot
+        # ------------
+        def action_name(a):
+            if action_names is not None:
+                name = action_names.get(int(a), 'ERROR?')
+                return f"action {int(a)}: {name}"
+            else:
+                return f"action: {int(a)}"
+        actions_taken = [action_name(a) for a in actions]
+
+        def panel_title_fn(timesteps, i):
+            room_setting = int(timesteps.state.room_setting[i])
+            task_room = int(timesteps.state.goal_room_idx[i])
+            task_object = int(timesteps.state.task_object_idx[i])
+            setting = 'single' if room_setting == 0 else 'multi'
+            category, color = maze_config['pairs'][task_room][task_object]
+            task_name = f'{setting} - {color} {category}'
+
+            title = f'{task_name}\n'
+            title += f't={i}\n'
+            title += f'{actions_taken[i]}\n'
+            title += f'r={timesteps.reward[i]}, $\\gamma={timesteps.discount[i]}$'
+            return title
+
+        fig = plot_frames(
+            timesteps=timesteps,
+            frames=obs_images,
+            panel_title_fn=panel_title_fn,
+            ncols=6)
+        if wandb.run is not None:
+            wandb.log(
+                {f"learner_example/{key}/trajectory": wandb.Image(fig)})
+        plt.close(fig)
+
+    def callback(d):
+        n_updates = d.pop('n_updates')
+        # [T, B] --> [T]
+        import ipdb; ipdb.set_trace()
+        d['online'] = jax.tree_map(lambda x: x[:, 0], d['online'])
+        log_data(**d['online'], key='online')
+
+        if 'dyna' in d:
+            # [T, B, N, K] --> [T]
+            # get simulation at B=0 (1st sample), N=
+            import ipdb; ipdb.set_trace()
+            d['dyna'] = jax.tree_map(lambda x: x[:, 0, 0, 0], d['dyna'])
+            log_data(**d['dyna'], key='dyna')
+
+    # this will be the value after update is applied
+    n_updates = data['n_updates'] + 1
+    is_log_time = n_updates % config["LEARNER_EXTRA_LOG_PERIOD"] == 0
+
+    jax.lax.cond(
+        is_log_time,
+        lambda d: jax.debug.callback(callback, d),
+        lambda d: None,
+        data)
+
 
 class Block(nn.Module):
   features: int
@@ -537,7 +723,6 @@ class DynaAgentEnvModel(nn.Module):
     def __call__(self, rnn_state, x: TimeStep, rng: jax.random.KeyArray) -> Tuple[Predictions, RnnState]:
 
         embedding = self.observation_encoder(x.observation)
-        embedding = nn.relu(embedding)
 
         rnn_in = vbb.RNNInput(obs=embedding, reset=x.first())
         rng, _rng = jax.random.split(rng)
@@ -558,7 +743,6 @@ class DynaAgentEnvModel(nn.Module):
         # xs: [T, B]
 
         embedding = jax.vmap(self.observation_encoder)(xs.observation)
-        embedding = nn.relu(embedding)
 
         rnn_in = vbb.RNNInput(obs=embedding, reset=xs.first())
         rng, _rng = jax.random.split(rng)
@@ -567,7 +751,7 @@ class DynaAgentEnvModel(nn.Module):
         new_rnn_state, new_rnn_states = self.rnn.unroll(rnn_state, rnn_in, _rng)
 
         rnn_out = self.rnn.output_from_state(new_rnn_states)
-        q_vals = jax.vmap(self.q_fn)(rnn_out)
+        q_vals = nn.BatchApply(self.q_fn)(rnn_out)
         predictions = Predictions(
             q_vals=q_vals,
             state=AgentState(
