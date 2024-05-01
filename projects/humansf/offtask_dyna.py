@@ -617,19 +617,6 @@ class DynaAgentEnvModel(nn.Module):
             Tuple[ModelOutput, State]: muzero outputs and new states for 
               each state state action pair.
         """
-        #def body_fn(carry, inputs):
-        #    action = inputs
-        #    state, rng_ = carry
-        #    rng_, rng__ = jax.random.split(rng_)
-        #    predictions, _ = self.apply_model(state, action, rng__)
-        #    carry = (predictions.state, rng)
-        #    return carry, predictions
-
-        #return jax.lax.scan(
-        #    f=body_fn,
-        #    init=(state, rng),
-        #    xs=actions)
-
 
         def body_fn(model, carry, inputs):
             action = inputs
