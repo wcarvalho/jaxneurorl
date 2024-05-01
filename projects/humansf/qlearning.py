@@ -52,18 +52,11 @@ class RnnAgent(nn.Module):
         _type_: _description_
     """
     action_dim: int
-    config: dict
+
+    observation_encoder: nn.Module
     rnn: vbb.ScannedRNN
 
     def setup(self):
-        self.observation_encoder = KeyroomObsEncoder(
-            embed_hidden_dim=self.config["AGENT_HIDDEN_DIM"],
-            init=self.config.get('ENCODER_INIT', 'word_init'),
-            grid_hidden_dim=self.config.get('GRID_HIDDEN', 256),
-            num_embed_layers=self.config['NUM_EMBED_LAYERS'],
-            num_grid_layers=self.config['NUM_GRID_LAYERS'],
-            num_joint_layers=self.config['NUM_ENCODER_LAYERS']
-            )
 
         self.q_fn = base_agent.MLP(
            hidden_dim=512,
@@ -116,16 +109,24 @@ def make_agent(
         example_timestep: TimeStep,
         rng: jax.random.KeyArray) -> Tuple[Agent, Params, vbb.AgentResetFn]:
 
-    cell_type = config.get('RNN_CELL_TYPE', 'LSTMCell')
+    cell_type = config.get('RNN_CELL_TYPE', 'OptimizedLSTMCell')
     if cell_type.lower() == 'none':
         rnn = vbb.DummyRNN()
     else:
         rnn = vbb.ScannedRNN(
-            hidden_dim=config["AGENT_RNN_DIM"], cell_type=cell_type)
+            hidden_dim=config["AGENT_RNN_DIM"])
 
     agent = RnnAgent(
+        observation_encoder=KeyroomObsEncoder(
+            embed_hidden_dim=config["AGENT_HIDDEN_DIM"],
+            init=config.get('ENCODER_INIT', 'word_init'),
+            grid_hidden_dim=config.get('GRID_HIDDEN', 256),
+            num_embed_layers=config['NUM_EMBED_LAYERS'],
+            num_grid_layers=config['NUM_GRID_LAYERS'],
+            num_joint_layers=config['NUM_ENCODER_LAYERS'],
+            include_extras=config.get('ENC_INCLUDE_EXTRAS', False),
+        ),
         action_dim=env.num_actions(env_params),
-        config=config,
         rnn=rnn,
     )
 
