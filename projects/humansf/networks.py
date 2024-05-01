@@ -48,6 +48,7 @@ class KeyroomObsEncoder(nn.Module):
     num_embed_layers: int = 1
     num_grid_layers: int = 1
     num_joint_layers: int = 1
+    include_extras: bool = False
 
     @nn.compact
     def __call__(self, obs: Observation):
@@ -74,13 +75,17 @@ class KeyroomObsEncoder(nn.Module):
         # [B, D]
         vector_inputs = (
             embed(obs.direction),       # 1-hot
-            #embed(obs.state_features),  # binary
-            #embed(obs.has_occurred),    # binary
             embed(obs.local_position),  # binary
-            #embed(obs.position),        # binary
             embed(obs.pocket),          # binary
             embed(obs.prev_action),          # binary
         )
+        if self.include_extras:
+           vector_inputs += (
+                embed(obs.state_features),  # binary
+                embed(obs.has_occurred),    # binary
+                embed(obs.position),        # binary
+           )
+
         vector = jnp.concatenate(vector_inputs, axis=-1)
         vector = MLP(128, self.num_embed_layers)(vector)
         ###################
@@ -100,11 +105,10 @@ class KeyroomObsEncoder(nn.Module):
             grid = grid.reshape(-1)
         else:
            raise NotImplementedError
+
         grid = MLP(self.grid_hidden_dim,
                    self.num_grid_layers)(grid)
 
-        if grid.ndim == 3:
-           import ipdb; ipdb.set_trace()
         ###################
         # combine
         ###################

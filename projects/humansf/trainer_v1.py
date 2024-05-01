@@ -267,8 +267,7 @@ def sweep(search: str = ''):
         {
             "group": tune.grid_search(['qlearning-81']),
             "alg": tune.grid_search(['qlearning']),
-            'env.TRAIN_END_PAIR': tune.grid_search([True, False]),
-            'env.TEST_END_ON': tune.grid_search(['any_key', 'any_pair']),
+            "ENC_INCLUDE_EXTRAS": tune.grid_search([True, False]),
             **shared,
         },
       ]
@@ -280,8 +279,8 @@ def sweep(search: str = ''):
         {
             "group": tune.grid_search(['alpha-9']),
             "alg": tune.grid_search(['alphazero']),
-            "NUM_EVAL_SIMULATIONS": tune.grid_search([50, 4, 8, 16, 25]),
             "TRAINING_INTERVAL": tune.grid_search([1]),
+            "ENC_INCLUDE_EXTRAS": tune.grid_search([False, True]),
             **shared,
         },
       ]

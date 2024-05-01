@@ -180,6 +180,7 @@ def make_agent(
             num_embed_layers=config['NUM_EMBED_LAYERS'],
             num_grid_layers=config['NUM_GRID_LAYERS'],
             num_joint_layers=config['NUM_ENCODER_LAYERS'],
+            include_extras=config.get('ENC_INCLUDE_EXTRAS', False),
         ),
         rnn=vbb.ScannedRNN(
             hidden_dim=config.get("AGENT_RNN_DIM", 128),
