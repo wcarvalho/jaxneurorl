@@ -638,7 +638,6 @@ def make_train(
            jax.random.split(rng, config["NUM_ENVS"]), env_state, action, env_params)
 
     def train(rng: jax.random.KeyArray):
-
         logger = make_logger(config, env, train_env_params)
 
         ##############################
@@ -730,7 +729,9 @@ def make_train(
         ##############################
         observer = ObserverCls(
             num_envs=config['NUM_ENVS'],
-            log_period=5_000)
+            log_period=config.get("OBSERVER_PERIOD", 5_000),
+            max_num_episodes=config.get("OBSERVER_EPISODES", 200),
+            )
         eval_observer = observer
 
         init_actor_observer_state = observer.init(

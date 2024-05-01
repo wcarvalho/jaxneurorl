@@ -173,15 +173,17 @@ def run_single(
           num_bins=num_bins,
           min_value=-max_value)
 
+      num_train_simulations = config.get('NUM_SIMULATIONS', 4)
       mcts_policy = functools.partial(
           mctx.gumbel_muzero_policy,
           max_depth=config.get('MAX_SIM_DEPTH', None),
-          num_simulations=config.get('NUM_SIMULATIONS', 4),
+          num_simulations=num_train_simulations,
           gumbel_scale=config.get('GUMBEL_SCALE', 1.0))
       eval_mcts_policy = functools.partial(
           mctx.gumbel_muzero_policy,
           max_depth=config.get('MAX_SIM_DEPTH', None),
-          num_simulations=config.get('NUM_EVAL_SIMULATIONS', 50),
+          num_simulations=config.get(
+            'NUM_EVAL_SIMULATIONS', num_train_simulations),
           gumbel_scale=config.get('GUMBEL_SCALE', 1.0))
 
       make_train = functools.partial(
@@ -265,9 +267,8 @@ def sweep(search: str = ''):
     }
     space = [
         {
-            "group": tune.grid_search(['qlearning-81']),
+            "group": tune.grid_search(['qlearning-82']),
             "alg": tune.grid_search(['qlearning']),
-            "ENC_INCLUDE_EXTRAS": tune.grid_search([True, False]),
             **shared,
         },
       ]
@@ -277,10 +278,9 @@ def sweep(search: str = ''):
     }
     space = [
         {
-            "group": tune.grid_search(['alpha-9']),
+            "group": tune.grid_search(['alpha-11']),
             "alg": tune.grid_search(['alphazero']),
             "TRAINING_INTERVAL": tune.grid_search([1]),
-            "ENC_INCLUDE_EXTRAS": tune.grid_search([False, True]),
             **shared,
         },
       ]
@@ -290,10 +290,18 @@ def sweep(search: str = ''):
     }
     space = [
         {
-            "group": tune.grid_search(['dyna-1']),
+            "group": tune.grid_search(['dyna-2']),
             "alg": tune.grid_search(['dynaq']),
-            "DYNA_COEFF": tune.grid_search([1.0, 0.0]),
-            "NUM_SIMULATIONS": tune.grid_search([2, 15]),
+            "DYNA_COEFF": tune.grid_search([0.1]),
+            "STOP_DYNA_GRAD": tune.grid_search([True, False]),
+            #"NUM_SIMULATIONS": tune.grid_search([2]),
+            #"SIMULATION_LENGTH": tune.grid_search([5, 15]),
+            **shared,
+        },
+        {
+            "group": tune.grid_search(['dyna-sanity-2']),
+            "alg": tune.grid_search(['dynaq']),
+            "DYNA_COEFF": tune.grid_search([0.0]),
             **shared,
         },
       ]
