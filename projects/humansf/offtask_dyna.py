@@ -650,11 +650,12 @@ def learner_log_extra(
             # get entire simulation, starting at:
             #   T=0 (1st time-point)
             #   B=0 (1st batch sample)
-            #   N=index(t_max) (simulation with highest temperaturee)
+            #   N=index(t_min) (simulation with lowest temperaturee)
             # Given the same starting point at above, this __should__ give a __different__ trajectory
-            temperatures = d['dyna']['temperatures'][0, 0]
-            t_max = temperatures.argmax()
-            d['dyna'] = jax.tree_map(lambda x: x[0, 0, :, t_max], d['dyna'])
+            # lowest temperature, corresponds to most greedy
+            temperatures = d['dyna'].pop('temperatures')[0, 0]
+            t_min = int(temperatures.argmin())
+            d['dyna'] = jax.tree_map(lambda x: x[0, 0, :, t_min], d['dyna'])
             log_data(**d['dyna'], key='dyna')
 
     # this will be the value after update is applied
