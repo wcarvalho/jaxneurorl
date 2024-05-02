@@ -219,6 +219,7 @@ def run_single(
           make_loss_fn_class=functools.partial(
             offtask_dyna.make_loss_fn_class,
             temp_dist=temp_dist,
+            env_params=env_params,
             ),
           make_actor=offtask_dyna.make_actor,
           make_logger=functools.partial(
