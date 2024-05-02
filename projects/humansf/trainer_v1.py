@@ -291,7 +291,6 @@ def sweep(search: str = ''):
         {
             "group": tune.grid_search(['alpha-12']),
             "alg": tune.grid_search(['alphazero']),
-            "TRAINING_INTERVAL": tune.grid_search([1, 10]),
             **shared,
         },
       ]
@@ -311,21 +310,19 @@ def sweep(search: str = ''):
         #    **shared,
         #},
         {
-            "group": tune.grid_search(['dyna-coeff-4']),
+            "group": tune.grid_search(['dyna-coeff-6']),
             "alg": tune.grid_search(['dynaq']),
             "DYNA_COEFF": tune.grid_search([0.1, .01]),
             # "NUM_SIMULATIONS": tune.grid_search([2]),
             # "SIMULATION_LENGTH": tune.grid_search([5, 15]),
             **shared,
-            "TEMP_CONCENTRATION": tune.grid_search([.5, 1.]),
-            "TEMP_RATE": tune.grid_search([.5, 1.]),
+            "TEMP_CONCENTRATION": tune.grid_search([.25, .5, 1.]),
+            "TEMP_RATE": tune.grid_search([.25, .5]),
         },
         #{
-        #    "group": tune.grid_search(['dyna-grad-2']),
+        #    "group": tune.grid_search(['dyna-grad-4']),
         #    "alg": tune.grid_search(['dynaq']),
         #    "STOP_DYNA_GRAD": tune.grid_search([True, False]),
-        #    # "NUM_SIMULATIONS": tune.grid_search([2]),
-        #    # "SIMULATION_LENGTH": tune.grid_search([5, 15]),
         #    **shared,
         #},
         #{
