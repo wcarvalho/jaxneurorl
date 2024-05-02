@@ -216,7 +216,10 @@ def run_single(
           vbb.make_train,
           make_agent=offtask_dyna.make_agent,
           make_optimizer=offtask_dyna.make_optimizer,
-          make_loss_fn_class=offtask_dyna.make_loss_fn_class,
+          make_loss_fn_class=functools.partial(
+            offtask_dyna.make_loss_fn_class,
+            temp_dist=temp_dist,
+            ),
           make_actor=offtask_dyna.make_actor,
           make_logger=functools.partial(
             logger.make_logger,
