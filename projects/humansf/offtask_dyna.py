@@ -76,7 +76,7 @@ def simulate_n_trajectories(
     return predictions and actions for every time-step including the current one.
 
     This first applies the model to the current time-step and then simulates T more time-steps. 
-    Output is T+1.
+    Output is num_steps+1.
 
     Args:
         x_t (TimeStep): [D]
@@ -738,18 +738,6 @@ class DynaAgentEnvModel(nn.Module):
         """Initializes the RNN state."""
         return self.rnn.initialize_carry(*args, **kwargs)
 
-    def predict(self, state: AgentState, rng: jax.random.PRNGKey):
-
-        import ipdb; ipdb.set_trace()
-        rnn_out = self.rnn.output_from_state(state.rnn_state)
-        q_vals = self.q_fn(rnn_out)
-
-        predictions = Predictions(
-            q_vals=q_vals,
-            state=state)
-
-        return predictions
-
     def __call__(self, rnn_state, x: TimeStep, rng: jax.random.KeyArray) -> Tuple[Predictions, RnnState]:
 
         embedding = self.observation_encoder(x.observation)
@@ -857,8 +845,10 @@ def make_agent(
         env_params: environment.EnvParams,
         example_timestep: TimeStep,
         rng: jax.random.KeyArray,
+        model_env_params: environment.EnvParams,
         ) -> Tuple[nn.Module, Params, vbb.AgentResetFn]:
 
+    model_env_params = model_env_params or env_params
     agent = DynaAgentEnvModel(
         action_dim=env.num_actions(env_params),
         observation_encoder=KeyroomObsEncoder(

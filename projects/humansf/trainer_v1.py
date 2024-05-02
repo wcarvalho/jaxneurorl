@@ -214,12 +214,15 @@ def run_single(
         rate=config.get("TEMP_RATE", 1.))
       make_train = functools.partial(
           vbb.make_train,
-          make_agent=offtask_dyna.make_agent,
+          make_agent=functools.partial(
+            offtask_dyna.make_agent,
+            model_env_params=test_env_params
+            ),
           make_optimizer=offtask_dyna.make_optimizer,
           make_loss_fn_class=functools.partial(
             offtask_dyna.make_loss_fn_class,
             temp_dist=temp_dist,
-            env_params=env_params,
+            env_params=test_env_params,  # TODO: this is technically cheating? but okay?
             ),
           make_actor=offtask_dyna.make_actor,
           make_logger=functools.partial(
@@ -308,7 +311,7 @@ def sweep(search: str = ''):
         #    **shared,
         #},
         {
-            "group": tune.grid_search(['dyna-coeff-3']),
+            "group": tune.grid_search(['dyna-coeff-4']),
             "alg": tune.grid_search(['dynaq']),
             "DYNA_COEFF": tune.grid_search([0.1, .01]),
             # "NUM_SIMULATIONS": tune.grid_search([2]),
