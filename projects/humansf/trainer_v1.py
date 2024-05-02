@@ -292,7 +292,7 @@ def sweep(search: str = ''):
         {
             "group": tune.grid_search(['dyna-2']),
             "alg": tune.grid_search(['dynaq']),
-            "DYNA_COEFF": tune.grid_search([0.1]),
+            "DYNA_COEFF": tune.grid_search([1., 0.1, .01]),
             "STOP_DYNA_GRAD": tune.grid_search([True, False]),
             #"NUM_SIMULATIONS": tune.grid_search([2]),
             #"SIMULATION_LENGTH": tune.grid_search([5, 15]),

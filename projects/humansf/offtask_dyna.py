@@ -183,6 +183,7 @@ class OfftaskDyna(vbb.RecurrentLossFn):
     simulation_length: int = 5
     dyna_coeff: float = 1.0
 
+    offtask_simulation: bool = True
     stop_dyna_gradient: bool = True
 
     temp_dist: distrax.Distribution = distrax.Gamma(concentration=1, rate=.5)
@@ -316,20 +317,21 @@ class OfftaskDyna(vbb.RecurrentLossFn):
             x_t = jax.tree_map(
                 lambda x: sg(x[1:]), online_preds.state.timestep)
 
-            #--------------
-            # get off task goal and place in timestep
-            # --------------
-            # [T-1, B, ...]
-            # for now, just a single off-task goal
-            # TODO: generalize to multiple
-            # TODO: right now, rely on task being part of observation. next step should not be.
-            offtask_w = x_t.state.offtask_w
+            if self.offtask_simulation:
+                #--------------
+                # get off task goal and place in timestep
+                # --------------
+                # [T-1, B, ...]
+                # for now, just a single off-task goal
+                # TODO: generalize to multiple
+                # TODO: right now, rely on task being part of state. next step should not be.
+                offtask_w = x_t.state.offtask_w
 
-            x_t = x_t.replace(
-                state=x_t.state.replace(
-                    step_num=jnp.zeros_like(x_t.state.step_num),
-                    task_w=offtask_w,
-                    ))
+                x_t = x_t.replace(
+                    state=x_t.state.replace(
+                        step_num=jnp.zeros_like(x_t.state.step_num),
+                        task_w=offtask_w,
+                        ))
 
             T, B = offtask_w.shape[:2]
             rngs = jax.random.split(key_grad, T*B)
@@ -348,8 +350,11 @@ class OfftaskDyna(vbb.RecurrentLossFn):
                         h_tm1_target,
                         rngs,
                     )
+            # [time, batch, num_sim, sim_length]
+            # average over (num_sim, sim_length)
             dyna_td_error = dyna_td_error.mean(axis=(2, 3))
-            dyna_batch_loss = dyna_batch_loss.mean(axis=(2))
+            # average over (time, num_sim)
+            dyna_batch_loss = dyna_batch_loss.mean(axis=(0, 2))
 
             td_error += dyna_td_error
 
@@ -477,7 +482,6 @@ class OfftaskDyna(vbb.RecurrentLossFn):
         # Apply loss function to trajectories
         ################
         # prepare data
-        is_terminal_t = timesteps_t.discount
         is_last_t = make_float(timesteps_t.last())  # either termination or truncation
 
         # time-step of termination and everything afterwards is masked out
@@ -491,7 +495,7 @@ class OfftaskDyna(vbb.RecurrentLossFn):
             actions=sim_outputs_t.actions,
             rewards=timesteps_t.reward,
             is_last=is_last_t,
-            is_terminal=is_terminal_t,
+            is_terminal=timesteps_t.discount,
             loss_mask=loss_mask_t,
         )
 
@@ -567,9 +571,6 @@ def learner_log_extra(
         ax4.set_title('Episode markers')
         ax4.legend()
 
-        # Adjust the spacing between subplots
-        #plt.tight_layout()
-        # log
         if wandb.run is not None:
             wandb.log({f"learner_example/{key}/q-values": wandb.Image(fig)})
         plt.close(fig)
@@ -635,15 +636,18 @@ def learner_log_extra(
     def callback(d):
         n_updates = d.pop('n_updates')
         # [T, B] --> [T]
-        import ipdb; ipdb.set_trace()
         d['online'] = jax.tree_map(lambda x: x[:, 0], d['online'])
         log_data(**d['online'], key='online')
 
         if 'dyna' in d:
-            # [T, B, N, K] --> [T]
-            # get simulation at B=0 (1st sample), N=
-            import ipdb; ipdb.set_trace()
-            d['dyna'] = jax.tree_map(lambda x: x[:, 0, 0, 0], d['dyna'])
+            # [T, B, K, N] --> [K]
+            # K = the simulation length
+            # get entire simulation, starting at:
+            #   T=0 (1st time-point)
+            #   B=0 (1st batch sample)
+            #   N=0 (1st simulation)
+            # Given the same starting point at above, this __should__ give a __different__ trajectory
+            d['dyna'] = jax.tree_map(lambda x: x[0, 0, :, 0], d['dyna'])
             log_data(**d['dyna'], key='dyna')
 
     # this will be the value after update is applied
@@ -657,7 +661,7 @@ def learner_log_extra(
         data)
 
 
-class Block(nn.Module):
+class Block(nn.Module):#
   features: int
 
   @nn.compact
