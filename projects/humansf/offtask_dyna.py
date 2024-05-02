@@ -356,9 +356,9 @@ class OfftaskDyna(vbb.RecurrentLossFn):
             # average over (time, num_sim)
             dyna_batch_loss = dyna_batch_loss.mean(axis=(0, 2))
 
-            td_error += dyna_td_error
+            td_error += self.dyna_coeff*dyna_td_error
 
-            batch_loss += dyna_batch_loss
+            batch_loss += self.dyna_coeff*dyna_batch_loss
 
             # update metrics with dyna metrics
             metrics.update(
