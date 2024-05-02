@@ -334,6 +334,7 @@ class OfftaskDyna(vbb.RecurrentLossFn):
                 )
 
                 # TODO: generalize this process for other environments
+                # maybe have this function be an input to class?
                 make_obs = lambda s, a_tml: keyroom.make_observation(
                         state=s,
                         prev_action=a_tml,
@@ -504,7 +505,7 @@ class OfftaskDyna(vbb.RecurrentLossFn):
 
         # time-step of termination and everything afterwards is masked out
         terminated_t = jnp.cumsum(is_last_t, 0)
-        loss_mask_t = make_float(terminated_t > 0)
+        loss_mask_t = make_float(terminated_t < 1)
 
         batch_td_error, batch_loss_mean, metrics, log_info = self.loss_fn(
             timestep=timesteps_t,
