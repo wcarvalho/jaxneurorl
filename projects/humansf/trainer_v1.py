@@ -285,9 +285,9 @@ def sweep(search: str = ''):
     }
     space = [
         {
-            "group": tune.grid_search(['alpha-11']),
+            "group": tune.grid_search(['alpha-12']),
             "alg": tune.grid_search(['alphazero']),
-            "TRAINING_INTERVAL": tune.grid_search([1]),
+            "TRAINING_INTERVAL": tune.grid_search([1, 10]),
             **shared,
         },
       ]
@@ -296,38 +296,40 @@ def sweep(search: str = ''):
       "config_name": tune.grid_search(['dyna_keyroom']),
     }
     space = [
+        #{
+        #    "group": tune.grid_search(['dyna-temp-2']),
+        #    "alg": tune.grid_search(['dynaq']),
+        #    "DYNA_COEFF": tune.grid_search([0.1]),
+        #    "TEMP_CONCENTRATION": tune.grid_search([.5, 1.]),
+        #    "TEMP_RATE": tune.grid_search([.5, 1]),
+        #    #"NUM_SIMULATIONS": tune.grid_search([2]),
+        #    #"SIMULATION_LENGTH": tune.grid_search([5, 15]),
+        #    **shared,
+        #},
         {
-            "group": tune.grid_search(['dyna-temp-2']),
+            "group": tune.grid_search(['dyna-coeff-3']),
             "alg": tune.grid_search(['dynaq']),
-            "DYNA_COEFF": tune.grid_search([0.1]),
+            "DYNA_COEFF": tune.grid_search([0.1, .01]),
+            # "NUM_SIMULATIONS": tune.grid_search([2]),
+            # "SIMULATION_LENGTH": tune.grid_search([5, 15]),
+            **shared,
             "TEMP_CONCENTRATION": tune.grid_search([.5, 1.]),
-            "TEMP_RATE": tune.grid_search([.5, 1]),
-            #"NUM_SIMULATIONS": tune.grid_search([2]),
-            #"SIMULATION_LENGTH": tune.grid_search([5, 15]),
-            **shared,
+            "TEMP_RATE": tune.grid_search([.5, 1.]),
         },
-        {
-            "group": tune.grid_search(['dyna-coeff-2']),
-            "alg": tune.grid_search(['dynaq']),
-            "DYNA_COEFF": tune.grid_search([1., 0.1, .01]),
-            # "NUM_SIMULATIONS": tune.grid_search([2]),
-            # "SIMULATION_LENGTH": tune.grid_search([5, 15]),
-            **shared,
-        },
-        {
-            "group": tune.grid_search(['dyna-grad-2']),
-            "alg": tune.grid_search(['dynaq']),
-            "STOP_DYNA_GRAD": tune.grid_search([True, False]),
-            # "NUM_SIMULATIONS": tune.grid_search([2]),
-            # "SIMULATION_LENGTH": tune.grid_search([5, 15]),
-            **shared,
-        },
-        {
-            "group": tune.grid_search(['dyna-sanity-2']),
-            "alg": tune.grid_search(['dynaq']),
-            "DYNA_COEFF": tune.grid_search([0.0]),
-            **shared,
-        },
+        #{
+        #    "group": tune.grid_search(['dyna-grad-2']),
+        #    "alg": tune.grid_search(['dynaq']),
+        #    "STOP_DYNA_GRAD": tune.grid_search([True, False]),
+        #    # "NUM_SIMULATIONS": tune.grid_search([2]),
+        #    # "SIMULATION_LENGTH": tune.grid_search([5, 15]),
+        #    **shared,
+        #},
+        #{
+        #    "group": tune.grid_search(['dyna-sanity-2']),
+        #    "alg": tune.grid_search(['dynaq']),
+        #    "DYNA_COEFF": tune.grid_search([0.0]),
+        #    **shared,
+        #},
       ]
   else:
     raise NotImplementedError(search)
