@@ -186,6 +186,8 @@ class OfftaskDyna(vbb.RecurrentLossFn):
     offtask_simulation: bool = True
     stop_dyna_gradient: bool = True
 
+    env_params: environment.EnvParams = None
+
     temp_dist: distrax.Distribution = distrax.Gamma(concentration=1, rate=.5)
 
     def loss_fn(
@@ -323,15 +325,31 @@ class OfftaskDyna(vbb.RecurrentLossFn):
                 # --------------
                 # [T-1, B, ...]
                 # for now, just a single off-task goal
-                # TODO: generalize to multiple
+                # TODO: generalize to doing this for multiple tasks
                 # TODO: right now, rely on task being part of state. next step should not be.
                 offtask_w = x_t.state.offtask_w
+                new_state = x_t.state.replace(
+                    step_num=jnp.zeros_like(x_t.state.step_num),
+                    task_w=offtask_w,
+                )
 
+                # TODO: generalize this process for other environments
+                make_obs = lambda s, a_tml: keyroom.make_observation(
+                        state=s,
+                        prev_action=a_tml,
+                        params=self.env_params,
+                    )
                 x_t = x_t.replace(
-                    state=x_t.state.replace(
-                        step_num=jnp.zeros_like(x_t.state.step_num),
-                        task_w=offtask_w,
-                        ))
+                    state=new_state,
+                    observation=jax.vmap(jax.vmap(make_obs))(
+                        new_state,
+                        x_t.observation.prev_action,
+                    ),
+                    # reset reward, discount, step type
+                    reward=jnp.zeros_like(x_t.reward),
+                    discount=jnp.ones_like(x_t.discount),
+                    step_type=jnp.ones_like(x_t.step_type),
+                )
 
             T, B = offtask_w.shape[:2]
             rngs = jax.random.split(key_grad, T*B)

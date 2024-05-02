@@ -543,11 +543,13 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
         rng, rng_ = jax.random.split(rng)
         train_w = params.train_w*goal_room[:, None]
         test_w = params.test_w*goal_room[:, None]
-        task_w, offtask_w = jax.lax.cond(
-            jax.random.bernoulli(rng_),
-            lambda: (train_w, test_w),
-            lambda: (test_w, train_w),
-        )
+        offtask_w = train_w
+        task_w = test_w
+        #task_w, offtask_w = jax.lax.cond(
+        #    jax.random.bernoulli(rng_),
+        #    lambda: (train_w, test_w),
+        #    lambda: (test_w, train_w),
+        #)
 
         state = EnvState(
             key=rng,
