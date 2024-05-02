@@ -208,6 +208,10 @@ def run_single(
             ),
       )
     elif alg_name == 'dynaq':
+      import distrax
+      temp_dist = distrax.Gamma(
+        concentration=config.get("TEMP_CONCENTRATION", 1.),
+        rate=config.get("TEMP_RATE", 1.))
       make_train = functools.partial(
           vbb.make_train,
           make_agent=offtask_dyna.make_agent,
@@ -290,12 +294,29 @@ def sweep(search: str = ''):
     }
     space = [
         {
-            "group": tune.grid_search(['dyna-2']),
+            "group": tune.grid_search(['dyna-temp-2']),
             "alg": tune.grid_search(['dynaq']),
-            "DYNA_COEFF": tune.grid_search([1., 0.1, .01]),
-            "STOP_DYNA_GRAD": tune.grid_search([True, False]),
+            "DYNA_COEFF": tune.grid_search([0.1]),
+            "TEMP_CONCENTRATION": tune.grid_search([.5, 1.]),
+            "TEMP_RATE": tune.grid_search([.5, 1]),
             #"NUM_SIMULATIONS": tune.grid_search([2]),
             #"SIMULATION_LENGTH": tune.grid_search([5, 15]),
+            **shared,
+        },
+        {
+            "group": tune.grid_search(['dyna-coeff-2']),
+            "alg": tune.grid_search(['dynaq']),
+            "DYNA_COEFF": tune.grid_search([1., 0.1, .01]),
+            # "NUM_SIMULATIONS": tune.grid_search([2]),
+            # "SIMULATION_LENGTH": tune.grid_search([5, 15]),
+            **shared,
+        },
+        {
+            "group": tune.grid_search(['dyna-grad-2']),
+            "alg": tune.grid_search(['dynaq']),
+            "STOP_DYNA_GRAD": tune.grid_search([True, False]),
+            # "NUM_SIMULATIONS": tune.grid_search([2]),
+            # "SIMULATION_LENGTH": tune.grid_search([5, 15]),
             **shared,
         },
         {
