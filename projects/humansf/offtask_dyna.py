@@ -488,7 +488,7 @@ class OfftaskDyna(vbb.RecurrentLossFn):
         terminated_t = jnp.cumsum(is_last_t, 0)
         loss_mask_t = make_float(terminated_t > 0)
 
-        return self.loss_fn(
+        batch_td_error, batch_loss_mean, metrics, log_info = self.loss_fn(
             timestep=timesteps_t,
             online_preds=preds_t_online,
             target_preds=preds_t_target,
@@ -499,14 +499,19 @@ class OfftaskDyna(vbb.RecurrentLossFn):
             loss_mask=loss_mask_t,
         )
 
-def make_loss_fn_class(config) -> vbb.RecurrentLossFn:
+        log_info['temperatures'] = temperatures
+
+        return batch_td_error, batch_loss_mean, metrics, log_info
+
+def make_loss_fn_class(config, **kwargs) -> vbb.RecurrentLossFn:
     return functools.partial(
         OfftaskDyna,
         discount=config['GAMMA'],
         num_simulations=config.get('NUM_SIMULATIONS', 15),
         simulation_length=config.get('SIMULATION_LENGTH', 5),
         dyna_coeff=config.get('DYNA_COEFF', 1.0),
-        stop_dyna_gradient=config.get('STOP_DYNA_GRAD', True)
+        stop_dyna_gradient=config.get('STOP_DYNA_GRAD', True),
+        **kwargs
         )
 
 def learner_log_extra(
@@ -645,9 +650,11 @@ def learner_log_extra(
             # get entire simulation, starting at:
             #   T=0 (1st time-point)
             #   B=0 (1st batch sample)
-            #   N=0 (1st simulation)
+            #   N=index(t_max) (simulation with highest temperaturee)
             # Given the same starting point at above, this __should__ give a __different__ trajectory
-            d['dyna'] = jax.tree_map(lambda x: x[0, 0, :, 0], d['dyna'])
+            temperatures = d['dyna']['temperatures'][0, 0]
+            t_max = temperatures.argmax()
+            d['dyna'] = jax.tree_map(lambda x: x[0, 0, :, t_max], d['dyna'])
             log_data(**d['dyna'], key='dyna')
 
     # this will be the value after update is applied
