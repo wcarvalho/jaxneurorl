@@ -4,7 +4,7 @@
 
 **Create and activate conda environment**
 ```
-mamba create -n jaxneurorl python=3.9 pip wheel -y
+mamba create -n jaxneurorl python=3.10 pip wheel -y
 mamba env update -f conda_env.yaml
 # in case a mamba env is already active
 mamba deactivate
@@ -22,7 +22,7 @@ see guide at: https://jax.readthedocs.io/en/latest/installation.html
 
 **pip install:**
 ```
-pip install -U "jax==0.4.20"  "jaxlib==0.4.20"
+pip install -U "jax==0.4.16"  "jaxlib==0.4.16"
 ```
 
 **test jax install**
@@ -46,13 +46,30 @@ git clone https://github.com/FLAIROx/JaxMARL.git $jaxmarl_loc
 cd $jaxmarl_loc
 git checkout cc9f12bb5948c31c478a1d662c56a8d7c5f8c530
 pip install -e '.[qlearning]'
-cd $curdir
+cd $cur_dir
 ```
 
 **notes**: if you're using IntelliSense (e.g. through vscode), you'll need to add the jaxmarl path to `python.autoComplete.extraPaths`. you can access it with `echo $jaxmarl_loc`
 
+# Setup conda activate/deactivate
 
-## (Optionally) permanently set the results directory
+**first activate env**
+```
+mamba activate jaxneurorl
+```
+
+**Have python path include this library**
+```
+# make activation/deactivation directories
+activation_dir=$CONDA_PREFIX/etc/conda/activate.d
+mkdir -p $activation_dir
+mkdir -p $CONDA_PREFIX/etc/conda/deactivate.d
+
+# setting PYTHONPATH added to activation
+echo 'export PYTHONPATH=$PYTHONPATH:`pwd`' >> $activation_dir/env_vars.sh
+```
+
+**(Optionally) permanently set the results directory**
 ```
 echo 'export RL_RESULTS_DIR=${results_dir}' >> $CONDA_PREFIX/etc/conda/activate.d/env_vars.sh
 ```
@@ -66,7 +83,7 @@ Otherwise, can set each time run experiment
 RL_RESULTS_DIR=${results_dir} python trainer.py
 ```
 
-## (Optional) setup wandb
+**(Optional) setup wandb**
 ```
 wandb login
 ```

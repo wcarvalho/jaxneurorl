@@ -10,35 +10,13 @@ from flax import struct
 import numpy as np
 import wandb
 
-from library.wrappers import TimeStep
+from singleagent.basics import TimeStep
 
 Number = Union[int, float, np.float32, jnp.float32]
 
 
 class Observer(abc.ABC):
-  """An interface for collecting metrics/counters from actor and env.
-
-  # Note: agent.state has as a field, the agents predictions, e.g. Q-values.
-
-  Episode goes:
-    # observe initial
-    timestep = env.reset()
-    state = agent.init_state()
-
-    agent.observe_first(timestep)  # self.state is initialized
-    # inside, self.observer.observe_first(state, timestep) is called
-
-    while timestep.not_last():
-      action = agent.select_action(timestep)  # agent.state is updated
-      # inside, self.observer.observe_action(state, action) is called
-
-      next_timestep = env.step(action)
-      agent.observe(action, next_timestep)
-      # inside, self.observer.observe_timestep(next_timestep) is called
-      
-      timestep = next_timestep
-
-  """
+  """An interface for collecting metrics/counters from actor and env."""
 
   @abc.abstractmethod
   def observe_first(
@@ -60,21 +38,19 @@ class Observer(abc.ABC):
 
     Should be state after previous time-step along"""
 
-  @abc.abstractmethod
-  def flush_metrics(self) -> Dict[str, Number]:
-    """Returns metrics collected for the current episode."""
-
 
 @struct.dataclass
 class BasicObserverState:
   episode_returns: jax.Array
   episode_lengths: jax.Array
-  action_buffer: fbx.trajectory_buffer.TrajectoryBufferState
-  timestep_buffer: fbx.trajectory_buffer.TrajectoryBufferState
-  prediction_buffer: fbx.trajectory_buffer.TrajectoryBufferState
-  idx: jax.Array  # iteration
-  episodes: jax.Array
-  env_steps: jax.Array
+  episode_starts: jax.Array
+  #action_buffer: fbx.trajectory_buffer.TrajectoryBufferState
+  #timestep_buffer: fbx.trajectory_buffer.TrajectoryBufferState
+  #prediction_buffer: fbx.trajectory_buffer.TrajectoryBufferState
+  task_info_buffer: fbx.trajectory_buffer.TrajectoryBufferState
+  idx: jax.Array = jnp.array(0, dtype=jnp.int32)
+  episodes: jax.Array = jnp.array(0, dtype=jnp.int32)
+  env_steps: jax.Array = jnp.array(0, dtype=jnp.int32)
 
 
 def add_to_buffer(
@@ -87,32 +63,46 @@ def add_to_buffer(
 
 def get_first(b): return jax.tree_map(lambda x:x[0], b)
 
-class BasicObserver(Observer):
+def add_first_to_buffer(
+    buffer: fbx.trajectory_buffer.TrajectoryBufferState,
+    buffer_state: struct.PyTreeNode,
+    x: struct.PyTreeNode):
+  """
+  x: [num_envs, ...]
+  get first env data and dummy dummy time dim.
+  """
+  x = jax.tree_map(lambda y: y[:1, np.newaxis], x)
+  return buffer.add(buffer_state, x)
+
+class BasicObserverOld(Observer):
   """This is an observer that keeps track of timesteps, actions, and predictions.
 
-  It 
+  It only uses information from the first envionment. Annoying to track each env.
 
-  1. episode returns
-  2. episode lengths
-
-  Args:
-      Observer (_type_): _description_
   """
   def __init__(
       self,
-      num_envs: int,
       log_period: int = 50_000,
-      max_episode_length: int = 100,
+      max_episode_length: int = 200,
+      max_num_episodes: int = 200,
+      **kwargs,
       ):
 
-    self.num_envs = num_envs
     self.log_period = log_period
     self.max_episode_length = max_episode_length
     self.buffer = fbx.make_trajectory_buffer(
         max_length_time_axis=self.max_episode_length,
         min_length_time_axis=1,
         sample_batch_size=1,  # unused
-        add_batch_size=num_envs,
+        add_batch_size=1,
+        sample_sequence_length=1,  # unused
+        period=1,
+    )
+    self.task_info_buffer = fbx.make_trajectory_buffer(
+        max_length_time_axis=max_num_episodes,
+        min_length_time_axis=1,
+        sample_batch_size=1,  # unused
+        add_batch_size=1,
         sample_sequence_length=1,  # unused
         period=1,
     )
@@ -123,15 +113,14 @@ class BasicObserver(Observer):
            example_predictions):
 
     observer_state = BasicObserverState(
-      episode_returns=jnp.zeros((self.num_envs, self.log_period), dtype=jnp.float32),
-      episode_lengths=jnp.zeros((self.num_envs, self.log_period), dtype=jnp.int32),
-      timestep_buffer=self.buffer.init(get_first(example_timestep)),
-      action_buffer=self.buffer.init(get_first(example_action)),
-      prediction_buffer=self.buffer.init(get_first(example_predictions)),
-      idx=jnp.array(0, dtype=jnp.int32),
-      episodes=jnp.zeros(self.num_envs, dtype=jnp.int32),
-      env_steps=jnp.zeros(self.num_envs, dtype=jnp.int32),
-      )
+      episode_returns=jnp.zeros((self.log_period), dtype=jnp.float32),
+      episode_starts=jnp.zeros((self.log_period), dtype=jnp.int32),
+      episode_lengths=jnp.zeros((self.log_period), dtype=jnp.int32),
+      task_info_buffer=self.task_info_buffer.init(get_first(example_timestep)),
+      #timestep_buffer=self.buffer.init(get_first(example_timestep)),
+      #action_buffer=self.buffer.init(get_first(example_action)),
+      #prediction_buffer=self.buffer.init(get_first(example_predictions)),
+    )
     return observer_state
 
   def observe_first(
@@ -143,17 +132,13 @@ class BasicObserver(Observer):
 
     del agent_state
 
-    timestep_buffer = add_to_buffer(
-      buffer=self.buffer,
-      buffer_state=observer_state.timestep_buffer,
-      x=first_timestep,
-    )
+    #timestep_buffer = add_to_buffer(
+    #  buffer=self.buffer,
+    #  buffer_state=observer_state.timestep_buffer,
+    #  x=first_timestep,
+    #)
 
-    observer_state = observer_state.replace(
-      timestep_buffer=timestep_buffer,
-      episodes=observer_state.episodes + 1,
-      env_steps=observer_state.env_steps + 1,
-    )
+    #observer_state = observer_state.replace(timestep_buffer=timestep_buffer)
 
     return observer_state
 
@@ -165,8 +150,8 @@ class BasicObserver(Observer):
     next_timestep: TimeStep,
     agent_state: Optional[struct.PyTreeNode] = None,
     key: str = 'actor',
-    maybe_flush: bool = True,
-    maybe_reset: bool = True,
+    maybe_flush: bool = False,
+    maybe_reset: bool = False,
     ) -> None:
     """Update log and flush if terminal + log period hit.
 
@@ -179,40 +164,46 @@ class BasicObserver(Observer):
     """
     del agent_state
 
-    # update buffer with information
-    timestep_buffer = add_to_buffer(
-      buffer=self.buffer,
-      buffer_state=observer_state.timestep_buffer,
-      x=next_timestep,
-    )
+    ## update buffer with information
+    #timestep_buffer = add_to_buffer(
+    #  buffer=self.buffer,
+    #  buffer_state=observer_state.timestep_buffer,
+    #  x=next_timestep,
+    #)
 
-    prediction_buffer = add_to_buffer(
-      buffer=self.buffer,
-      buffer_state=observer_state.prediction_buffer,
-      x=predictions,
-    )
+    #prediction_buffer = add_to_buffer(
+    #  buffer=self.buffer,
+    #  buffer_state=observer_state.prediction_buffer,
+    #  x=predictions,
+    #)
 
-    action_buffer = add_to_buffer(
-      buffer=self.buffer,
-      buffer_state=observer_state.action_buffer,
-      x=action,
-    )
+    #action_buffer = add_to_buffer(
+    #  buffer=self.buffer,
+    #  buffer_state=observer_state.action_buffer,
+    #  x=action,
+    #)
+
+    # only use first time-step
+    next_timestep = jax.tree_map(lambda x: x[0], next_timestep)
 
     # update return/length information
     idx = observer_state.idx
-    episode_returns = observer_state.episode_returns.at[:, idx].add(next_timestep.reward)
-    episode_lengths = observer_state.episode_lengths.at[:, idx].add(1)
+    episode_returns = observer_state.episode_returns.at[idx].add(next_timestep.reward)
+    episode_lengths = observer_state.episode_lengths.at[idx].add(1)
+    total_env_steps  = observer_state.env_steps + 1
+
+    #is_last = next_timestep.last()
+    #is_last_int = is_last.astype(jnp.int32)
+
     # update observer state
-    is_last = next_timestep.last()
-    is_last_int = is_last.astype(jnp.int32)
     observer_state = observer_state.replace(
-      timestep_buffer=timestep_buffer,
-      prediction_buffer=prediction_buffer,
-      action_buffer=action_buffer,
+      #timestep_buffer=timestep_buffer,
+      #prediction_buffer=prediction_buffer,
+      #action_buffer=action_buffer,
       episode_returns=episode_returns,
       episode_lengths=episode_lengths,
-      env_steps=observer_state.env_steps + 1,
-      episodes=observer_state.episodes + is_last_int
+      env_steps=total_env_steps,
+      #episodes=observer_state.episodes + is_last_int
     )
     
     #############
@@ -222,20 +213,20 @@ class BasicObserver(Observer):
     #############
     first_next_timestep = jax.tree_map(lambda x: x[0], next_timestep)
 
-    #-----------------------
-    # if final time-step and log-period has been hit, flush the metrics
-    #-----------------------
-    if maybe_flush:
-      flush = jnp.logical_and(
-        idx % self.log_period == 0,
-        first_next_timestep.last(),
-        )
+    ##-----------------------
+    ## if final time-step and log-period has been hit, flush the metrics
+    ##-----------------------
+    #if maybe_flush:
+    #  flush = jnp.logical_and(
+    #    idx % self.log_period == 0,
+    #    first_next_timestep.last(),
+    #    )
 
-      jax.lax.cond(
-          flush,
-          lambda: self.flush_metrics(key, observer_state),
-          lambda: None,
-      )
+    #  jax.lax.cond(
+    #      flush,
+    #      lambda: self.flush_metrics(key, observer_state),
+    #      lambda: None,
+    #  )
 
     #-----------------------
     # if final time-step, reset buffers. only keep around 1.
@@ -269,8 +260,9 @@ class BasicObserver(Observer):
     self,
     key: str,
     observer_state: BasicObserverState,
-    force: bool = False):
-    def callback(os: BasicObserverState):
+    force: bool = False,
+    shared_metrics: dict = {}):
+    def callback(os: BasicObserverState, sm):
         if wandb.run is not None:
           idx = os.idx + 1
 
@@ -280,9 +272,154 @@ class BasicObserver(Observer):
           metrics = {
             f'{key}/avg_episode_length': os.episode_lengths[0, :idx].mean(),
             f'{key}/avg_episode_return': os.episode_returns[0, :idx].mean(),
-            f'{key}/num_episodes': os.episodes.sum(),
-            f'{key}/num_steps': os.env_steps.sum(),
+            #f'{key}/num_episodes': os.episodes.sum(),
+            #f'{key}/num_steps': os.env_steps.sum(),
           }
+          metrics.update({f'{key}/{k}': v for k,v in sm.items()})
           wandb.log(metrics)
-    jax.debug.callback(callback, observer_state)
+    jax.debug.callback(callback, observer_state, shared_metrics)
 
+
+class BasicObserver(Observer):
+  """This is an observer that keeps track of timesteps, actions, and predictions.
+
+  It only uses information from the first envionment. Annoying to track each env.
+
+  """
+  def __init__(
+      self,
+      log_period: int = 50_000,
+      max_episode_length: int = 200,
+      max_num_episodes: int = 200,
+      **kwargs,
+      ):
+
+    self.log_period = log_period
+    self.max_episode_length = max_episode_length
+    self.buffer = fbx.make_trajectory_buffer(
+        max_length_time_axis=self.max_episode_length,
+        min_length_time_axis=1,
+        sample_batch_size=1,  # unused
+        add_batch_size=1,
+        sample_sequence_length=1,  # unused
+        period=1,
+    )
+    self.task_info_buffer = fbx.make_trajectory_buffer(
+        max_length_time_axis=max_num_episodes,
+        min_length_time_axis=1,
+        sample_batch_size=1,  # unused
+        add_batch_size=1,
+        sample_sequence_length=1,  # unused
+        period=1,
+    )
+
+  def init(self,
+           example_timestep,
+           example_action,
+           example_predictions):
+
+    observer_state = BasicObserverState(
+      episode_returns=jnp.zeros((self.log_period), dtype=jnp.float32),
+      episode_starts=jnp.zeros((self.log_period), dtype=jnp.int32),
+      episode_lengths=jnp.zeros((self.log_period), dtype=jnp.int32),
+      task_info_buffer=self.task_info_buffer.init(get_first(example_timestep)),
+      #timestep_buffer=self.buffer.init(get_first(example_timestep)),
+      #action_buffer=self.buffer.init(get_first(example_action)),
+      #prediction_buffer=self.buffer.init(get_first(example_predictions)),
+    )
+    return observer_state
+
+  def observe_first(
+    self,
+    observer_state: BasicObserverState,
+    first_timestep: TimeStep,
+    agent_state: Optional[struct.PyTreeNode] = None,
+    ) -> BasicObserverState:
+
+    del agent_state
+
+    #timestep_buffer = add_to_buffer(
+    #  buffer=self.buffer,
+    #  buffer_state=observer_state.timestep_buffer,
+    #  x=first_timestep,
+    #)
+
+    #observer_state = observer_state.replace(timestep_buffer=timestep_buffer)
+
+    return observer_state
+
+  def observe(
+    self,
+    observer_state: BasicObserverState,
+    predictions: struct.PyTreeNode,
+    action: jax.Array,
+    next_timestep: TimeStep,
+    agent_state: Optional[struct.PyTreeNode] = None,
+    key: str = 'actor',
+    maybe_flush: bool = False,
+    maybe_reset: bool = False,
+    ) -> None:
+    """Update log and flush if terminal + log period hit.
+
+
+    Args:
+        agent_state (struct.PyTreeNode): _description_
+        predictions (struct.PyTreeNode): _description_
+        action (jax.Array): _description_
+        next_timestep (TimeStep): _description_
+    """
+    del agent_state
+
+    # only use first time-step
+    first_next_timestep = get_first(next_timestep)
+
+
+    def advance_episode(os):
+      # beginning new episode
+      idx = os.idx + 1
+      return os.replace(
+        idx=idx,
+        episode_lengths=os.episode_lengths.at[idx].add(1),
+        episode_returns=os.episode_returns.at[idx].add(first_next_timestep.reward)
+        )
+
+    def update_episode(os):
+      # update return/length information
+      idx = os.idx
+      # update observer state
+      return os.replace(
+        episode_lengths=os.episode_lengths.at[idx].add(1),
+        episode_returns=os.episode_returns.at[idx].add(first_next_timestep.reward),
+      )
+
+    observer_state = jax.lax.cond(
+      first_next_timestep.first(),
+      advance_episode,
+      update_episode,
+      observer_state
+    )
+
+    return observer_state
+
+  def flush_metrics(
+    self,
+    key: str,
+    observer_state: BasicObserverState,
+    force: bool = False,
+    shared_metrics: dict = {}):
+    def callback(os: BasicObserverState, sm):
+        if wandb.run is not None:
+          idx = min(os.idx + 1, self.log_period)
+
+          if not force:
+            if not idx % self.log_period == 0: return
+
+          metrics = {
+            f'{key}/avg_episode_length': os.episode_lengths[:idx].mean(),
+            f'{key}/avg_episode_return': os.episode_returns[:idx].mean(),
+            #f'{key}/num_episodes': os.episodes.sum(),
+            #f'{key}/num_steps': os.env_steps.sum(),
+          }
+          metrics.update({f'{key}/{k}': v for k,v in sm.items()})
+          wandb.log(metrics)
+    jax.debug.callback(callback, observer_state, shared_metrics)

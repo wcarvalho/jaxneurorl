@@ -1,0 +1,7 @@
+wandb
+xminigrid==0.6.0
+ipdb
+tqdm
+rlax
+mctx
+ray[tune]
