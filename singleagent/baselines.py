@@ -65,9 +65,9 @@ def run_single(
 
     basic_env, env_params = gymnax.make(config['ENV_NAME'])
     env = FlattenObservationWrapper(basic_env)
+    
     # converts to using timestep
     env = TimestepWrapper(env, autoreset=True)
-    # env = LogWrapper(env)
 
     alg_name = config['alg']
     if alg_name == 'qlearning':
@@ -75,7 +75,7 @@ def run_single(
     elif alg_name == 'qlearning_mlp':
       make_train = partial(
         vbb.make_train,
-        make_agent=qlearning.make_mlp_agent,
+        make_agent=qlearning.make_mlp_agent,  # only difference from above
         make_optimizer=qlearning.make_optimizer,
         make_loss_fn_class=qlearning.make_loss_fn_class,
         make_actor=qlearning.make_actor,
@@ -115,52 +115,26 @@ def sweep(search: str = ''):
             "ENV_NAME": tune.grid_search(['Catch-bsuite']),
         },
     ]
-  elif search == 'baselines':
-    space = [
-        {
-            "group": tune.grid_search(['baselines-Catch-12']),
-            "alg": tune.grid_search(['qlearning']),
-            "config_name": tune.grid_search(['qlearning']),
-            "ENV_NAME": tune.grid_search(['Catch-bsuite']),
-        },
-        {
-            "group": tune.grid_search(['baselines-CartPole-12']),
-            "alg": tune.grid_search(['qlearning']),
-            "config_name": tune.grid_search(['qlearning']),
-            "ENV_NAME": tune.grid_search(['CartPole-v1',]),
-        },
-        {
-            "group": tune.grid_search(['baselines-Breakout-13']),
-            "alg": tune.grid_search(['qlearning']),
-            "config_name": tune.grid_search(['qlearning']),
-            "ENV_NAME": tune.grid_search(['Breakout-MinAtar',]),
-        },
-    ]
   elif search == 'alpha':
     space = [
-        #{
-        #    "group": tune.grid_search(['alphazero-CartPole-4']),
-        #    "alg": tune.grid_search(['alphazero']),
-        #    "config_name": tune.grid_search(['alphazero']),
-        #    "NUM_ENVS": tune.grid_search([2, 4, 8]),
-        #    "ENV_NAME": tune.grid_search(['CartPole-v1',]),
-        #},
+        {
+            "group": tune.grid_search(['alphazero-CartPole-4']),
+            "alg": tune.grid_search(['alphazero']),
+            "config_name": tune.grid_search(['alphazero']),
+            "ENV_NAME": tune.grid_search(['CartPole-v1',]),
+        },
         {
             "group": tune.grid_search(['alphazero-Breakout-7']),
             "alg": tune.grid_search(['alphazero']),
             "config_name": tune.grid_search(['alphazero']),
-            "NUM_ENVS": tune.grid_search([32]),
-            "NUM_SIMULATIONS": tune.grid_search([2, 4, 50]),
-            "LEARNER_EXTRA_LOG_PERIOD": tune.grid_search([0, 5_000]),
             "ENV_NAME": tune.grid_search(['Breakout-MinAtar',]),
         },
-        #{
-        #    "group": tune.grid_search(['alphazero-Catch-6']),
-        #    "alg": tune.grid_search(['alphazero']),
-        #    "config_name": tune.grid_search(['alphazero']),
-        #    "NUM_ENVS": tune.grid_search([10, 32]),
-        #    "ENV_NAME": tune.grid_search(['Catch-bsuite']),
-        #},
+        {
+            "group": tune.grid_search(['alphazero-Catch-6']),
+            "alg": tune.grid_search(['alphazero']),
+            "config_name": tune.grid_search(['alphazero']),
+            "ENV_NAME": tune.grid_search(['Catch-bsuite']),
+        },
     ]
   else:
     raise NotImplementedError(search)
