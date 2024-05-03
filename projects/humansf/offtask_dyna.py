@@ -331,6 +331,7 @@ class OfftaskDyna(vbb.RecurrentLossFn):
                 new_state = x_t.state.replace(
                     step_num=jnp.zeros_like(x_t.state.step_num),
                     task_w=offtask_w,
+                    task_object_idx=1-x_t.state.task_object_idx,
                 )
 
                 # TODO: generalize this process for other environments
