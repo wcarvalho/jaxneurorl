@@ -12,7 +12,7 @@
 ## Overview of algorithms
 Below is a schematic of the general learning algorithm used in this [codebase](singleagent/value_based_basics.py).
 <img src="images/overview.png" alt="FARM" style="zoom:40%;" />
-The learning algorithm works as follows:
+**Caption:** The learning algorithm works as follows:
 
 1. An environment, optimizer, and neural network are made
    - the environment is typically created in the file that defines training (e.g. [here](singleagent/baselines.py))
