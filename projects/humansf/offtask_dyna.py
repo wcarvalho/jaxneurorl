@@ -198,14 +198,14 @@ class OfftaskDyna(vbb.RecurrentLossFn):
         actions,
         rewards,
         is_last,
-        is_terminal,
+        non_terminal,
         loss_mask,
         ):
 
         rewards = make_float(rewards)
         is_last = make_float(is_last)
-        discounts = make_float(is_terminal)*self.discount
-        lambda_ = jnp.ones_like(is_terminal)*self.lambda_
+        discounts = make_float(non_terminal)*self.discount
+        lambda_ = jnp.ones_like(non_terminal)*self.lambda_
 
         # Get N-step transformed TD error and loss.
         batch_td_error_fn = jax.vmap(
@@ -226,7 +226,7 @@ class OfftaskDyna(vbb.RecurrentLossFn):
             lambda_[1:])      # [T+1] --> [T]
 
         # ensure target = 0 when episode terminates
-        target_q_t = target_q_t*is_terminal[:-1]
+        target_q_t = target_q_t*non_terminal[:-1]
         batch_td_error = target_q_t - q_t
         batch_td_error = batch_td_error*loss_mask[:-1]
 
@@ -273,12 +273,12 @@ class OfftaskDyna(vbb.RecurrentLossFn):
         ##################
 
         # prepare data
-        is_terminal = data.timestep.discount
+        non_terminal = data.timestep.discount
         # either termination or truncation
         is_last = make_float(data.timestep.last())
 
         # truncated is discount on AND is last
-        truncated = (is_terminal+is_last) > 1
+        truncated = (non_terminal+is_last) > 1
         loss_mask = make_float(1-truncated)
 
         td_error, batch_loss, metrics, log_info = self.loss_fn(
@@ -288,7 +288,7 @@ class OfftaskDyna(vbb.RecurrentLossFn):
             actions=data.action,
             rewards=data.reward,
             is_last=is_last,
-            is_terminal=is_terminal,
+            non_terminal=non_terminal,
             loss_mask=loss_mask,
             )
 
@@ -514,7 +514,7 @@ class OfftaskDyna(vbb.RecurrentLossFn):
             actions=sim_outputs_t.actions,
             rewards=timesteps_t.reward,
             is_last=is_last_t,
-            is_terminal=timesteps_t.discount,
+            non_terminal=timesteps_t.discount,
             loss_mask=loss_mask_t,
         )
 

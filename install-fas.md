@@ -46,7 +46,7 @@ see guide at: https://jax.readthedocs.io/en/latest/installation.html
 **pip install:**
 ```
 pip uninstall jax jaxlib -y
-pip install -U "jax[cuda12_local]==0.4.2" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
+pip install -U "jax[cuda12_local]==0.4.20" -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
 ```
 
 **test jax install**
