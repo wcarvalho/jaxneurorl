@@ -22,7 +22,7 @@ see guide at: https://jax.readthedocs.io/en/latest/installation.html
 
 **pip install:**
 ```
-pip install -U "jax==0.4.16"  "jaxlib==0.4.16"
+pip install -U "jax==0.4.20"  "jaxlib==0.4.20"
 ```
 
 **test jax install**
