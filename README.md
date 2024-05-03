@@ -39,7 +39,7 @@ The easiest way to define a new learning algorithm is to adapt the `make_train` 
 4. defining the agent's actor class which selects action in response to observations.
 
 The easiest way to create a novel learning algorithm is to define these functions. You can see an example with Q-learning [code](singleagent/qlearning.py#453).
-Note that the common practice in this codebase is to use `functools.partial` to "preload" objects into functions. In this example, we preload the functions that will be used for defining the agent's neural network (`make_rnn_agent`), the agent's optimizer (`make_optimizer`), the agent's loss function (`make_loss_fn_class`), the agent's actor (`make_actor`; here epsilon-greedy), and loggger (`make_logger`). You can define your own functions and preload them. 
+Note that the common practice in this codebase is to use `functools.partial` to "preload" objects into functions. In this example, we preload the functions that will be used for defining the agent's neural network (`make_rnn_agent`), the agent's optimizer (`make_optimizer`), the agent's loss function (`make_loss_fn_class`), the agent's actor (`make_actor`; here epsilon-greedy), and logger (`make_logger`). You can define your own functions and preload them. 
 
 ```
 import functools
