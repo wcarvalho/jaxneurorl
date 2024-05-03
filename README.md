@@ -27,7 +27,8 @@ Below is a schematic of the general learning algorithm used in this [codebase](s
    2. The agent then performs `K` learning steps using data in the buffer
    3. One can periodically log acting or learning information via wandb with the [logger](library/loggers.py) datastructure.
 
-### Defining a novel learning algorithm
+--- 
+### Defining a new learning algorithm
 The easiest way to define a new learning algorithm is to adapt the `make_train` function [value_based_basics](singleagent/value_based_basics.py).
 `make_train` is a function which creates a `train_function` which is used to train an algorithm. 
 `make_train` accepts as arguments functions for
