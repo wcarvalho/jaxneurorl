@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <title>Reinforcement Learning Environment</title>
+  <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
+  <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.1/css/all.min.css">
+  <style>
+    body {
+      font-family: 'Roboto', sans-serif;
+      background-color: #f7f7f7;
+      margin: 0;
+      padding: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      color: #333;
+    }
+
+    main {
+      width: 50%;
+      max-width: 800px;
+      min-width: 300px;
+      background: white;
+      padding: 2rem;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+      border-radius: 10px;
+      text-align: center;
+    }
+
+    h1 {
+      font-size: 2.5rem;
+      color: #4a4a4a;
+      margin-bottom: 2rem;
+    }
+
+    #stateImageContainer {
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+      border-radius: 10px;
+      display: inline-block;
+      /* Center the container */
+      padding: 20px;
+      /* Space between the border and the image */
+      background: #f7f7f7;
+      /* Background color for the container */
+    }
+
+    #stateImage {
+      max-width: 100%;
+      max-height: 80vh;
+      display: block;
+      /* Removes additional space below the image */
+      border-radius: 10px;
+      /* Match the container's border radius */
+    }
+
+    footer {
+      position: fixed;
+      bottom: 0;
+      width: 100%;
+      text-align: center;
+      padding: 1rem;
+      background-color: #eaeaea;
+      border-top: 1px solid #dcdcdc;
+      font-size: 0.85rem;
+    }
+  </style>
+  <!-- <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script> -->
+  <script src="https://www.gstatic.com/firebasejs/8.6.8/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.6.8/firebase-database.js"></script>
+  <script type="text/javascript">
+    // Function to enable or disable the button based on the checkbox
+    function toggleButton(ref, btnID) {
+      document.getElementById(btnID).disabled = !ref.checked;
+    }
+  </script>
+
+</head>
+
+<body>
+  <main>
+    <div id="content">
+      {% include template_file %}
+    </div>
+  </main>
+  <script src="{{ url_for('static', filename='index.js') }}"></script>
+</body>
+
+</html>
