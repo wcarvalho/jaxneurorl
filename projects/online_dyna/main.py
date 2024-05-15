@@ -33,14 +33,6 @@ db = firestore.Client()
 # Reference an existing document or create a new one in 'your-collection'
 stage_info_db = db.collection('online-dyna-stage-info')
 interactions_db = db.collection('online-dyna-interactions')
-stage_info_db.add({
-    "stage_idx": 0,
-    'stage': 'hello world',
-    't': 1,
-    'ep_idx': 1,
-    'num_success': 1,
-    'unique_id': "11111111",
-})
 stage_list = []
 interaction_list = []
 
