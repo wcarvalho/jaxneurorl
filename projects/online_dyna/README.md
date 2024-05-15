@@ -1,6 +1,9 @@
 # Setup
-Create a [Google Cloud key](https://console.cloud.google.com/iam-admin/serviceaccounts/details/111959560397464491265/keys?) for accessing your Database.
-- Store that cloud as `./keys/datastore-key.json`.
+Create a [Google Service Account](https://console.cloud.google.com/iam-admin/serviceaccounts?) for accessing your Database. Select "CREATE SERVICE ACCOUNT", give it some name and the following permissions:
+- Storage Object Creator (for uploading/saving data)
+- Storage Object Viewer and Storage Object Admin (for viewing/downloading data)
+
+Save the json as `./keys/datastore-key.json`.
 
 # Running
 

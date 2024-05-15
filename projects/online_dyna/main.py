@@ -1,38 +1,25 @@
-#import gevent
-#from gevent import monkey
-#monkey.patch_all()
-
 from typing import NamedTuple
 
 from base64 import b64encode
 from datetime import timedelta
 from dotenv import load_dotenv
-from flask import Flask, render_template, request, session
+from flask import Flask, render_template, session
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
 from flax import serialization
-from google.cloud import firestore
-import google.api_core.exceptions
-from google.api_core import retry
+from google.cloud import storage
 import io
 import jax
 import jax.numpy as jnp
 import json
 import random
 import numpy as np
-import threading
 import os
 from PIL import Image
 import utils
 import keyroom
 
 load_dotenv()
-# Create a client
-db = firestore.Client()
-
-# Reference an existing document or create a new one in 'your-collection'
-stage_info_db = db.collection('online-dyna-stage-info')
-interactions_db = db.collection('online-dyna-interactions')
 stage_list = []
 interaction_list = []
 
@@ -48,10 +35,11 @@ env = keyroom.KeyRoom()
 default_env_params = env.default_params(
     maze_config=keyroom.shorten_maze_config(maze_config, 3))
 dummy_rng = jax.random.PRNGKey(0)
-default_timestep = env.reset(dummy_rng, default_env_params)
 dummy_action = 0
-env.step(
-    dummy_rng, default_timestep, dummy_action, default_env_params)
+for _ in range(5):
+    default_timestep = env.reset(dummy_rng, default_env_params)
+    env.step(
+        dummy_rng, default_timestep, dummy_action, default_env_params)
 
 
 
@@ -100,16 +88,16 @@ default_env_caption = """
         """
 stages = [
     utils.Stage('consent.html'),
-    #utils.Stage('explanation.html',
-    #      title='Practice',
-    #      body="""
-    #        In this section of the experiment, you'll practice to understand how the environment works. First, you'll practice getting the object in the same room.
-    #        <br><br>
-    #        You will do 5 practice rounds.
-    #        <br><br>
-    #        Please click the right arrow when you are done.
-    #        """
-    #      ),
+    utils.Stage('explanation.html',
+          title='Practice',
+          body="""
+            In this section of the experiment, you'll practice to understand how the environment works. First, you'll practice getting the object in the same room.
+            <br><br>
+            You will do 5 practice rounds.
+            <br><br>
+            Please click the right arrow when you are done.
+            """
+          ),
     utils.Stage('env.html',
           title="Practice 1",
           subtitle="goal object in the same room",
@@ -134,7 +122,10 @@ stages = [
     #      min_success=1,
     #      envcaption=default_env_caption
     #      ),
-    utils.Stage('done.html'),
+    utils.Stage('done.html',
+            title='Experiment Finished',
+            subtitle='Please wait as data is uploaded.'
+            ),
 ]
 
 ############
@@ -261,64 +252,47 @@ def add_interaction_to_db(socket_json, stage_idx, timestep, rng, user_seed):
         "key_press_time": str(socket_json['keydownTime']),
         "key": str(socket_json['key']),
         "action": int(keyparser.action(socket_json['key'])),
-        # "timestep": timestep,
+        "timestep": timestep,
         "rng": list(rng_from_jax(rng)),
         'unique_id': int(user_seed),
     }
     interaction_list.append(new_row)
     print('added interaction row:', len(interaction_list))
 
-#def end_program():
-#    interaction_batch = db.batch()
-#    for interaction in interaction_list:
-#        interaction_batch.set(interactions_db.document(), interaction)
-#    interaction_batch.commit()
-#    print('added interactions to Firestore')
+
+def initialize_storage_client():
+    storage_client = storage.Client.from_service_account_json(
+        os.environ['GOOGLE_APPLICATION_CREDENTIALS'])
+    bucket_name = 'human-web-rl_cloudbuild'
+    bucket = storage_client.bucket(bucket_name)
+    return bucket
 
 
-#    stage_info_batch = db.batch()
-#    for stage_info in stage_list:
-#        stage_info_batch.set(stage_info_db.document(), stage_info)
-#    stage_info_batch.commit()
-#    print('added stage infos to Firestore')
+def save_list_to_gcs(interaction_list, filename):
+    bucket = initialize_storage_client()
+    blob = bucket.blob(filename)
+    blob.upload_from_string(data=json.dumps(
+        interaction_list), content_type='application/json')
+    print(f'Saved {filename} in bucket {bucket.name}')
 
+def save_interactions_on_session_end():
+    ninteraction = len(interaction_list)
+    nstage = len(stage_list)
+    print(f"Uploading {ninteraction} interactions from {nstage} stages.")
 
-def end_program():
-    retry_config = retry.Retry(
-        predicate=retry.if_exception_type(
-            google.api_core.exceptions.DeadlineExceeded),
-        #initial=1.0,  # Initial retry delay in seconds
-        #maximum=60.0,  # Maximum retry delay in seconds
-        #multiplier=2.0,  # Delay multiplier for exponential backoff
-        timeout=100000.0,  # Total time limit for retries in seconds
-        #deadline=100000.0,
-    )
+    unique_id = session['user_seed']
+    filename = f'online_dyna/interactions_{unique_id}.json'
+    save_list_to_gcs(interaction_list, filename)
 
-    @retry.Retry(config=retry_config)
-    def commit_interaction_batch():
-        interaction_batch = db.batch()
-        for interaction in interaction_list:
-            interaction_batch.set(interactions_db.document(), interaction)
-        interaction_batch.commit()
+    filename = f'online_dyna/stage_infos_{unique_id}.json'
+    save_list_to_gcs(stage_list, filename)
 
-    @retry.Retry(config=retry_config)
-    def commit_stage_info_batch():
-        stage_info_batch = db.batch()
-        for stage_info in stage_list:
-            stage_info_batch.set(stage_info_db.document(), stage_info)
-        stage_info_batch.commit()
+    emit('update_html_fields', {
+        'title': stages[session['stage_idx']].title,
+        'subtitle': stages[session['stage_idx']].subtitle,
+        'body': f"Uploaded {ninteraction} interactions from {nstage} stages. Thank you. You may now close the browser",
+    })
 
-    try:
-        commit_interaction_batch()
-        print('added interactions to Firestore')
-    except google.api_core.exceptions.DeadlineExceeded as e:
-        print(f'Failed to commit interactions: {str(e)}')
-
-    try:
-        commit_stage_info_batch()
-        print('added stage infos to Firestore')
-    except google.api_core.exceptions.DeadlineExceeded as e:
-        print(f'Failed to commit stage infos: {str(e)}')
 
 def update_html_fields(**kwargs):
     emit('update_html_fields', {
@@ -417,7 +391,7 @@ def handle_record_click(json):
         })
         update_html_fields()
         if 'done' in template_file:
-            end_program()
+            save_interactions_on_session_end()
 
 
 @socketio.on('key_pressed')
@@ -434,13 +408,13 @@ def handle_key_press(json):
     env_params = stages[stage_idx].env_params
     if not session['timestep'].last():
         # update database with image, action, + times of each
-        #add_interaction_to_db(json, stage_idx,
-        #             session['timestep'], session['rng'], session['user_seed'])
+        add_interaction_to_db(json, stage_idx,
+                     session['timestep'], session['rng'], session['user_seed'])
         #gevent.spawn(add_interaction_to_db, json, stage_idx,
         #    session['timestep'], session['rng'], session['user_seed'])
-        socketio.start_background_task(
-            add_interaction_to_db, json, stage_idx,
-            session['timestep'], session['rng'], session['user_seed'])
+        #socketio.start_background_task(
+        #    add_interaction_to_db, json, stage_idx,
+        #    session['timestep'], session['rng'], session['user_seed'])
         print('add_interaction_to_db')
 
         # take action
@@ -513,7 +487,7 @@ def handle_key_press(json):
                 })
                 update_html_fields()
                 if 'done' in template_file:
-                    end_program()
+                    save_interactions_on_session_end()
             print('advanced to next stage')
 
         # ------------
