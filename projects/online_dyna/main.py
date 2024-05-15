@@ -33,6 +33,14 @@ db = firestore.Client()
 # Reference an existing document or create a new one in 'your-collection'
 stage_info_db = db.collection('online-dyna-stage-info')
 interactions_db = db.collection('online-dyna-interactions')
+stage_info_db.add({
+    "stage_idx": 0,
+    'stage': 'hello world',
+    't': 1,
+    'ep_idx': 1,
+    'num_success': 1,
+    'unique_id': "11111111",
+})
 stage_list = []
 interaction_list = []
 
@@ -117,23 +125,23 @@ stages = [
           min_success=1,
           envcaption=default_env_caption,
           ),
-    utils.Stage('explanation.html',
-          title='Practice 2',
-          body="""
-            Now, you'll practice getting an object when it's in another room.
-            <br><br>
-            You will do 5 practice rounds.
-            <br><br>
-            Please click the right arrow when you are done.
-            """
-          ),
-    utils.Stage('env.html',
-          title="Practice 2",
-          subtitle="goal object in a different room",
-          env_params=default_env_params.replace(train_multi_probs=1.,),
-          min_success=1,
-          envcaption=default_env_caption
-          ),
+    #utils.Stage('explanation.html',
+    #      title='Practice 2',
+    #      body="""
+    #        Now, you'll practice getting an object when it's in another room.
+    #        <br><br>
+    #        You will do 5 practice rounds.
+    #        <br><br>
+    #        Please click the right arrow when you are done.
+    #        """
+    #      ),
+    #utils.Stage('env.html',
+    #      title="Practice 2",
+    #      subtitle="goal object in a different room",
+    #      env_params=default_env_params.replace(train_multi_probs=1.,),
+    #      min_success=1,
+    #      envcaption=default_env_caption
+    #      ),
     utils.Stage('done.html'),
 ]
 
@@ -231,59 +239,94 @@ def start_env_interaction_stage():
             'envcaption': stages[session['stage_idx']].envcaption,
         })
 
+def serialize(pytree):
+    pytree = serialization.to_state_dict(pytree)
+    pytree = utils.array_to_python(pytree)
+    return json.dumps(pytree)
+
 
 def add_stage_to_db(stage_idx, stage_infos, user_seed):
     stage_info = stage_infos[stage_idx]
+    stage = serialize(stages[stage_idx])
     new_row = {
         "stage_idx": stage_idx,
-        'stage': utils.encode_json(stages[stage_idx]),
+        'stage': stage,
         't': stage_info.t,
         'ep_idx': stage_info.ep_idx,
         'num_success': stage_info.num_success,
         'unique_id': user_seed,
     }
     stage_list.append(new_row)
-    #stage_info_db.add(
-    #)
     print('added stage row', len(stage_list))
 
 
 def add_interaction_to_db(socket_json, stage_idx, timestep, rng, user_seed):
+    timestep = timestep.replace(observation=None)
+    timestep = serialize(timestep)
     new_row = {
         "stage_idx": int(stage_idx),
-        #"image_seen_time": str(socket_json['imageSeenTime']),
-        #"key_press_time": str(socket_json['keydownTime']),
-        #"key": str(socket_json['key']),
-        #"action": int(keyparser.action(socket_json['key'])),
-        ## "timestep": timestep,
-        #"rng": list(rng_from_jax(rng)),
-        #'unique_id': int(user_seed),
+        "image_seen_time": str(socket_json['imageSeenTime']),
+        "key_press_time": str(socket_json['keydownTime']),
+        "key": str(socket_json['key']),
+        "action": int(keyparser.action(socket_json['key'])),
+        # "timestep": timestep,
+        "rng": list(rng_from_jax(rng)),
+        'unique_id': int(user_seed),
     }
     interaction_list.append(new_row)
-    #print('made row')
-    #retry_config = retry.Retry(
-    #    predicate=retry.if_exception_type(
-    #        google.api_core.exceptions.DeadlineExceeded),
-    #    initial=1.0,
-    #    maximum=60.0,  # Increase the maximum retry delay to 120 seconds
-    #    multiplier=2.0,
-    #    timeout=120.0,  # Increase the total time limit for retries to 300 seconds
-    #)
-    #@retry.Retry(config=retry_config)
-    #def add_interaction():
-    #    interactions_db.add(new_row)
-
-    ##threading.Thread(target=add_interaction).start()
-    #add_interaction()
     print('added interaction row:', len(interaction_list))
 
-def end_program():
-    interaction_batch = interactions_db.batch()
-    for interaction in interactions_list:
-        interaction_batch.set(interactions_db.document(), interaction)
-    interaction_batch.commit()
-    print('added interactions to Firestore')
+#def end_program():
+#    interaction_batch = db.batch()
+#    for interaction in interaction_list:
+#        interaction_batch.set(interactions_db.document(), interaction)
+#    interaction_batch.commit()
+#    print('added interactions to Firestore')
 
+
+#    stage_info_batch = db.batch()
+#    for stage_info in stage_list:
+#        stage_info_batch.set(stage_info_db.document(), stage_info)
+#    stage_info_batch.commit()
+#    print('added stage infos to Firestore')
+
+
+def end_program():
+    retry_config = retry.Retry(
+        predicate=retry.if_exception_type(
+            google.api_core.exceptions.DeadlineExceeded),
+        #initial=1.0,  # Initial retry delay in seconds
+        #maximum=60.0,  # Maximum retry delay in seconds
+        #multiplier=2.0,  # Delay multiplier for exponential backoff
+        timeout=100000.0,  # Total time limit for retries in seconds
+        #deadline=100000.0,
+    )
+
+    @retry.Retry(config=retry_config)
+    def commit_interaction_batch():
+        interaction_batch = db.batch()
+        for interaction in interaction_list:
+            interaction_batch.set(interactions_db.document(), interaction)
+        interaction_batch.commit()
+
+    @retry.Retry(config=retry_config)
+    def commit_stage_info_batch():
+        stage_info_batch = db.batch()
+        for stage_info in stage_list:
+            stage_info_batch.set(stage_info_db.document(), stage_info)
+        stage_info_batch.commit()
+
+    try:
+        commit_interaction_batch()
+        print('added interactions to Firestore')
+    except google.api_core.exceptions.DeadlineExceeded as e:
+        print(f'Failed to commit interactions: {str(e)}')
+
+    try:
+        commit_stage_info_batch()
+        print('added stage infos to Firestore')
+    except google.api_core.exceptions.DeadlineExceeded as e:
+        print(f'Failed to commit stage infos: {str(e)}')
 
 def update_html_fields(**kwargs):
     emit('update_html_fields', {
@@ -500,4 +543,4 @@ def handle_key_press(json):
 
 # Run the Flask app
 if __name__ == '__main__':
-    socketio.run(app, host='0.0.0.0', port=8080, debug=True)
+    socketio.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)), debug=True)
