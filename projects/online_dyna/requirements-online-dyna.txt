@@ -3,7 +3,7 @@ flask-socketio
 Pillow
 tqdm
 python-dotenv
-google-cloud-firestore
+google-cloud-storage
 Flask-Cors
 jax==0.4.20
 jaxlib==0.4.20
@@ -12,3 +12,5 @@ flax
 gymnax==0.0.6
 tqdm
 ipdb
+gunicorn
+gevent

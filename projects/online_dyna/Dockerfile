@@ -17,6 +17,4 @@ EXPOSE 8080
 ENV GOOGLE_APPLICATION_CREDENTIALS ./keys/datastore-key.json
 
 # Run app.py when the container launches
-#CMD ["gunicorn", "-b", "0.0.0.0:8080", "wsgi:app"]
-#CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--worker-class", "gevent", "wsgi:app"]
-CMD ["python", "wsgi.py"]
+CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--worker-class", "gevent", "wsgi:app"]
