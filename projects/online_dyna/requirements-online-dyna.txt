@@ -1,0 +1,13 @@
+ipdb
+flask
+flask-socketio
+Pillow
+tqdm
+python-dotenv
+google-cloud-firestore
+Flask-Cors
+jax==0.4.20
+jaxlib==0.4.20
+flax
+gunicorn
+gevent
