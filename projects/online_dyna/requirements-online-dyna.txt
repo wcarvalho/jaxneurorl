@@ -9,3 +9,6 @@ jax==0.4.20
 jaxlib==0.4.20
 xminigrid==0.6.0
 flax
+gymnax==0.0.6
+tqdm
+ipdb

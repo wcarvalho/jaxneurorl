@@ -1,6 +1,6 @@
 # Setup
 Create a [Google Cloud key](https://console.cloud.google.com/iam-admin/serviceaccounts/details/111959560397464491265/keys?) for accessing your Database.
-Store that cloud as `./keys/datastore-key.json`.
+- Store that cloud as `./keys/datastore-key.json`.
 
 # Running
 
