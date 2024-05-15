@@ -22,6 +22,6 @@ pip install -r requirements.txt
 
 **Run**.
 ```
-gunicorn -b 0.0.0.0:8080 --worker-class gevent --timeout 120 main:app
+python main.py
 ```
 

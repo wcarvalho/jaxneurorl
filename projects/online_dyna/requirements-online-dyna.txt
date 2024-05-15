@@ -1,4 +1,3 @@
-ipdb
 flask
 flask-socketio
 Pillow
@@ -8,6 +7,5 @@ google-cloud-firestore
 Flask-Cors
 jax==0.4.20
 jaxlib==0.4.20
+xminigrid==0.6.0
 flax
-gunicorn
-gevent
