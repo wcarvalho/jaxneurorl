@@ -1,6 +1,6 @@
-import gevent
-from gevent import monkey
-monkey.patch_all()
+#import gevent
+#from gevent import monkey
+#monkey.patch_all()
 
 from typing import NamedTuple
 
@@ -33,6 +33,8 @@ db = firestore.Client()
 # Reference an existing document or create a new one in 'your-collection'
 stage_info_db = db.collection('online-dyna-stage-info')
 interactions_db = db.collection('online-dyna-interactions')
+stage_list = []
+interaction_list = []
 
 ############
 # Set up environment
@@ -98,16 +100,16 @@ default_env_caption = """
         """
 stages = [
     utils.Stage('consent.html'),
-    utils.Stage('explanation.html',
-          title='Practice',
-          body="""
-            In this section of the experiment, you'll practice to understand how the environment works. First, you'll practice getting the object in the same room.
-            <br><br>
-            You will do 5 practice rounds.
-            <br><br>
-            Please click the right arrow when you are done.
-            """
-          ),
+    #utils.Stage('explanation.html',
+    #      title='Practice',
+    #      body="""
+    #        In this section of the experiment, you'll practice to understand how the environment works. First, you'll practice getting the object in the same room.
+    #        <br><br>
+    #        You will do 5 practice rounds.
+    #        <br><br>
+    #        Please click the right arrow when you are done.
+    #        """
+    #      ),
     utils.Stage('env.html',
           title="Practice 1",
           subtitle="goal object in the same room",
@@ -232,89 +234,56 @@ def start_env_interaction_stage():
 
 def add_stage_to_db(stage_idx, stage_infos, user_seed):
     stage_info = stage_infos[stage_idx]
-    stage_info_db.add({
+    new_row = {
         "stage_idx": stage_idx,
         'stage': utils.encode_json(stages[stage_idx]),
         't': stage_info.t,
         'ep_idx': stage_info.ep_idx,
         'num_success': stage_info.num_success,
         'unique_id': user_seed,
-    })
-    print('added stage row')
+    }
+    stage_list.append(new_row)
+    #stage_info_db.add(
+    #)
+    print('added stage row', len(stage_list))
 
 
 def add_interaction_to_db(socket_json, stage_idx, timestep, rng, user_seed):
-    # observation is unnecessarily expensive
-    # can regenerate from state information
-    #timestep = timestep.replace(observation=None)
-    #timestep = serialization.to_state_dict(timestep)
-    #timestep = utils.array_to_python(timestep)
-    #timestep = json.dumps(timestep)
     new_row = {
         "stage_idx": int(stage_idx),
-        "image_seen_time": str(socket_json['imageSeenTime']),
-        "key_press_time": str(socket_json['keydownTime']),
-        "key": str(socket_json['key']),
-        "action": int(keyparser.action(socket_json['key'])),
-        # "timestep": timestep,
-        "rng": list(rng_from_jax(rng)),
-        'unique_id': int(user_seed),
+        #"image_seen_time": str(socket_json['imageSeenTime']),
+        #"key_press_time": str(socket_json['keydownTime']),
+        #"key": str(socket_json['key']),
+        #"action": int(keyparser.action(socket_json['key'])),
+        ## "timestep": timestep,
+        #"rng": list(rng_from_jax(rng)),
+        #'unique_id': int(user_seed),
     }
+    interaction_list.append(new_row)
+    #print('made row')
+    #retry_config = retry.Retry(
+    #    predicate=retry.if_exception_type(
+    #        google.api_core.exceptions.DeadlineExceeded),
+    #    initial=1.0,
+    #    maximum=60.0,  # Increase the maximum retry delay to 120 seconds
+    #    multiplier=2.0,
+    #    timeout=120.0,  # Increase the total time limit for retries to 300 seconds
+    #)
+    #@retry.Retry(config=retry_config)
+    #def add_interaction():
+    #    interactions_db.add(new_row)
 
+    ##threading.Thread(target=add_interaction).start()
+    #add_interaction()
+    print('added interaction row:', len(interaction_list))
 
-    retry_config = retry.Retry(
-        predicate=retry.if_exception_type(
-            google.api_core.exceptions.DeadlineExceeded),
-        initial=1.0,
-        maximum=120.0,  # Increase the maximum retry delay to 120 seconds
-        multiplier=2.0,
-        deadline=300.0,  # Increase the total time limit for retries to 300 seconds
-    )
-    @retry.Retry(config=retry_config)
-    def add_interaction():
-        interactions_db.add(new_row)
+def end_program():
+    interaction_batch = interactions_db.batch()
+    for interaction in interactions_list:
+        interaction_batch.set(interactions_db.document(), interaction)
+    interaction_batch.commit()
+    print('added interactions to Firestore')
 
-    add_interaction()
-    print('added interaction row')
-
-#def add_interaction_to_db(socket_json):
-#    # observation is unnecessarily expensive
-#    # can regenerate from state information
-#    timestep = session['timestep']
-#    timestep = timestep.replace(observation=None)
-#    timestep = serialization.to_state_dict(timestep)
-#    timestep = utils.array_to_python(timestep)
-#    timestep = json.dumps(timestep)
-#    new_row = {
-#        "stage_idx": int(session['stage_idx']),
-#        "image_seen_time": str(socket_json['imageSeenTime']),
-#        "key_press_time": str(socket_json['keydownTime']),
-#        "key": str(socket_json['key']),
-#        "action": int(keyparser.action(socket_json['key'])),
-#        #"timestep": timestep,
-#        "rng": list(rng_from_jax(session['rng'])),
-#        'unique_id': int(session['user_seed']),
-#    }
-#    #threading.Thread(target=lambda: interactions_db.add(new_row)).start()
-#    interactions_db.add(new_row)
-#    print("added new interactions_db row")
-
-
-
-
-#def add_stage_to_db():
-#    stage_info = session['stage_infos'][session['stage_idx']]
-#    new_row = {
-#        "stage_idx": int(session['stage_idx']),
-#        'stage': utils.encode_json(stages[session['stage_idx']]),
-#        't': int(stage_info.t),
-#        'ep_idx': int(stage_info.ep_idx),
-#        'num_success': int(stage_info.num_success),
-#        'unique_id': int(session['user_seed']),
-#    }
-#    #threading.Thread(target=lambda: stage_info_db.add(new_row)).start()
-#    stage_info_db.add(new_row)
-#    print("added new stage_info_db row")
 
 def update_html_fields(**kwargs):
     emit('update_html_fields', {
@@ -412,6 +381,8 @@ def handle_record_click(json):
             'content': render_template(template_file)
         })
         update_html_fields()
+        if 'done' in template_file:
+            end_program()
 
 
 @socketio.on('key_pressed')
@@ -428,9 +399,14 @@ def handle_key_press(json):
     env_params = stages[stage_idx].env_params
     if not session['timestep'].last():
         # update database with image, action, + times of each
-        gevent.spawn(add_interaction_to_db, json, stage_idx,
-                     session['timestep'], session['rng'], session['user_seed'])
-
+        #add_interaction_to_db(json, stage_idx,
+        #             session['timestep'], session['rng'], session['user_seed'])
+        #gevent.spawn(add_interaction_to_db, json, stage_idx,
+        #    session['timestep'], session['rng'], session['user_seed'])
+        socketio.start_background_task(
+            add_interaction_to_db, json, stage_idx,
+            session['timestep'], session['rng'], session['user_seed'])
+        print('add_interaction_to_db')
 
         # take action
         state_image = take_action(key, env_params)
@@ -439,6 +415,7 @@ def handle_key_press(json):
         emit('action_taken', {
             'image': encoded_image,
         })
+        print('next state')
 
         # is the NEXT time-step going to be last?
         if session['timestep'].last():
@@ -451,7 +428,7 @@ def handle_key_press(json):
             )
             label = 'SUCCESS' if success else 'FAILED'
             color = 'green' if success else 'red'
-            label = f'<span style = "color: {color};" > {label} < /span >'
+            label = f'<span style = "color: {color};">{label}</span >'
             update_html_fields(
                 taskDesc=f"{label}! restarting. press 'c' to continue.",
             )
@@ -484,22 +461,24 @@ def handle_key_press(json):
         # update to next stage
         # ------------
         if go_to_next_stage:
-            gevent.spawn(
-                add_stage_to_db, session['stage_idx'], session['stage_infos'], session['user_seed'])
+            add_stage_to_db(session['stage_idx'], session['stage_infos'], session['user_seed'])
             # update stage idx
             session['stage_idx'] += 1
             session['stage_idx'] = min(session['stage_idx'], len(stages)-1)
 
             # next template file
-            template_file = session.get('template_file', stage.html)
+            template_file = stages[session['stage_idx']].html
 
             # update content
-            emit('update_content', {
-                'content': render_template(template_file),
-            })
-            update_html_fields()
             if 'env' in template_file:
                 start_env_interaction_stage()
+            else:
+                emit('update_content', {
+                    'content': render_template(template_file),
+                })
+                update_html_fields()
+                if 'done' in template_file:
+                    end_program()
             print('advanced to next stage')
 
         # ------------
