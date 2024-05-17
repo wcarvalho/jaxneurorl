@@ -23,6 +23,8 @@ load_dotenv()
 stage_list = []
 interaction_list = []
 
+DEBUG = True
+
 ############
 # Set up environment
 ############
@@ -106,8 +108,8 @@ stages = [
           title="Practice 1",
           subtitle="goal object in the same room",
           env_params=default_env_params.replace(train_multi_probs=0.,),
-          min_success=10,
-          max_episodes=50,
+          min_success=1 if DEBUG else 10,
+          max_episodes=3 if DEBUG else 50,
           envcaption=default_env_caption,
           ),
     utils.Stage('explanation.html',
@@ -124,8 +126,8 @@ stages = [
           title="Practice 2",
           subtitle="goal object in a different room",
           env_params=default_env_params.replace(train_multi_probs=1.,),
-          min_success=10,
-          max_episodes=50,
+          min_success=1 if DEBUG else 10,
+          max_episodes=3 if DEBUG else 50,
           envcaption=default_env_caption
           ),
 
@@ -223,30 +225,6 @@ def take_action(action_key, env_params):
     session['timestep'] = timestep
     return state_image
 
-def start_env_interaction_stage():
-    """New stage begins."""
-    template_file = stages[session['stage_idx']].html
-
-    assert 'env' in template_file
-
-    env_params = stages[session['stage_idx']].env_params
-    state_image = reset_environment(env_params)
-    encoded_image = encode_image(state_image)
-
-    emit('update_content', {
-        'content': render_template(template_file),
-    })
-    emit('action_taken', {
-            'image': encoded_image,
-        })
-    emit('update_html_fields', {
-            'title': stages[session['stage_idx']].title,
-            'subtitle': stages[session['stage_idx']].subtitle,
-            'taskDesc': get_task_name(session['timestep']),
-            'body': stages[session['stage_idx']].body,
-            'envcaption': stages[session['stage_idx']].envcaption,
-        })
-
 def serialize(pytree):
     pytree = serialization.to_state_dict(pytree)
     pytree = utils.array_to_python(pytree)
@@ -327,6 +305,44 @@ def update_html_fields(**kwargs):
         'envcaption': stages[session['stage_idx']].envcaption,
         **kwargs,
     })
+
+
+def update_env_html_fields(**kwargs):
+
+    stage_idx = session['stage_idx']
+    stage = stages[stage_idx]
+    stage_info = session['stage_infos'][stage_idx]
+
+    subtitle = stage.subtitle
+    subtitle += f"<br>Successes: {stage_info.num_success}/{stage.min_success}"
+    subtitle += f"<br>Episodes: {stage_info.ep_idx}/{stage.max_episodes}"
+    emit('update_html_fields', {
+        'title': stage.title,
+        'subtitle': subtitle,
+        'taskDesc': get_task_name(session['timestep']),
+        'body': stage.body,
+        'envcaption': stage.envcaption,
+        **kwargs,
+    })
+
+
+def start_env_interaction_stage():
+    """New stage begins."""
+    template_file = stages[session['stage_idx']].html
+
+    assert 'env' in template_file
+
+    env_params = stages[session['stage_idx']].env_params
+    state_image = reset_environment(env_params)
+    encoded_image = encode_image(state_image)
+
+    emit('update_content', {
+        'content': render_template(template_file),
+    })
+    emit('action_taken', {
+        'image': encoded_image,
+    })
+    update_env_html_fields()
 
 
 ############
@@ -463,7 +479,7 @@ def handle_key_press(json):
             label = 'SUCCESS' if success else 'FAILED'
             color = 'green' if success else 'red'
             label = f'<span style = "color: {color};">{label}</span >'
-            update_html_fields(
+            update_env_html_fields(
                 taskDesc=f"{label}! restarting. press 'c' to continue.",
             )
             print('updated stage_info at end')
@@ -521,7 +537,7 @@ def handle_key_press(json):
         else:
             state_image = reset_environment(env_params)
             encoded_image = encode_image(state_image)
-            update_html_fields(
+            update_env_html_fields(
                 taskDesc=get_task_name(session['timestep']),
             )
             emit('action_taken', {
