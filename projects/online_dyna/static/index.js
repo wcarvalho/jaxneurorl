@@ -147,6 +147,36 @@ document.addEventListener('DOMContentLoaded', function () {
       //  imgElement.src = data.image;
       //}
     });
+  });
 
+  /////////////////////////
+  // Add timer?
+  /////////////////////////
+  socket.on('start_timer', function (data) {
+    var timerDuration = data.seconds; // Set the timer duration in seconds
+    var timerElement = document.getElementById('timer');
+
+    // Display the initial timer value
+    timerElement.textContent = 'Time remaining: ' + timerDuration + ' seconds';
+
+    // Update the timer every second
+    var timerInterval = setInterval(function () {
+      timerDuration--;
+      timerElement.textContent = 'Time remaining: ' + timerDuration + ' seconds';
+
+      if (timerDuration <= 0) {
+        clearInterval(timerInterval);
+        socket.emit('timer_finished'); // Emit the 'timer_finished' event to the server
+      }
+    }, 1000);
+  });
+
+  // Listen for the 'stage_advanced' event
+  socket.on('stop_timer', function () {
+    clearInterval(timerInterval); // Clear the timer interval
+    var timer = document.getElementById('timer')
+    if (timer) {
+      timer.textContent = ''; // Clear the timer display
+    }
   });
 });
