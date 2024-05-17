@@ -1,6 +1,5 @@
 from typing import NamedTuple
 
-import argparse
 from base64 import b64encode
 from datetime import timedelta
 from dotenv import load_dotenv
@@ -24,15 +23,8 @@ load_dotenv()
 stage_list = []
 interaction_list = []
 
-# Parse command line arguments
-parser = argparse.ArgumentParser(description='Your app description')
-parser.add_argument('--debug', action='store_true', help='Enable debug mode')
-parser.add_argument('--debug_seed', type=int, default=1,
-                    help='Seed for debugging')
-args = parser.parse_args()
-
-DEBUG = args.debug
-DEBUG_SEED = args.debug_seed
+DEBUG = int(os.environ.get('DEBUG_APP', 0))
+DEBUG_SEED = os.environ.get('DEBUG_SEED', 1)
 
 ############
 # Set up environment
@@ -164,6 +156,8 @@ stages = [
         title="Practice 1 - same room",
         body="""
         In this section of the experiment, you'll practice to understand how the environment works. First, you'll practice getting the object in the same room.
+        <br><br>
+        Please note: right now, loading is slow in the beginning. After a couple of interactions, interacting with the environment should speed up for the rest of the experiment. Please be patient in the beginning.
         <br><br>
         Please click the right arrow when you are ready.
         """
@@ -297,7 +291,7 @@ def render(timestep):
         np.asarray(timestep.state.grid),
         timestep.state.agent,
         0,
-        tile_size=20)
+        tile_size=32)
 
 
 def encode_image(state_image):
@@ -408,19 +402,23 @@ def save_interactions_on_session_end():
     filename = f'online_dyna/stage_infos_{unique_id}.json'
     save_list_to_gcs(stage_list, filename)
 
+    stage_idx = session['stage_idx']
+    stage = stages[session['stage_idx']]
     emit('update_html_fields', {
-        'title': stages[session['stage_idx']].title,
+        'title': f"Stage {stage_idx}: {stage.title}",
         'subtitle': stages[session['stage_idx']].subtitle,
         'body': f"Uploaded {ninteraction} interactions from {nstage} stages. Thank you. You may now close the browser",
     })
 
 
 def update_html_fields(**kwargs):
+    stage_idx = session['stage_idx']
+    stage = stages[stage_idx]
     emit('update_html_fields', {
-        'title': stages[session['stage_idx']].title,
-        'subtitle': stages[session['stage_idx']].subtitle,
-        'body': stages[session['stage_idx']].body,
-        'envcaption': stages[session['stage_idx']].envcaption,
+        'title': f"Stage {stage_idx}: {stage.title}",
+        'subtitle': stage.subtitle,
+        'body': stage.body,
+        'envcaption': stage.envcaption,
         **kwargs,
     })
 
@@ -440,7 +438,7 @@ def update_env_html_fields(**kwargs):
         subtitle += f"<br>Successes: {stage_info.num_success}/{stage.min_success}"
         subtitle += f"<br>Episodes: {stage_info.ep_idx}/{stage.max_episodes}"
     emit('update_html_fields', {
-        'title': stage.title,
+        'title': f"Stage {stage_idx}: {stage.title}",
         'subtitle': subtitle,
         'taskDesc': get_task_name(session['timestep']),
         'body': stage.body,
@@ -735,7 +733,7 @@ def advance_to_next_stage():
 ############
 app = Flask(__name__)
 
-CORS(app)  # Enable CORS for all routes
+#CORS(app)  # Enable CORS for all routes
 
 app.secret_key = 'some secret'
 # Adjust the time as needed
