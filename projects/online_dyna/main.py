@@ -1,5 +1,6 @@
 from typing import NamedTuple
 
+import argparse
 from base64 import b64encode
 from datetime import timedelta
 from dotenv import load_dotenv
@@ -23,8 +24,15 @@ load_dotenv()
 stage_list = []
 interaction_list = []
 
-DEBUG = True
-DEBUG_SEED = 1
+# Parse command line arguments
+parser = argparse.ArgumentParser(description='Your app description')
+parser.add_argument('--debug', action='store_true', help='Enable debug mode')
+parser.add_argument('--debug_seed', type=int, default=1,
+                    help='Seed for debugging')
+args = parser.parse_args()
+
+DEBUG = args.debug
+DEBUG_SEED = args.debug_seed
 
 ############
 # Set up environment
@@ -90,49 +98,109 @@ default_env_caption = """
         W=up, A=left, D=right, S=down.<br>
         P=pick up, L=put down, O=open.
         """
+
+get_readies = [3, 10]  # small, large
+eval_times = [3, 10]  # small, large
+def make_block(
+        get_ready_time: int,
+        eval_time: int,
+        min_success: int = 20,
+        max_episodes: int = 200):
+
+    def _make_sublock():
+        block = [
+            utils.Stage(
+                'explanation.html',
+                title="Training",
+                body="Please learn to perform these training tasks."
+            ),
+            utils.Stage(
+                'env.html',
+                title="Training",
+                type='interaction',
+                #subtitle="goal object in a different room",
+                env_params=default_env_params.replace(
+                    train_multi_probs=1.),
+                render_fn=utils.render_map,
+                min_success=1 if DEBUG else min_success,
+                max_episodes=3 if DEBUG else max_episodes,
+                envcaption=default_env_caption
+                ),
+            utils.Stage(
+                'explanation-timed.html',
+                title='Evaluation',
+                subtitle="Pick the key which will get the object.",
+                body="""Get ready.""",
+                seconds=get_ready_time,
+                ),
+            utils.Stage(
+                'env.html',
+                title='Evaluation',
+                subtitle="Pick the key which will get the object.",
+                type='1shot',
+                env_params=default_env_params.replace(
+                    train_multi_probs=1.,
+                    training=False,
+                    time_limit=1,
+                ),
+                render_fn=utils.render_keys,
+                show_progress=False,
+                seconds=eval_time,
+                ),
+        ]
+        return block
+    block = _make_sublock()
+    return block
+
+
+
 stages = [
     utils.Stage('consent.html'),
     ############################
     # Practice
     ############################
-    #utils.Stage(
-    #    'explanation.html',
-    #    title="Practice 1 - same room",
-    #    body="""
-    #    In this section of the experiment, you'll practice to understand how the environment works. First, you'll practice getting the object in the same room.
-    #    <br><br>
-    #    Please click the right arrow when you are ready.
-    #    """
-    #    ),
-    #utils.Stage(
-    #    'env.html',
-    #    title="Practice 1 - same room",
-    #    subtitle="goal object in the same room",
-    #    env_params=default_env_params.replace(train_multi_probs=0.),
-    #    render_fn=utils.render_map,
-    #    min_success=1 if DEBUG else 10,
-    #    max_episodes=3 if DEBUG else 50,
-    #    envcaption=default_env_caption,
-    #    ),
-    #utils.Stage(
-    #    'explanation.html',
-    #    title="Practice 2 - multiroom",
-    #    body="""
-    #    Now, you'll practice getting an object when it's in another room.
-    #    <br><br>
-    #    Please click the right arrow when you are ready.
-    #    """
-    #    ),
-    #utils.Stage('env.html',
-    #    title="Practice 2 - multiroom",
-    #    subtitle="goal object in a different room",
-    #    env_params=default_env_params.replace(train_multi_probs=1.),
-    #    render_fn=utils.render_map,
-    #    min_success=1 if DEBUG else 10,
-    #    max_episodes=3 if DEBUG else 50,
-    #    envcaption=default_env_caption
-    #    ),
-    utils.Stage('explanation.html',
+    utils.Stage(
+        'explanation.html',
+        title="Practice 1 - same room",
+        body="""
+        In this section of the experiment, you'll practice to understand how the environment works. First, you'll practice getting the object in the same room.
+        <br><br>
+        Please click the right arrow when you are ready.
+        """
+        ),
+    utils.Stage(
+        'env.html',
+        title="Practice 1 - same room",
+        subtitle="goal object in the same room",
+        type='interaction',
+        env_params=default_env_params.replace(train_multi_probs=0.),
+        render_fn=utils.render_map,
+        min_success=1 if DEBUG else 10,
+        max_episodes=3 if DEBUG else 50,
+        envcaption=default_env_caption,
+        ),
+    utils.Stage(
+        'explanation.html',
+        title="Practice 2 - multiroom",
+        body="""
+        Now, you'll practice getting an object when it's in another room.
+        <br><br>
+        Please click the right arrow when you are ready.
+        """
+        ),
+    utils.Stage(
+        'env.html',
+        title="Practice 2 - multiroom",
+        subtitle="goal object in a different room",
+        type='interaction',
+        env_params=default_env_params.replace(train_multi_probs=1.),
+        render_fn=utils.render_map,
+        min_success=1 if DEBUG else 10,
+        max_episodes=3 if DEBUG else 50,
+        envcaption=default_env_caption
+        ),
+    utils.Stage(
+        'explanation.html',
         title='Practice 3: 1-shot',
         body="""
             Now, you'll practice doing a 1-shot query.
@@ -140,12 +208,14 @@ stages = [
             Please click the right arrow when you are ready.
             """,
         ),
-    utils.Stage('explanation-timed.html',
+    utils.Stage(
+        'explanation-timed.html',
         title='Practice 3: 1-shot',
         body="""Get ready.""",
         seconds=5,
         ),
-    utils.Stage('env.html',
+    utils.Stage(
+        'env.html',
         title='Practice 3: 1-shot',
         subtitle="Pick the key which will get this object.",
         type='1shot',
@@ -159,20 +229,41 @@ stages = [
         seconds=10,
         ),
     ############################
-    # Block 1: no time-pressure
+    # Block 1:
     # 20 trials
     ############################
-
+    *make_block(
+        get_ready_time=3,
+        eval_time=3,
+        min_success=20,
+        max_episodes=200,
+    ),
     ############################
-    # Block 2: small time-pressure
+    # Block 2
     # 20 trials
     ############################
-
+    *make_block(
+        get_ready_time=3,
+        eval_time=10,
+        min_success=20,
+        max_episodes=200,
+    ),
     ############################
-    # Block 3: long time-pressure
+    # Block 3
     # 20 trials
     ############################
-
+    *make_block(
+        get_ready_time=10,
+        eval_time=3,
+        min_success=20,
+        max_episodes=200,
+    ),
+    *make_block(
+        get_ready_time=10,
+        eval_time=10,
+        min_success=20,
+        max_episodes=200,
+    ),
     ############################
     # Done
     ############################
@@ -364,18 +455,22 @@ def start_env_interaction_stage():
     template_file = stages[session['stage_idx']].html
     env_params = stages[session['stage_idx']].env_params
 
+    print('about to reset env')
     reset_environment(env_params)
 
-    state_image = stage.render_map(session['timestep'])
+    state_image = utils.render_map(session['timestep'])
     encoded_image = encode_image(state_image)
 
     emit('update_content', {
         'content': render_template(template_file),
     })
+    print('loading new index')
     emit('action_taken', {
         'image': encoded_image,
     })
+    print('loading image')
     update_env_html_fields()
+    print('adding html content')
 
 
 def handle_interaction_phase(json):
@@ -457,7 +552,8 @@ def handle_interaction_phase(json):
         # reset environment
         # ------------
         else:
-            state_image = reset_environment(env_params)
+            reset_environment(env_params)
+            state_image = utils.render_map(session['timestep'])
             encoded_image = encode_image(state_image)
             update_env_html_fields(
                 taskDesc=get_task_name(session['timestep']),
@@ -706,6 +802,7 @@ def handle_record_click(json):
     This allows for that.
     """
     direction = json['direction']
+    print("direction:", direction)
     if direction == 'left':
         session['stage_idx'] -= 1
         session['stage_idx'] = max(1, session['stage_idx'])
