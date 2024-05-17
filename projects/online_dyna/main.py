@@ -24,6 +24,7 @@ stage_list = []
 interaction_list = []
 
 DEBUG = True
+DEBUG_SEED = 1
 
 ############
 # Set up environment
@@ -94,43 +95,63 @@ stages = [
     ############################
     # Practice
     ############################
+    #utils.Stage(
+    #    'explanation.html',
+    #    title="Practice 1 - same room",
+    #    body="""
+    #    In this section of the experiment, you'll practice to understand how the environment works. First, you'll practice getting the object in the same room.
+    #    <br><br>
+    #    Please click the right arrow when you are ready.
+    #    """
+    #    ),
+    #utils.Stage(
+    #    'env.html',
+    #    title="Practice 1 - same room",
+    #    subtitle="goal object in the same room",
+    #    env_params=default_env_params.replace(train_multi_probs=0.),
+    #    render_fn=utils.render_map,
+    #    min_success=1 if DEBUG else 10,
+    #    max_episodes=3 if DEBUG else 50,
+    #    envcaption=default_env_caption,
+    #    ),
+    #utils.Stage(
+    #    'explanation.html',
+    #    title="Practice 2 - multiroom",
+    #    body="""
+    #    Now, you'll practice getting an object when it's in another room.
+    #    <br><br>
+    #    Please click the right arrow when you are ready.
+    #    """
+    #    ),
+    #utils.Stage('env.html',
+    #    title="Practice 2 - multiroom",
+    #    subtitle="goal object in a different room",
+    #    env_params=default_env_params.replace(train_multi_probs=1.),
+    #    render_fn=utils.render_map,
+    #    min_success=1 if DEBUG else 10,
+    #    max_episodes=3 if DEBUG else 50,
+    #    envcaption=default_env_caption
+    #    ),
     utils.Stage('explanation.html',
-          title='Practice 1',
-          body="""
-            In this section of the experiment, you'll practice to understand how the environment works. First, you'll practice getting the object in the same room.
+        title='Practice 3: 1-shot',
+        body="""
+            Now, you'll practice doing a 1-shot query.
             <br><br>
-            You will do 5 practice rounds.
-            <br><br>
-            Please click the right arrow when you are done.
-            """
-          ),
+            Please click the right arrow when you are ready.
+            """,
+        ),
     utils.Stage('env.html',
-          title="Practice 1",
-          subtitle="goal object in the same room",
-          env_params=default_env_params.replace(train_multi_probs=0.,),
-          min_success=1 if DEBUG else 10,
-          max_episodes=3 if DEBUG else 50,
-          envcaption=default_env_caption,
-          ),
-    utils.Stage('explanation.html',
-          title='Practice 2',
-          body="""
-            Now, you'll practice getting an object when it's in another room.
-            <br><br>
-            You will do 5 practice rounds.
-            <br><br>
-            Please click the right arrow when you are done.
-            """
-          ),
-    utils.Stage('env.html',
-          title="Practice 2",
-          subtitle="goal object in a different room",
-          env_params=default_env_params.replace(train_multi_probs=1.,),
-          min_success=1 if DEBUG else 10,
-          max_episodes=3 if DEBUG else 50,
-          envcaption=default_env_caption
-          ),
-
+        title='Practice 3: 1-shot',
+        subtitle="Pick the key which will get this object.",
+        type='1shot',
+        env_params=default_env_params.replace(
+            train_multi_probs=1.,
+            training=False,
+            time_limit=1,
+            ),
+        render_fn=utils.render_keys,
+        show_progress=False,
+        ),
     ############################
     # Block 1: no time-pressure
     # 20 trials
@@ -202,11 +223,7 @@ def evaluate_success(timestep):
 def reset_environment(env_params):
     rng_ = split_rng()
     timestep = env.reset(rng_, env_params)
-    state_image = render(timestep)
-
-    # udpate timestep in session
     session['timestep'] = timestep
-    return state_image
 
 
 def take_action(action_key, env_params):
@@ -220,7 +237,9 @@ def take_action(action_key, env_params):
             timestep = session['timestep']
         else:
             raise RuntimeError("no previous time-step to re-emit and no action taken?")
-    state_image = render(timestep)
+
+    stage = stages[session['stage_idx']]
+    state_image = stage.render_fn(timestep, env_params, rng_)
 
     session['timestep'] = timestep
     return state_image
@@ -233,7 +252,9 @@ def serialize(pytree):
 
 def add_stage_to_db(stage_idx, stage_infos, user_seed):
     stage_info = stage_infos[stage_idx]
-    stage = serialize(stages[stage_idx])
+    stage = stages[stage_idx]
+    stage = stage.replace(render_fn=None)
+    stage = serialize(stage)
     new_row = {
         "stage_idx": stage_idx,
         'stage': stage,
@@ -314,8 +335,9 @@ def update_env_html_fields(**kwargs):
     stage_info = session['stage_infos'][stage_idx]
 
     subtitle = stage.subtitle
-    subtitle += f"<br>Successes: {stage_info.num_success}/{stage.min_success}"
-    subtitle += f"<br>Episodes: {stage_info.ep_idx}/{stage.max_episodes}"
+    if stage.show_progress:
+        subtitle += f"<br>Successes: {stage_info.num_success}/{stage.min_success}"
+        subtitle += f"<br>Episodes: {stage_info.ep_idx}/{stage.max_episodes}"
     emit('update_html_fields', {
         'title': stage.title,
         'subtitle': subtitle,
@@ -328,12 +350,13 @@ def update_env_html_fields(**kwargs):
 
 def start_env_interaction_stage():
     """New stage begins."""
+    stage = stages[session['stage_idx']]
     template_file = stages[session['stage_idx']].html
-
-    assert 'env' in template_file
-
     env_params = stages[session['stage_idx']].env_params
-    state_image = reset_environment(env_params)
+
+    reset_environment(env_params)
+
+    state_image = stage.render_map(session['timestep'])
     encoded_image = encode_image(state_image)
 
     emit('update_content', {
@@ -345,117 +368,20 @@ def start_env_interaction_stage():
     update_env_html_fields()
 
 
-############
-# App
-############
-app = Flask(__name__)
-
-CORS(app)  # Enable CORS for all routes
-
-app.secret_key = 'some secret'
-# Adjust the time as needed
-app.permanent_session_lifetime = timedelta(days=30)
-
-app.json.default = utils.encode_json
-socketio = SocketIO(app)
-
-# Route for the index page
-@app.route('/')
-def index():
-    """Always Called 1st"""
-    session.permanent = True
-    if 'user_seed' not in session:
-        pass
-        # Generate a unique user ID if not present
-        # unique_id = uuid.uuid4()
-    unique_id = random.getrandbits(32)
-    user_seed = int(unique_id)
-
-    # reset the environment early + run reset/step to jit computations
-    rng = jax.random.PRNGKey(user_seed)
-
-    session['unique_id'] = unique_id
-    session['user_seed'] = user_seed
-    rng = rng_from_jax(rng)
-    session['rng'] = rng
-    session['stage_idx'] = 0
-
-    return render_template('index.html', template_file='consent.html')
-
-
-@app.route('/experiment', methods=['POST'])
-def start_experiment():
-    """Always called 2nd after checkbox is checked to start experiment."""
-    session['stage_idx'] = 1
-    return render_template(
-        'index.html', template_file=stages[session['stage_idx']].html)
-
-
-@socketio.on('request_update')
-def handle_request_update():
-    """Always called 3rd immediately after `start_experiment`. Need separate function to listen for rendering a new template. We'll now update the html content."""
-
-    # NOTE: we want to store this in session because will be changing
-    stage_infos = [
-        utils.StageInfo(stage) if 'env' in stage.html else None for stage in stages]
-    session['stage_infos'] = stage_infos
-
-    # Check if the stage index is set and then emit the update_html_fields event.
-    if 'stage_idx' in session:
-        update_html_fields()
-        template_file = stages[session['stage_idx']].html
-        if 'env' in template_file:
-            start_env_interaction_stage()
-
-@socketio.on('record_click')
-def handle_record_click(json):
-    """Once the experiment has started, the user can go back and forth by clicking arrows.
-
-    This allows for that.
-    """
-    direction = json['direction']
-    if direction == 'left':
-        session['stage_idx'] -= 1
-        session['stage_idx'] = max(1, session['stage_idx'])
-    elif direction == 'right':
-        session['stage_idx'] += 1
-        session['stage_idx'] = min(session['stage_idx'], len(stages)-1)
-    else:
-        raise NotImplementedError
-
-    template_file = stages[session['stage_idx']].html
-    if 'env' in template_file:
-        start_env_interaction_stage()
-    else:
-        emit('update_content', {
-            'content': render_template(template_file)
-        })
-        update_html_fields()
-        if 'done' in template_file:
-            save_interactions_on_session_end()
-
-
-@socketio.on('key_pressed')
-def handle_key_press(json):
-    """This happens INSIDE a stage"""
+def handle_interaction_phase(json):
 
     key = json['key']
-    print('key pressed:', key)
     if not keyparser.valid_key(key):
         return
 
     stage_idx = session['stage_idx']
     stage_info = session['stage_infos'][stage_idx]
+
     env_params = stages[stage_idx].env_params
     if not session['timestep'].last():
         # update database with image, action, + times of each
         add_interaction_to_db(json, stage_idx,
-                     session['timestep'], session['rng'], session['user_seed'])
-        #gevent.spawn(add_interaction_to_db, json, stage_idx,
-        #    session['timestep'], session['rng'], session['user_seed'])
-        #socketio.start_background_task(
-        #    add_interaction_to_db, json, stage_idx,
-        #    session['timestep'], session['rng'], session['user_seed'])
+                              session['timestep'], session['rng'], session['user_seed'])
         print('add_interaction_to_db')
 
         # take action
@@ -491,7 +417,8 @@ def handle_key_press(json):
 
     else:
         # if final time-step, need to press 'c' to continue.
-        if key != 'c': return
+        if key != 'c':
+            return
 
         ###################
         # check if this stage is over
@@ -507,28 +434,13 @@ def handle_key_press(json):
         achieved_max_episodes = ep_idx > max_episodes
 
         go_to_next_stage = achieved_min_success or achieved_max_episodes
-        #------------
+        # ------------
         # update to next stage
         # ------------
         if go_to_next_stage:
-            add_stage_to_db(session['stage_idx'], session['stage_infos'], session['user_seed'])
-            # update stage idx
-            session['stage_idx'] += 1
-            session['stage_idx'] = min(session['stage_idx'], len(stages)-1)
-
-            # next template file
-            template_file = stages[session['stage_idx']].html
-
-            # update content
-            if 'env' in template_file:
-                start_env_interaction_stage()
-            else:
-                emit('update_content', {
-                    'content': render_template(template_file),
-                })
-                update_html_fields()
-                if 'done' in template_file:
-                    save_interactions_on_session_end()
+            add_stage_to_db(session['stage_idx'],
+                            session['stage_infos'], session['user_seed'])
+            advance_to_next_stage()
             print('advanced to next stage')
 
         # ------------
@@ -544,6 +456,228 @@ def handle_key_press(json):
                 'image': encoded_image,
             })
             print('reset env')
+
+def start_env_1shot_phase():
+
+    template_file = stages[session['stage_idx']].html
+    env_params = stages[session['stage_idx']].env_params
+    keys = env_params.maze_config['keys']
+
+    reset_environment(env_params)
+    rng_ = split_rng()
+    permutation = jax.random.permutation(rng_, keys.shape[0])
+    session['permutation'] = permutation
+
+    keys = keys[permutation]
+    session['choices'] = keys
+    state_image = utils.objects_with_number(keys)
+    encoded_image = encode_image(state_image)
+
+    emit('update_content', {
+        'content': render_template(template_file),
+    })
+    emit('action_taken', {
+        'image': encoded_image,
+    })
+    kwargs = {}
+    if DEBUG:
+        goal_room_idx = int(session['timestep'].state.goal_room_idx)
+        kwargs['envcaption'] = f'correct key: {permutation[goal_room_idx]}'
+
+    update_env_html_fields(**kwargs)
+
+
+def handle_1shot_phase(json):
+    key = json['key']
+    ###################
+    # evaluate whether successful
+    ###################
+
+    if not key.isnumeric():
+        print(f"{key} is not numeric")
+        return
+    choice_idx = int(key) - 1
+    choices = session['choices']
+    if not choice_idx < len(choices): 
+        print(f'{choice_idx}>{len(choices)}')
+        return
+
+    # what is the goal key? aliased with goal room.
+    goal_room_idx = int(session['timestep'].state.goal_room_idx)
+    chosen_room = int(session['permutation'][choice_idx])
+    success = int(goal_room_idx == chosen_room)
+    print("Success:", success)
+    ###################
+    # store data and move to next stage
+    ###################
+    stage_idx = session['stage_idx']
+    rng = session['rng']
+    #-------------
+    # interactions
+    #-------------
+    user_seed = session['user_seed']
+    timestep = session['timestep'].replace(observation=None)
+    timestep = serialize(timestep)
+    new_row = {
+        "stage_idx": int(stage_idx),
+        "image_seen_time": str(json['imageSeenTime']),
+        "key_press_time": str(json['keydownTime']),
+        "key": str(json['key']),
+        "action": int(json['key']),
+        "timestep": timestep,
+        "rng": list(rng_from_jax(rng)),
+        'unique_id': int(user_seed),
+    }
+    interaction_list.append(new_row)
+
+    #---------------
+    # stages
+    #---------------
+    stage = stages[stage_idx]
+    stage = stage.replace(render_fn=None)
+    stage = serialize(stage)
+    new_row = {
+        "stage_idx": stage_idx,
+        'stage': stage,
+        't': 0,
+        'ep_idx': 0,
+        'num_success': success,
+        'unique_id': int(user_seed),
+    }
+    stage_list.append(new_row)
+    advance_to_next_stage()
+
+def start_env_stage():
+    stage = stages[session['stage_idx']]
+    if stage.type == 'interaction':
+        start_env_interaction_stage()
+    elif stage.type == '1shot':
+        start_env_1shot_phase()
+
+
+
+def advance_to_next_stage():
+    # update stage idx
+    session['stage_idx'] += 1
+    session['stage_idx'] = min(session['stage_idx'], len(stages)-1)
+
+    # next template file
+    template_file = stages[session['stage_idx']].html
+
+    # update content
+    if 'env' in template_file:
+        start_env_stage()
+    else:
+        emit('update_content', {
+            'content': render_template(template_file),
+        })
+        update_html_fields()
+        if 'done' in template_file:
+            save_interactions_on_session_end()
+
+
+############
+# App
+############
+app = Flask(__name__)
+
+CORS(app)  # Enable CORS for all routes
+
+app.secret_key = 'some secret'
+# Adjust the time as needed
+app.permanent_session_lifetime = timedelta(days=30)
+
+app.json.default = utils.encode_json
+socketio = SocketIO(app)
+
+# Route for the index page
+@app.route('/')
+def index():
+    """Always Called 1st"""
+    session.permanent = True
+    if 'user_seed' not in session:
+        pass
+        # Generate a unique user ID if not present
+        # unique_id = uuid.uuid4()
+    unique_id = random.getrandbits(32)
+    user_seed = int(unique_id)
+
+    # reset the environment early + run reset/step to jit computations
+    if DEBUG:
+        rng = jax.random.PRNGKey(DEBUG_SEED)
+    else:
+        rng = jax.random.PRNGKey(user_seed)
+
+    session['unique_id'] = unique_id
+    session['user_seed'] = user_seed
+    rng = rng_from_jax(rng)
+    session['rng'] = rng
+    session['stage_idx'] = 0
+
+    return render_template('index.html', template_file='consent.html')
+
+
+@app.route('/experiment', methods=['POST'])
+def start_experiment():
+    """Always called 2nd after checkbox is checked to start experiment."""
+    session['stage_idx'] = 1
+    return render_template(
+        'index.html', template_file=stages[session['stage_idx']].html)
+
+
+@socketio.on('request_update')
+def handle_request_update():
+    """Always called 3rd immediately after `start_experiment`. Need separate function to listen for rendering a new template. We'll now update the html content."""
+
+    # NOTE: we want to store this in session because will be changing
+    stage_infos = [
+        utils.StageInfo(stage) if 'env' in stage.html else None for stage in stages]
+    session['stage_infos'] = stage_infos
+
+    # Check if the stage index is set and then emit the update_html_fields event.
+    if 'stage_idx' in session:
+        update_html_fields()
+        template_file = stages[session['stage_idx']].html
+        if 'env' in template_file:
+            start_env_stage()
+
+@socketio.on('record_click')
+def handle_record_click(json):
+    """Once the experiment has started, the user can go back and forth by clicking arrows.
+
+    This allows for that.
+    """
+    direction = json['direction']
+    if direction == 'left':
+        session['stage_idx'] -= 1
+        session['stage_idx'] = max(1, session['stage_idx'])
+    elif direction == 'right':
+        session['stage_idx'] += 1
+        session['stage_idx'] = min(session['stage_idx'], len(stages)-1)
+    else:
+        raise NotImplementedError
+
+    template_file = stages[session['stage_idx']].html
+    if 'env' in template_file:
+        start_env_stage()
+    else:
+        emit('update_content', {
+            'content': render_template(template_file)
+        })
+        update_html_fields()
+        if 'done' in template_file:
+            save_interactions_on_session_end()
+
+@socketio.on('key_pressed')
+def handle_key_press(json):
+    """This happens INSIDE a stage"""
+    print('key pressed:', json['key'])
+
+    stage = stages[session['stage_idx']]
+    if stage.type == 'interaction':
+        handle_interaction_phase(json)
+    elif stage.type == '1shot':
+        handle_1shot_phase(json)
 
 
 

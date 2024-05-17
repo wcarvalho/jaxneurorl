@@ -2,9 +2,11 @@ import functools
 from flask import session
 from flask_socketio import emit
 from flax import struct
-from typing import Optional, List
+import jax
+from typing import Optional, List, Callable
 from PIL import Image, ImageDraw, ImageFont
-from xminigrid.types import AgentState
+from xminigrid.environment import EnvParams
+from xminigrid.types import AgentState, TimeStep
 from xminigrid.rendering import rgb_render
 from xminigrid.core import constants as minigrid_constants
 from xminigrid.core import actions as minigrid_actions
@@ -14,13 +16,18 @@ import keyroom
 # Structures for storing data
 ############
 
+RenderFn = Callable[[TimeStep, EnvParams, jax.random.PRNGKey], jax.Array]
 @struct.dataclass
 class Stage:
     html: str
+    type: str = 'default'
     title: Optional[str] = ''
     subtitle: Optional[str] = ''
     body: Optional[str] = ''
     envcaption: Optional[str] = ''
+    # environment related properties
+    render_fn: Optional[RenderFn] = None
+    show_progress: bool = True
     env_params: Optional[struct.PyTreeNode] = None
     max_episodes: Optional[int] = 10
     min_success: Optional[int] = 1
@@ -332,6 +339,25 @@ def objects_with_number(
 
     # Combine the images into one
     return np.hstack(key_images_with_numbers)
+
+
+def render_map(timestep, env_params=None, rng=None):
+    return render(
+        np.asarray(timestep.state.grid),
+        timestep.state.agent,
+        0,
+        tile_size=20)
+
+
+def render_keys(timestep, env_params, rng):
+    objects = env_params.maze_config['keys']
+    objects = permute(objects, rng)
+    return objects_with_number(objects)
+
+def render_pairs(timestep, env_params, rng):
+    objects = env_params.maze_config['pairs'].reshape(-1, 2)
+    objects = permute(objects, rng)
+    return objects_with_number(objects)
 
 
 class KeyRoomUpDownLeftRight(keyroom.KeyRoom):
