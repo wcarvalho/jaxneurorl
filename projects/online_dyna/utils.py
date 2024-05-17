@@ -1,10 +1,12 @@
+import functools
 from flask import session
 from flask_socketio import emit
 from flax import struct
 from typing import Optional, List
 from PIL import Image, ImageDraw, ImageFont
 from xminigrid.types import AgentState
-from xminigrid.rendering.rgb_render import render_tile
+from xminigrid.rendering import rgb_render
+from xminigrid.core import constants as minigrid_constants
 from xminigrid.core import actions as minigrid_actions
 import keyroom
 
@@ -109,11 +111,118 @@ def array_to_python(obj):
         return obj
 
 
-
-
 ################
 # Env utils
 ################
+fill_coords = rgb_render.fill_coords
+point_in_circle = rgb_render.point_in_circle
+point_in_triangle = rgb_render.point_in_triangle
+point_in_hexagon = rgb_render.point_in_hexagon
+point_in_rect = rgb_render.point_in_rect
+COLORS_MAP = rgb_render.COLORS_MAP
+
+def _render_ball(img: np.ndarray, color: int):
+    fill_coords(img, point_in_circle(0.5, 0.5, 0.31), COLORS_MAP[color])
+
+
+def _render_square(img: np.ndarray, color: int):
+    fill_coords(img, point_in_rect(0.25, 0.75, 0.25, 0.75), COLORS_MAP[color])
+
+
+def _render_pyramid(img: np.ndarray, color: int):
+    tri_fn = point_in_triangle(
+        (0.15, 0.8),
+        (0.85, 0.8),
+        (0.5, 0.2),
+    )
+    fill_coords(img, tri_fn, COLORS_MAP[color])
+
+
+def _render_hex(img: np.ndarray, color: int):
+    fill_coords(img, point_in_hexagon(0.35), COLORS_MAP[color])
+
+
+def _render_star(img: np.ndarray, color: int):
+    # yes, this is a hexagram not a star, but who cares...
+    tri_fn2 = point_in_triangle(
+        (0.15, 0.75),
+        (0.85, 0.75),
+        (0.5, 0.15),
+    )
+    tri_fn1 = point_in_triangle(
+        (0.15, 0.3),
+        (0.85, 0.3),
+        (0.5, 0.9),
+    )
+    fill_coords(img, tri_fn1, COLORS_MAP[color])
+    fill_coords(img, tri_fn2, COLORS_MAP[color])
+
+
+def _render_goal(img: np.ndarray, color: int):
+    # draw the grid lines (top and left edges)
+    fill_coords(img, point_in_rect(0, 0.031, 0, 1), (100, 100, 100))
+    fill_coords(img, point_in_rect(0, 1, 0, 0.031), (100, 100, 100))
+    # draw tile
+    fill_coords(img, point_in_rect(0.031, 1, 0.031, 1), COLORS_MAP[color])
+
+    # # other grid lines (was used for paper visualizations)
+    # fill_coords(img, point_in_rect(1 - 0.031, 1, 0, 1), (100, 100, 100))
+    # fill_coords(img, point_in_rect(0, 1, 1 - 0.031, 1), (100, 100, 100))
+
+
+def _render_key(img: np.ndarray, color: int):
+    # Vertical quad
+    fill_coords(img, point_in_rect(0.50, 0.63, 0.31, 0.88), COLORS_MAP[color])
+    # Teeth
+    fill_coords(img, point_in_rect(0.38, 0.50, 0.59, 0.66), COLORS_MAP[color])
+    fill_coords(img, point_in_rect(0.38, 0.50, 0.81, 0.88), COLORS_MAP[color])
+    # Ring
+    fill_coords(img, point_in_circle(
+        cx=0.56, cy=0.28, r=0.190), COLORS_MAP[color])
+    fill_coords(img, point_in_circle(cx=0.56, cy=0.28, r=0.064), (0, 0, 0))
+
+POCKET_FN_MAP = {
+    minigrid_constants.Tiles.BALL: _render_ball,
+    minigrid_constants.Tiles.SQUARE: _render_square,
+    minigrid_constants.Tiles.PYRAMID: _render_pyramid,
+    minigrid_constants.Tiles.HEX: _render_hex,
+    minigrid_constants.Tiles.STAR: _render_star,
+    minigrid_constants.Tiles.GOAL: _render_goal,
+    minigrid_constants.Tiles.KEY: _render_key,
+}
+
+
+@functools.cache
+def render_tile(
+    tile: np.ndarray,
+    agent_direction: int = None,
+    agent_pocket = None,
+    highlight: bool = False, tile_size: int = 32, subdivs: int = 3
+) -> np.ndarray:
+    img = np.full((tile_size * subdivs, tile_size * subdivs, 3),
+                  dtype=np.uint8, fill_value=255)
+
+    # draw tile
+    rgb_render.TILES_FN_MAP[tile[0]](img, tile[1])
+
+    # draw agent if on this tile
+    if agent_direction is not None:
+        rgb_render._render_player(img, agent_direction)
+
+    if agent_pocket is not None:
+        if agent_pocket is not (minigrid_constants.Tiles.EMPTY,
+                            minigrid_constants.Colors.EMPTY):
+            if agent_pocket[0] in POCKET_FN_MAP.keys():
+                POCKET_FN_MAP[agent_pocket[0]](img, agent_pocket[1])
+
+
+    if highlight:
+        rgb_render.highlight_img(img, alpha=0.2)
+
+    # downsample the image to perform supersampling/anti-aliasing
+    img = rgb_render.downsample(img, subdivs)
+
+    return img
 
 def render(
     grid: np.ndarray,
@@ -134,12 +243,15 @@ def render(
         for x in range(grid.shape[1]):
             if agent is not None and np.array_equal((y, x), agent.position):
                 agent_direction = int(agent.direction)
+                agent_pocket = tuple(np.asarray(agent.pocket))
             else:
                 agent_direction = None
+                agent_pocket = None
 
             tile_img = render_tile(
                 tile=tuple(grid[y, x]),
                 agent_direction=agent_direction,
+                agent_pocket=agent_pocket,
                 tile_size=int(tile_size),
             )
 
@@ -246,10 +358,10 @@ def take_action(grid, agent, action):
         return minigrid_actions.move_forward(grid, agent)
 
     actions = (
-        lambda: move(grid, agent, 0),
-        lambda: move(grid, agent, 1),
-        lambda: move(grid, agent, 2),
-        lambda: move(grid, agent, 3),
+        lambda: move(grid, agent, 0),  # up
+        lambda: move(grid, agent, 1),  # right
+        lambda: move(grid, agent, 2),  # down
+        lambda: move(grid, agent, 3),  # left
         lambda: minigrid_actions.pick_up(grid, agent),
         lambda: minigrid_actions.put_down(grid, agent),
         lambda: minigrid_actions.toggle(grid, agent),
