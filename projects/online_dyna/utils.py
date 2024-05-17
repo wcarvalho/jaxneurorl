@@ -5,7 +5,8 @@ from typing import Optional, List
 from PIL import Image, ImageDraw, ImageFont
 from xminigrid.types import AgentState
 from xminigrid.rendering.rgb_render import render_tile
-
+from xminigrid.core import actions as minigrid_actions
+import keyroom
 
 ############
 # Structures for storing data
@@ -220,6 +221,42 @@ def objects_with_number(
     # Combine the images into one
     return np.hstack(key_images_with_numbers)
 
+
+class KeyRoomUpDownLeftRight(keyroom.KeyRoom):
+
+    def take_action(self, key, timestep, action, params):
+        del key
+        del params
+        new_grid, new_agent, _ = take_action(
+            timestep.state.grid, timestep.state.agent, action)
+
+        new_grid, new_agent = self.teleport_agent_remove_key_close_door(
+            prior_timestep=timestep,
+            new_grid=new_grid,
+            new_agent=new_agent)
+
+        return new_grid, new_agent, _
+
+
+def take_action(grid, agent, action):
+    # This will evaluate all actions.
+    # Can we fix this and choose only one function? It'll speed everything up dramatically.
+    def move(grid, agent, direction):
+        agent = agent.replace(direction=direction)
+        return minigrid_actions.move_forward(grid, agent)
+
+    actions = (
+        lambda: move(grid, agent, 0),
+        lambda: move(grid, agent, 1),
+        lambda: move(grid, agent, 2),
+        lambda: move(grid, agent, 3),
+        lambda: minigrid_actions.pick_up(grid, agent),
+        lambda: minigrid_actions.put_down(grid, agent),
+        lambda: minigrid_actions.toggle(grid, agent),
+    )
+    new_grid, new_agent, changed_position = jax.lax.switch(action, actions)
+
+    return new_grid, new_agent, changed_position
 
 ############
 # Flask functions

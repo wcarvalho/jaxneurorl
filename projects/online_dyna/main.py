@@ -29,33 +29,34 @@ interaction_list = []
 with open("maze_pairs.json", "r") as file:
     maze_config = json.load(file)[0]
 
-env = keyroom.KeyRoom()
+env = utils.KeyRoomUpDownLeftRight()
 
 # Action mappings
 default_env_params = env.default_params(
     maze_config=keyroom.shorten_maze_config(maze_config, 3))
 dummy_rng = jax.random.PRNGKey(0)
 dummy_action = 0
-for _ in range(5):
-    default_timestep = env.reset(dummy_rng, default_env_params)
-    env.step(
-        dummy_rng, default_timestep, dummy_action, default_env_params)
+default_timestep = env.reset(dummy_rng, default_env_params)
+env.step(
+    dummy_rng, default_timestep, dummy_action, default_env_params)
 
 
 
 class KeyParser(NamedTuple):
     int_to_action_str = {
-        0: 'forward',
+        0: 'up',
         1: 'right',
-        2: 'left',
-        3: 'pickup',
-        4: 'put_down',
-        5: 'toggle'
+        2: 'down',
+        3: 'left',
+        4: 'pickup',
+        5: 'put_down',
+        6: 'toggle'
     }
     key_to_action = {
-        'w': 'forward',
+        'w': 'up',
         'a': 'left',
         'd': 'right',
+        's': 'down',
         'p': 'pickup',
         'l': 'put_down',
         'o': 'toggle',
