@@ -26,6 +26,7 @@ class Stage:
     body: Optional[str] = ''
     envcaption: Optional[str] = ''
     # environment related properties
+    seconds: float = None
     render_fn: Optional[RenderFn] = None
     show_progress: bool = True
     env_params: Optional[struct.PyTreeNode] = None

@@ -140,6 +140,11 @@ stages = [
             Please click the right arrow when you are ready.
             """,
         ),
+    utils.Stage('explanation-timed.html',
+        title='Practice 3: 1-shot',
+        body="""Get ready.""",
+        seconds=5,
+        ),
     utils.Stage('env.html',
         title='Practice 3: 1-shot',
         subtitle="Pick the key which will get this object.",
@@ -151,6 +156,7 @@ stages = [
             ),
         render_fn=utils.render_keys,
         show_progress=False,
+        seconds=10,
         ),
     ############################
     # Block 1: no time-pressure
@@ -327,6 +333,10 @@ def update_html_fields(**kwargs):
         **kwargs,
     })
 
+    seconds = stages[session['stage_idx']].seconds
+    if seconds:
+        emit('start_timer', {'seconds': seconds})
+
 
 def update_env_html_fields(**kwargs):
 
@@ -479,6 +489,10 @@ def start_env_1shot_phase():
     emit('action_taken', {
         'image': encoded_image,
     })
+
+    seconds = stages[session['stage_idx']].seconds
+    if seconds:
+        emit('start_timer', {'seconds': seconds})
     kwargs = {}
     if DEBUG:
         goal_room_idx = int(session['timestep'].state.goal_room_idx)
@@ -539,8 +553,8 @@ def handle_1shot_phase(json):
     new_row = {
         "stage_idx": stage_idx,
         'stage': stage,
-        't': 0,
-        'ep_idx': 0,
+        't': 1,
+        'ep_idx': 1,
         'num_success': success,
         'unique_id': int(user_seed),
     }
@@ -554,6 +568,47 @@ def start_env_stage():
     elif stage.type == '1shot':
         start_env_1shot_phase()
 
+def end_1shot_timer():
+    ###################
+    # store data and move to next stage
+    ###################
+    stage_idx = session['stage_idx']
+    rng = session['rng']
+    # -------------
+    # interactions
+    # -------------
+    user_seed = session['user_seed']
+    timestep = session['timestep'].replace(observation=None)
+    timestep = serialize(timestep)
+    new_row = {
+        "stage_idx": int(stage_idx),
+        "image_seen_time": 'none',
+        "key_press_time": 'none',
+        "key": 'none',
+        "action": -1000,
+        "timestep": timestep,
+        "rng": list(rng_from_jax(rng)),
+        'unique_id': int(user_seed),
+    }
+    interaction_list.append(new_row)
+
+    # ---------------
+    # stages
+    # ---------------
+    stage = stages[stage_idx]
+    stage = stage.replace(render_fn=None)
+    stage = serialize(stage)
+    new_row = {
+        "stage_idx": stage_idx,
+        'stage': stage,
+        't': 1,
+        'ep_idx': 1,
+        'num_success': 0,
+        'unique_id': int(user_seed),
+    }
+    stage_list.append(new_row)
+    # Define the logic to be executed when the timer finishes
+    advance_to_next_stage()
 
 
 def advance_to_next_stage():
@@ -563,6 +618,9 @@ def advance_to_next_stage():
 
     # next template file
     template_file = stages[session['stage_idx']].html
+
+    # Emit the 'stage_advanced' event to the client
+    emit('stop_timer')
 
     # update content
     if 'env' in template_file:
@@ -680,7 +738,13 @@ def handle_key_press(json):
         handle_1shot_phase(json)
 
 
-
+@socketio.on('timer_finished')
+def on_timer_finish():
+    stage = stages[session['stage_idx']]
+    if stage.type == '1shot':
+        end_1shot_timer()
+    else:
+        advance_to_next_stage()
 
 # Run the Flask app
 if __name__ == '__main__':
