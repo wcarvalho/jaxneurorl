@@ -88,8 +88,11 @@ default_env_caption = """
         """
 stages = [
     utils.Stage('consent.html'),
+    ############################
+    # Practice
+    ############################
     utils.Stage('explanation.html',
-          title='Practice',
+          title='Practice 1',
           body="""
             In this section of the experiment, you'll practice to understand how the environment works. First, you'll practice getting the object in the same room.
             <br><br>
@@ -102,26 +105,47 @@ stages = [
           title="Practice 1",
           subtitle="goal object in the same room",
           env_params=default_env_params.replace(train_multi_probs=0.,),
-          min_success=1,
+          min_success=10,
+          max_episodes=50,
           envcaption=default_env_caption,
           ),
-    #utils.Stage('explanation.html',
-    #      title='Practice 2',
-    #      body="""
-    #        Now, you'll practice getting an object when it's in another room.
-    #        <br><br>
-    #        You will do 5 practice rounds.
-    #        <br><br>
-    #        Please click the right arrow when you are done.
-    #        """
-    #      ),
-    #utils.Stage('env.html',
-    #      title="Practice 2",
-    #      subtitle="goal object in a different room",
-    #      env_params=default_env_params.replace(train_multi_probs=1.,),
-    #      min_success=1,
-    #      envcaption=default_env_caption
-    #      ),
+    utils.Stage('explanation.html',
+          title='Practice 2',
+          body="""
+            Now, you'll practice getting an object when it's in another room.
+            <br><br>
+            You will do 5 practice rounds.
+            <br><br>
+            Please click the right arrow when you are done.
+            """
+          ),
+    utils.Stage('env.html',
+          title="Practice 2",
+          subtitle="goal object in a different room",
+          env_params=default_env_params.replace(train_multi_probs=1.,),
+          min_success=10,
+          max_episodes=50,
+          envcaption=default_env_caption
+          ),
+
+    ############################
+    # Block 1: no time-pressure
+    # 20 trials
+    ############################
+
+    ############################
+    # Block 2: small time-pressure
+    # 20 trials
+    ############################
+
+    ############################
+    # Block 3: long time-pressure
+    # 20 trials
+    ############################
+
+    ############################
+    # Done
+    ############################
     utils.Stage('done.html',
             title='Experiment Finished',
             subtitle='Please wait as data is uploaded.'

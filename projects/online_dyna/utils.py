@@ -1,10 +1,10 @@
 from flask import session
 from flask_socketio import emit
+from flax import struct
+from typing import Optional, List
+from PIL import Image, ImageDraw, ImageFont
 from xminigrid.types import AgentState
 from xminigrid.rendering.rgb_render import render_tile
-from typing import Optional
-
-from flax import struct
 
 
 ############
@@ -149,6 +149,77 @@ def render(
             img[ymin:ymax, xmin:xmax, :] = tile_img
 
     return img
+
+
+def permute(x: jax.Array, rng: jax.random.PRNGKey):
+    # Generate random permutation indices
+    permutation = jax.random.permutation(rng, x.shape[0])
+
+    # Apply permutation to the array
+    return x[permutation]
+
+def render_object_with_number(
+        object: np.ndarray,
+        number: int,
+        image_width: int=50, font_size: int=20):
+    assert object.ndim == 1, 'must have 1 dimension'
+    assert object.shape[0] == 2, 'render_tile only supports rendering [shape, color]'
+
+    image_height = 2*image_width  # for image + number
+    image_size = (image_width, image_height)
+    # Create the key image
+    key_image = render_tile(tuple(object))
+
+    # Ensure the key image is an instance of a PIL Image
+    key_image = Image.fromarray(np.array(key_image, dtype=np.uint8))
+
+    # Create a blank white image for the combined key and number
+    combined_image = Image.new('RGB', image_size, color=(255, 255, 255))
+
+    # Resize the key image to fit within the combined image
+    key_image = key_image.resize((image_size[0], image_size[0]))
+
+    # Paste the key image onto the combined image
+    combined_image.paste(key_image, (0, 0))
+
+    # Initialize the drawing context
+    draw = ImageDraw.Draw(combined_image)
+
+    # Load a built-in PIL font
+    font = ImageFont.load_default(size=font_size)
+
+    # Draw the number beneath the key
+    text = str(number)
+    text_bbox = draw.textbbox((0, 0), text, font=font)
+    text_width = text_bbox[2] - text_bbox[0]
+    text_height = text_bbox[3] - text_bbox[1]
+    text_position = ((image_size[0] - text_width) // 2, image_size[0] +
+                    (image_size[1] - image_size[0] - text_height) // 2)
+
+    draw.text(text_position, text, fill=(0, 0, 0), font=font)
+
+    # Convert to NumPy array
+    np_image = np.array(combined_image)
+
+    return np_image
+
+def objects_with_number(
+        objects,
+        rng: Optional[jax.random.PRNGKey] = None,
+        numbers: List[int] = None):
+
+    if isinstance(objects, jnp.ndarray):
+        objects = np.asarray(objects)
+
+    if numbers is None:
+        numbers = [i+1 for i in range(len(objects))]
+
+    key_images_with_numbers = [
+        render_object_with_number(o, n) for (o,n) in zip(objects, numbers)]
+
+    # Combine the images into one
+    return np.hstack(key_images_with_numbers)
+
 
 ############
 # Flask functions
