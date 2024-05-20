@@ -75,7 +75,6 @@ def run_single(
       maze_config = json.load(file)[0]
 
     num_rooms = config['env']['ENV_KWARGS'].pop('NUM_ROOMS', 3)
-    symbolic = config['env']['ENV_KWARGS'].pop('symbolic', False)
     num_tiles = config['env']['ENV_KWARGS'].pop('NUM_TILES', 16)
     train_end_pair = config['env']['ENV_KWARGS'].pop('TRAIN_END_PAIR', True)
     test_end_on = config['env']['ENV_KWARGS'].pop('TEST_END_ON', 'any_pair')
@@ -89,6 +88,7 @@ def run_single(
       width=num_tiles,
       **config['env']['ENV_KWARGS'])
 
+    symbolic = config['env']['ENV_KWARGS'].pop('symbolic', False)
     if symbolic:
       env = keyroom_symbolic.KeyRoomSymbolic()
       env_params = env.default_params(**default_params_kwargs)
@@ -294,6 +294,21 @@ def sweep(search: str = ''):
             **shared,
         },
       ]
+  elif search == 'symbolic':
+    space = [
+        {
+            "group": tune.grid_search(['symbolic-1']),
+            "alg": tune.grid_search(['alphazero']),
+            "env.symbolic": tune.grid_search([True]),
+            "config_name": tune.grid_search(['alpha_keyroom']),
+        },
+        {
+            "group": tune.grid_search(['symbolic-1']),
+            "alg": tune.grid_search(['qlearning']),
+            "env.symbolic": tune.grid_search([True]),
+            "config_name": tune.grid_search(['ql_keyroom']),
+        },
+      ]
   elif search == 'dynaq':
     shared = {
       "config_name": tune.grid_search(['dyna_keyroom']),
@@ -310,13 +325,25 @@ def sweep(search: str = ''):
         #    **shared,
         #},
         {
-            "group": tune.grid_search(['dyna-coeff-6']),
+            "group": tune.grid_search(['dyna-coeff-8-i5']),
             "alg": tune.grid_search(['dynaq']),
-            "DYNA_COEFF": tune.grid_search([0.1, .01]),
+            "DYNA_COEFF": tune.grid_search([1., 0.1]),
             # "NUM_SIMULATIONS": tune.grid_search([2]),
             # "SIMULATION_LENGTH": tune.grid_search([5, 15]),
+             "TRAINING_INTERVAL": tune.grid_search([5]),
             **shared,
-            "TEMP_CONCENTRATION": tune.grid_search([.25, .5, 1.]),
+            "TEMP_CONCENTRATION": tune.grid_search([.25, .5]),
+            "TEMP_RATE": tune.grid_search([.25, .5]),
+        },
+        {
+            "group": tune.grid_search(['dyna-coeff-8-i10']),
+            "alg": tune.grid_search(['dynaq']),
+            "DYNA_COEFF": tune.grid_search([1., 0.1]),
+            # "NUM_SIMULATIONS": tune.grid_search([2]),
+            # "SIMULATION_LENGTH": tune.grid_search([5, 15]),
+             "TRAINING_INTERVAL": tune.grid_search([10]),
+            **shared,
+            "TEMP_CONCENTRATION": tune.grid_search([.25, .5]),
             "TEMP_RATE": tune.grid_search([.25, .5]),
         },
         #{
