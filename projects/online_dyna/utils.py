@@ -127,7 +127,20 @@ point_in_circle = rgb_render.point_in_circle
 point_in_triangle = rgb_render.point_in_triangle
 point_in_hexagon = rgb_render.point_in_hexagon
 point_in_rect = rgb_render.point_in_rect
-COLORS_MAP = rgb_render.COLORS_MAP
+Colors = minigrid_constants.Colors
+COLORS_MAP = {
+    Colors.RED: np.array((255, 0, 0)),
+    Colors.GREEN: np.array((0, 255, 0)),
+    Colors.BLUE: np.array((51, 246, 255)),
+    Colors.PURPLE: np.array((240, 51, 255)),
+    Colors.YELLOW: np.array((255, 255, 0)),
+    Colors.GREY: np.array((222, 218, 222)),
+    Colors.BLACK: np.array((0, 0, 0)),
+    Colors.ORANGE: np.array((255, 140, 0)),
+    Colors.WHITE: np.array((255, 255, 255)),
+    Colors.BROWN: np.array((160, 82, 45)),
+    Colors.PINK: np.array((225, 20, 147)),
+}
 
 def _render_ball(img: np.ndarray, color: int):
     fill_coords(img, point_in_circle(0.5, 0.5, 0.31), COLORS_MAP[color])
@@ -189,6 +202,34 @@ def _render_key(img: np.ndarray, color: int):
         cx=0.56, cy=0.28, r=0.190), COLORS_MAP[color])
     fill_coords(img, point_in_circle(cx=0.56, cy=0.28, r=0.064), (0, 0, 0))
 
+
+def _render_door_locked(img: np.ndarray, color: int):
+    fill_coords(img, point_in_rect(0.00, 1.00, 0.00, 1.00), COLORS_MAP[color])
+    fill_coords(img, point_in_rect(0.06, 0.94, 0.06, 0.94),
+                0.45 * COLORS_MAP[color])
+    # Draw key slot
+    fill_coords(img, point_in_rect(0.52, 0.75, 0.50, 0.56), COLORS_MAP[color])
+
+
+def _render_door_closed(img: np.ndarray, color: int):
+    fill_coords(img, point_in_rect(0.00, 1.00, 0.00, 1.00), COLORS_MAP[color])
+    fill_coords(img, point_in_rect(0.04, 0.96, 0.04, 0.96), (0, 0, 0))
+    fill_coords(img, point_in_rect(0.08, 0.92, 0.08, 0.92), COLORS_MAP[color])
+    fill_coords(img, point_in_rect(0.12, 0.88, 0.12, 0.88), (0, 0, 0))
+    # Draw door handle
+    fill_coords(img, point_in_circle(
+        cx=0.75, cy=0.50, r=0.08), COLORS_MAP[color])
+
+
+def _render_door_open(img: np.ndarray, color: int):
+    rgb_render._render_floor(img, Colors.BLACK)
+    # draw the grid lines (top and left edges)
+    fill_coords(img, point_in_rect(0, 0.031, 0, 1), (100, 100, 100))
+    fill_coords(img, point_in_rect(0, 1, 0, 0.031), (100, 100, 100))
+    # draw door
+    fill_coords(img, point_in_rect(0.88, 1.00, 0.00, 1.00), COLORS_MAP[color])
+    fill_coords(img, point_in_rect(0.92, 0.96, 0.04, 0.96), (0, 0, 0))
+
 POCKET_FN_MAP = {
     minigrid_constants.Tiles.BALL: _render_ball,
     minigrid_constants.Tiles.SQUARE: _render_square,
@@ -197,6 +238,16 @@ POCKET_FN_MAP = {
     minigrid_constants.Tiles.STAR: _render_star,
     minigrid_constants.Tiles.GOAL: _render_goal,
     minigrid_constants.Tiles.KEY: _render_key,
+}
+
+TILES_FN_MAP = {
+    minigrid_constants.Tiles.FLOOR: rgb_render._render_floor,
+    minigrid_constants.Tiles.WALL: rgb_render._render_wall,
+    minigrid_constants.Tiles.DOOR_LOCKED: _render_door_locked,
+    minigrid_constants.Tiles.DOOR_CLOSED: _render_door_closed,
+    minigrid_constants.Tiles.DOOR_OPEN: _render_door_open,
+    minigrid_constants.Tiles.EMPTY: lambda img, color: img,
+    **POCKET_FN_MAP,
 }
 
 
@@ -211,7 +262,8 @@ def render_tile(
                   dtype=np.uint8, fill_value=255)
 
     # draw tile
-    rgb_render.TILES_FN_MAP[tile[0]](img, tile[1])
+    rgb_render._render_floor(img, Colors.BLACK)
+    TILES_FN_MAP[tile[0]](img, tile[1])
 
     # draw agent if on this tile
     if agent_direction is not None:
