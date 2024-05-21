@@ -173,6 +173,7 @@ class TaskRunner(struct.PyTreeNode):
 
 class KeyRoomEnvParams(EnvParams):
     random_door_loc: bool = struct.field(pytree_node=False, default=False)
+    random_obj_loc: bool = struct.field(pytree_node=False, default=True)
     #train_single: bool = struct.field(pytree_node=False, default=True)
     train_multi_probs: float = struct.field(pytree_node=False, default=.5)
     training: bool = struct.field(pytree_node=False, default=True)
@@ -329,6 +330,25 @@ def place_in_room(y, x, rng, grid, obj: tuple, off_border=True, roomW=None, room
   coords, rng = sample_coordinates(y=y, x=x, rng=rng, grid=grid, roomW=roomW, roomH=roomH)
   grid = grid.at[coords[0], coords[1]].set(obj)
   return grid, rng
+
+
+def fixed_place_in_room(y, x, rng, grid, obj: tuple, idx: int, off_border=True, horizontal=True, roomW=None, roomH=None):
+  assert roomW is not None and roomH is not None
+  xL, yT, xR, yB = get_x_y(y=y, x=x, roomW=roomW, roomH=roomH)
+
+  if horizontal:
+    x1 = xL + roomW//2 - 1  # 1 over from center of room
+    x2 = xL + roomW//2 + 1  # 1 over from center of room
+    y1 = yT + roomH//2  # center of room
+    grid = grid.at[y1, x1 if idx else x2].set(obj)
+  else:
+    y1 = yT + roomH//2 - 1  # 1 over from center of room
+    y2 = yT + roomH//2 + 1  # 1 over from center of room
+    x1 = xL + roomW//2  # center of room
+    grid = grid.at[y1 if idx else y2, x1].set(obj)
+
+  return grid, rng
+
 
 class Observation(struct.PyTreeNode):
    image: jax.Array
@@ -516,22 +536,47 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
         goal_room_idx = jax.random.randint(
             rng, shape=(), minval=0, maxval=len(pairs))
         pair = index(pairs, goal_room_idx)
-        grid, rng = place_in_room_p(
-            1, 1, rng, grid,
-            make_obj(*pair[0], visible=1))
-        grid, rng = place_in_room_p(
-            1, 1, rng, grid,
-            make_obj(*pair[1], visible=1))
+        if params.random_obj_loc:
+          grid, rng = place_in_room_p(
+              1, 1, rng, grid,
+              make_obj(*pair[0], visible=1))
+          grid, rng = place_in_room_p(
+              1, 1, rng, grid,
+              make_obj(*pair[1], visible=1))
+        else:
+          grid, rng = fixed_place_in_room(
+              1, 1, rng, grid,
+              obj=make_obj(*pair[0], visible=1),
+              idx=0,
+              roomW=roomW,
+              roomH=roomH,
+              )
+          grid, rng = fixed_place_in_room(
+              1, 1, rng, grid,
+              obj=make_obj(*pair[1], visible=1),
+              idx=1,
+              roomW=roomW,
+              roomH=roomH,
+              )
 
         #------------------
         # create agent
         #------------------
-        agent_position, rng = sample_coordinates_p(
-            1, 1, rng, grid, off_border=False)
+        if params.random_obj_loc:
+          agent_position, rng = sample_coordinates_p(
+              1, 1, rng, grid, off_border=False)
+          agent_position = jnp.concatenate(agent_position)
+          direction = sample_direction(rng_)
+        else:
+          xL, yT, _, _ = get_x_y(y=1, x=1, roomW=roomW, roomH=roomH)
+          agent_position = (yT+roomH//2, xL+roomW//2)
+          agent_position = jnp.asarray(agent_position, dtype=jnp.int32)
+          direction = 0
+
         rng, rng_ = jax.random.split(rng)
         agent = AgentState(
-            position=jnp.concatenate(agent_position),
-            direction=sample_direction(rng_),
+            position=agent_position,
+            direction=direction,
             pocket=make_obj_arr(Tiles.EMPTY, Colors.EMPTY),
         )
 
@@ -621,14 +666,25 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
             (0, 1),  # top
         ]
 
+        all_key_pos = [
+            (roomH//2, roomW//2+1),
+            (roomH//2+1, roomW//2),
+            (roomH//2, roomW//2-1),
+            (roomH//2-1, roomW//2),
+        ]
         for room_idx in range(nrooms):
 
           #------------------
           # place key in room
           #------------------
-          grid, rng = place_in_room_p(
-              1, 1, rng, grid,
-              make_obj(*keys[room_idx], visible=1))
+          if params.random_obj_loc:
+            grid, rng = place_in_room_p(
+                1, 1, rng, grid,
+                make_obj(*keys[room_idx], visible=1))
+          else:
+            xL, yT, _, _ = get_x_y(y=1, x=1, roomW=roomW, roomH=roomH)
+            y, x = all_key_pos[room_idx]
+            grid = grid.at[yT+y, xL+x].set(make_obj(*keys[room_idx], visible=1))
 
           #------------------
           # add door
@@ -645,19 +701,47 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
           #------------------
           obj_coords = all_obj_coords[room_idx]
           obj1, obj2 = pairs[room_idx]
-          grid, rng = place_in_room_p(
-              *obj_coords, rng, grid, make_obj(*obj1))
+          if params.random_obj_loc:
+            grid, rng = place_in_room_p(
+                *obj_coords, rng, grid, make_obj(*obj1))
 
-          grid, rng = place_in_room_p(
-              *obj_coords, rng, grid, make_obj(*obj2))
+            grid, rng = place_in_room_p(
+                *obj_coords, rng, grid, make_obj(*obj2))
+          else:
+            horizontal = room_idx % 2 == 1
+            grid, rng = fixed_place_in_room(
+                *obj_coords, rng, grid,
+                make_obj(*obj1, visible=1),
+                idx=0,
+                horizontal=horizontal,
+                roomW=roomW,
+                roomH=roomH,
+            )
+            grid, rng = fixed_place_in_room(
+                *obj_coords, rng, grid,
+                make_obj(*obj2, visible=1),
+                idx=1,
+                horizontal=horizontal,
+                roomW=roomW,
+                roomH=roomH
+            )
 
         #------------------
         # create agent
         #------------------
-        agent_position, rng = sample_coordinates_p(1, 1, rng, grid, off_border=False)
+        if params.random_obj_loc:
+          agent_position, rng = sample_coordinates_p(1, 1, rng, grid, off_border=False)
+          agent_position = jnp.concatenate(agent_position)
+          direction = sample_direction(rngs[4])
+        else:
+          xL, yT, _, _ = get_x_y(y=1, x=1, roomW=roomW, roomH=roomH)
+          agent_position = (yT+roomH//2, xL+roomW//2)
+          agent_position = jnp.asarray(agent_position, dtype=jnp.int32)
+          direction = 0
+
         agent = AgentState(
-            position=jnp.concatenate(agent_position),
-            direction=sample_direction(rngs[4]),
+            position=agent_position,
+            direction=direction,
             pocket=make_obj_arr(Tiles.EMPTY, Colors.EMPTY),
             )
 
