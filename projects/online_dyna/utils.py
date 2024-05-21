@@ -434,16 +434,21 @@ def take_action(grid, agent, action):
     # Can we fix this and choose only one function? It'll speed everything up dramatically.
     def move(grid, agent, direction):
         agent = agent.replace(direction=direction)
-        return minigrid_actions.move_forward(grid, agent)
+        grid, agent, pos = minigrid_actions.move_forward(grid, agent)
+        return grid, agent, pos
+
+    def interact(grid, agent):
+        grid, agent, pos = minigrid_actions.toggle(grid, agent)
+        grid, agent, pos = minigrid_actions.pick_up(grid, agent)
+        return grid, agent, pos
 
     actions = (
         lambda: move(grid, agent, 0),  # up
         lambda: move(grid, agent, 1),  # right
         lambda: move(grid, agent, 2),  # down
         lambda: move(grid, agent, 3),  # left
-        lambda: minigrid_actions.pick_up(grid, agent),
+        lambda: interact(grid, agent),
         lambda: minigrid_actions.put_down(grid, agent),
-        lambda: minigrid_actions.toggle(grid, agent),
     )
     new_grid, new_agent, changed_position = jax.lax.switch(action, actions)
 
