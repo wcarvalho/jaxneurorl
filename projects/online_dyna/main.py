@@ -51,18 +51,23 @@ class KeyParser(NamedTuple):
         1: 'right',
         2: 'down',
         3: 'left',
-        4: 'pickup',
+        4: 'interact',
         5: 'put_down',
-        6: 'toggle'
     }
     key_to_action = {
         'w': 'up',
+        'ArrowUp': 'up',
         'a': 'left',
+        'ArrowLeft': 'left',
         'd': 'right',
+        'ArrowRight': 'right',
         's': 'down',
-        'p': 'pickup',
-        'l': 'put_down',
-        'o': 'toggle',
+        'ArrowDown': 'down',
+        'z': 'interact',
+        'x': 'put_down',
+        #'p': 'pickup',
+        #'l': 'put_down',
+        #'o': 'toggle',
         'c': 'continue',
     }
 
@@ -72,10 +77,9 @@ class KeyParser(NamedTuple):
     def action(self, key: str):
         action_name = self.key_to_action.get(key)
         if action_name:
-            action_name_to_int = {v: k for k,
-                                  v in self.int_to_action_str.items()}
-            int_action = action_name_to_int[action_name]
-            return int_action
+            for action_int, action_str in self.int_to_action_str.items():
+                if action_str == action_name:
+                    return action_int
         return None
 
 keyparser = KeyParser()
@@ -85,10 +89,11 @@ keyparser = KeyParser()
 # Set up stages
 ############
 default_env_caption = """
-        Press 'W', 'A', 'S', 'D', 'P', 'L', 'O' to interact with the environment.
+        Move with up,down,left,right arrows
         <br><br>
-        W=up, A=left, D=right, S=down.<br>
-        P=pick up, L=put down, O=open.
+        Interactions:<br>
+        z: interact. pick up or open.
+        x: put down.
         """
 
 get_readies = [3, 10]  # small, large
@@ -169,7 +174,7 @@ stages = [
         type='interaction',
         env_params=default_env_params.replace(train_multi_probs=0.),
         render_fn=utils.render_map,
-        min_success=1 if DEBUG else 10,
+        min_success=1 if DEBUG else 3,
         max_episodes=3 if DEBUG else 50,
         envcaption=default_env_caption,
         ),
@@ -189,7 +194,7 @@ stages = [
         type='interaction',
         env_params=default_env_params.replace(train_multi_probs=1.),
         render_fn=utils.render_map,
-        min_success=1 if DEBUG else 10,
+        min_success=1 if DEBUG else 5,
         max_episodes=3 if DEBUG else 50,
         envcaption=default_env_caption
         ),
@@ -361,12 +366,14 @@ def add_stage_to_db(stage_idx, stage_infos, user_seed):
 def add_interaction_to_db(socket_json, stage_idx, timestep, rng, user_seed):
     timestep = timestep.replace(observation=None)
     timestep = serialize(timestep)
+    action = keyparser.action(socket_json['key'])
+    action = int(action) if action else action
     new_row = {
         "stage_idx": int(stage_idx),
         "image_seen_time": str(socket_json['imageSeenTime']),
         "key_press_time": str(socket_json['keydownTime']),
         "key": str(socket_json['key']),
-        "action": int(keyparser.action(socket_json['key'])),
+        "action": action,
         "timestep": timestep,
         "rng": list(rng_from_jax(rng)),
         'unique_id': int(user_seed),
@@ -474,14 +481,15 @@ def start_env_interaction_stage():
 def handle_interaction_phase(json):
 
     key = json['key']
-    if not keyparser.valid_key(key):
-        return
 
     stage_idx = session['stage_idx']
     stage_info = session['stage_infos'][stage_idx]
 
     env_params = stages[stage_idx].env_params
     if not session['timestep'].last():
+        if not keyparser.valid_key(key):
+            return
+
         # update database with image, action, + times of each
         add_interaction_to_db(json, stage_idx,
                               session['timestep'], session['rng'], session['user_seed'])
@@ -507,9 +515,9 @@ def handle_interaction_phase(json):
             )
             label = 'SUCCESS' if success else 'FAILED'
             color = 'green' if success else 'red'
-            label = f'<span style = "color: {color};">{label}</span >'
+            label = f'<span style="color: {color}; font-weight: bold; font-size: 1.5em;">{label}!</span>'
             update_env_html_fields(
-                taskDesc=f"{label}! restarting. press 'c' to continue.",
+                taskDesc=f"{label} restarting. press any key to continue.",
             )
             print('updated stage_info at end')
         else:
@@ -519,9 +527,6 @@ def handle_interaction_phase(json):
             print('updated stage_info.t')
 
     else:
-        # if final time-step, need to press 'c' to continue.
-        if key != 'c':
-            return
 
         ###################
         # check if this stage is over
@@ -705,6 +710,28 @@ def end_1shot_timer():
     advance_to_next_stage()
 
 
+def shift_stage(direction: str):
+    if direction == 'left':
+        session['stage_idx'] -= 1
+        session['stage_idx'] = max(1, session['stage_idx'])
+    elif direction == 'right':
+        session['stage_idx'] += 1
+        session['stage_idx'] = min(session['stage_idx'], len(stages)-1)
+    else:
+        raise NotImplementedError
+
+    template_file = stages[session['stage_idx']].html
+    if 'env' in template_file:
+        start_env_stage()
+    else:
+        emit('update_content', {
+            'content': render_template(template_file)
+        })
+        update_html_fields()
+        if 'done' in template_file:
+            save_interactions_on_session_end()
+
+
 def advance_to_next_stage():
     # update stage idx
     session['stage_idx'] += 1
@@ -772,9 +799,18 @@ def index():
 @app.route('/experiment', methods=['POST'])
 def start_experiment():
     """Always called 2nd after checkbox is checked to start experiment."""
-    session['stage_idx'] = 1
-    return render_template(
-        'index.html', template_file=stages[session['stage_idx']].html)
+    if session['stage_idx'] == 0:
+        session['stage_idx'] = 1
+        return render_template(
+            'index.html', template_file=stages[1].html)
+    elif session['stage_idx'] == 1:
+        return render_template(
+            'index.html', template_file=stages[1].html)
+    elif session['stage_idx'] > 1:
+        stage_list.clear()
+        interaction_list.clear()
+        print('cleared interaction')
+        return render_template('index.html', template_file=stages[1].html)
 
 
 @socketio.on('request_update')
@@ -801,29 +837,12 @@ def handle_record_click(json):
     """
     direction = json['direction']
     print("direction:", direction)
-    if direction == 'left':
-        session['stage_idx'] -= 1
-        session['stage_idx'] = max(1, session['stage_idx'])
-    elif direction == 'right':
-        session['stage_idx'] += 1
-        session['stage_idx'] = min(session['stage_idx'], len(stages)-1)
-    else:
-        raise NotImplementedError
-
-    template_file = stages[session['stage_idx']].html
-    if 'env' in template_file:
-        start_env_stage()
-    else:
-        emit('update_content', {
-            'content': render_template(template_file)
-        })
-        update_html_fields()
-        if 'done' in template_file:
-            save_interactions_on_session_end()
+    shift_stage(direction)
 
 @socketio.on('key_pressed')
 def handle_key_press(json):
     """This happens INSIDE a stage"""
+    print('-'*10)
     print('key pressed:', json['key'])
 
     stage = stages[session['stage_idx']]
@@ -831,6 +850,14 @@ def handle_key_press(json):
         handle_interaction_phase(json)
     elif stage.type == '1shot':
         handle_1shot_phase(json)
+    elif stage.type == 'default':
+        key = json['key']
+        if key in ('ArrowLeft', 'ArrowRight'):
+            direction = {
+                'ArrowLeft': 'left',
+                'ArrowRight': 'right',
+            }[key]
+            shift_stage(direction)
 
 
 @socketio.on('timer_finished')

@@ -173,7 +173,7 @@ class TaskRunner(struct.PyTreeNode):
 
 class KeyRoomEnvParams(EnvParams):
     random_door_loc: bool = struct.field(pytree_node=False, default=False)
-    random_obj_loc: bool = struct.field(pytree_node=False, default=True)
+    random_obj_loc: bool = struct.field(pytree_node=False, default=False)
     #train_single: bool = struct.field(pytree_node=False, default=True)
     train_multi_probs: float = struct.field(pytree_node=False, default=.5)
     training: bool = struct.field(pytree_node=False, default=True)
@@ -566,6 +566,7 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
           agent_position, rng = sample_coordinates_p(
               1, 1, rng, grid, off_border=False)
           agent_position = jnp.concatenate(agent_position)
+          rng, rng_ = jax.random.split(rng)
           direction = sample_direction(rng_)
         else:
           xL, yT, _, _ = get_x_y(y=1, x=1, roomW=roomW, roomH=roomH)
@@ -573,7 +574,6 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
           agent_position = jnp.asarray(agent_position, dtype=jnp.int32)
           direction = 0
 
-        rng, rng_ = jax.random.split(rng)
         agent = AgentState(
             position=agent_position,
             direction=direction,
