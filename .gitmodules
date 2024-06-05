@@ -1,0 +1,3 @@
+[submodule "projects/housemaze"]
+	path = projects/housemaze
+	url = https://github.com/wcarvalho/housemaze
