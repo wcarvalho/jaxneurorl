@@ -42,6 +42,7 @@ import hydra
 import gymnax
 from gymnax.wrappers.purerl import FlattenObservationWrapper, LogWrapper
 from library.wrappers import TimestepWrapper
+from craftax.craftax_env import make_craftax_env_from_name
 
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']='false'
 
@@ -53,6 +54,11 @@ from singleagent import alphazero
 from singleagent import qlearning
 FLAGS = flags.FLAGS
 
+gymnax_envs = ['CartPole-v1',
+       'Breakout-MinAtar',
+       'Catch-bsuite']
+craftax_envs = ['Craftax-Symbolic-v1']
+
 def run_single(
         config: dict,
         save_path: str = None):
@@ -60,12 +66,20 @@ def run_single(
     assert config['ENV_NAME'] in (
        'CartPole-v1',
        'Breakout-MinAtar',
-       'Catch-bsuite'
+       'Catch-bsuite',
+       'Craftax-Symbolic-v1'
     ), 'only these have been tested so far'
 
-    basic_env, env_params = gymnax.make(config['ENV_NAME'])
+    if config['ENV_NAME'] in gymnax_envs:
+      basic_env, env_params = gymnax.make(config['ENV_NAME'])
+    elif config['ENV_NAME'] in craftax_envs:
+      basic_env = make_craftax_env_from_name(config['ENV_NAME'], auto_reset=True)
+      env_params = basic_env.default_params
+
+    import pdb
+    pdb.set_trace()
     env = FlattenObservationWrapper(basic_env)
-    
+
     # converts to using timestep
     env = TimestepWrapper(env, autoreset=True)
 
@@ -135,6 +149,15 @@ def sweep(search: str = ''):
             "config_name": tune.grid_search(['alphazero']),
             "ENV_NAME": tune.grid_search(['Catch-bsuite']),
         },
+    ]
+  elif search == 'craftax':
+    space = [
+      {
+        "group": tune.grid_search(['Craftax-Symbolic-v1']),
+        "alg": tune.grid_search(['qlearning']),
+        "config_name": tune.grid_search(['qlearning']),
+        "ENV_NAME": tune.grid_search(['Craftax-Symbolic-v1']),
+      }
     ]
   else:
     raise NotImplementedError(search)
