@@ -62,7 +62,7 @@ from projects.humansf import alphazero
 from projects.humansf import qlearning
 from projects.humansf import offtask_dyna
 
-from singleagent import value_based_basics as vbb
+from agents import value_based_basics as vbb
 
 FLAGS = flags.FLAGS
 

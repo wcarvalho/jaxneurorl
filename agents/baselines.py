@@ -1,24 +1,24 @@
 """
 
 TESTING:
-JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue singleagent/baselines.py \
+JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue agents/baselines.py \
   --debug=False \
   --wandb=False \
   --search=alpha
 
-JAX_DISABLE_JIT=1 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue singleagent/baselines.py \
+JAX_DISABLE_JIT=1 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue agents/baselines.py \
   --debug=True \
   --wandb=False \
   --search=alpha
 
 TESTING SLURM LAUNCH:
-python singleagent/baselines.py \
+python agents/baselines.py \
   --parallel=sbatch \
   --debug_parallel=True \
   --search=alpha
 
 RUNNING ON SLURM:
-python singleagent/baselines.py \
+python agents/baselines.py \
   --parallel=sbatch \
   --time '0-00:30:00' \
   --search=alpha
@@ -47,10 +47,10 @@ os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']='false'
 
 import library.flags
 from library import parallel
-from singleagent import value_based_basics as vbb
+from agents import value_based_basics as vbb
 
-from singleagent import alphazero
-from singleagent import qlearning
+from agents import alphazero
+from agents import qlearning
 FLAGS = flags.FLAGS
 
 def run_single(

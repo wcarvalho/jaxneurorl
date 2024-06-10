@@ -23,9 +23,9 @@ from library import loggers
 
 from projects.humansf.networks import KeyroomObsEncoder
 
-from singleagent.basics import TimeStep
-from singleagent import value_based_basics as vbb
-from singleagent import alphazero as base_agent
+from agents.basics import TimeStep
+from agents import value_based_basics as vbb
+from agents import alphazero as base_agent
 
 Params = flax.core.FrozenDict
 RnnState = jax.Array

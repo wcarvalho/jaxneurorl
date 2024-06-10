@@ -27,8 +27,8 @@ from gymnax.environments import environment
 
 from library import losses
 from library import loggers
-from singleagent.basics import TimeStep
-from singleagent import value_based_basics as vbb
+from agents.basics import TimeStep
+from agents import value_based_basics as vbb
 
 def extract_timestep_input(timestep: TimeStep):
   return RNNInput(
