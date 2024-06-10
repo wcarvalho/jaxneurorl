@@ -4,7 +4,7 @@ import jax
 from math import ceil
 
 #from xminigrid.rendering.rgb_render import render as rgb_render
-from singleagent.basics import TimeStep
+from agents.basics import TimeStep
 from projects.humansf import keyroom
 
 import matplotlib.pyplot as plt
