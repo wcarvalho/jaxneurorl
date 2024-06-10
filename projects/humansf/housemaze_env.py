@@ -26,7 +26,7 @@ class ResetParams:
 @struct.dataclass
 class EnvParams:
     reset_params: ResetParams
-    time_limit: int = 250
+    time_limit: int = 100
     training: bool = True
 
 
