@@ -91,7 +91,7 @@ class HouseMaze(maze.HouseMaze):
 
         rng, rng_ = jax.random.split(rng)
         agent_pos = jax.lax.cond(
-            reset_params.curriculum,
+            jnp.logical_and(reset_params.curriculum, params.training),
             sample_pos_from_curriculum,
             lambda _: reset_params.map_init.agent_pos,
             rng_
