@@ -3,7 +3,7 @@
 TESTING:
 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue projects/humansf/trainer_housemaze.py \
   --debug=True \
-  --wandb=True \
+  --wandb=False \
   --search=ql
 
 JAX_DISABLE_JIT=1 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue projects/humansf/trainer_housemaze.py \
