@@ -1,3 +1,5 @@
 # WANDB PARAMS
 "PROJECT": "keyroom"
 "ENV_NAME": "keyroom"
+
+"TOTAL_TIMESTEPS": 20e6

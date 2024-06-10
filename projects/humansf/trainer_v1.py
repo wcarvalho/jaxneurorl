@@ -20,7 +20,7 @@ python projects/humansf/trainer_v1.py \
 RUNNING ON SLURM:
 python projects/humansf/trainer_v1.py \
   --parallel=sbatch \
-  --time '0-02:30:00' \
+  --time '0-08:00:00' \
   --search=alpha
 """
 from typing import Dict, Union
@@ -78,6 +78,7 @@ def run_single(
     num_tiles = config['env']['ENV_KWARGS'].pop('NUM_TILES', 16)
     train_end_pair = config['env']['ENV_KWARGS'].pop('TRAIN_END_PAIR', True)
     test_end_on = config['env']['ENV_KWARGS'].pop('TEST_END_ON', 'any_pair')
+    symbolic = config['env']['ENV_KWARGS'].pop('symbolic', False)
 
     maze_config = keyroom.shorten_maze_config(
        maze_config, num_rooms)
@@ -88,7 +89,6 @@ def run_single(
       width=num_tiles,
       **config['env']['ENV_KWARGS'])
 
-    symbolic = config['env']['ENV_KWARGS'].pop('symbolic', False)
     if symbolic:
       env = keyroom_symbolic.KeyRoomSymbolic()
       env_params = env.default_params(**default_params_kwargs)
@@ -173,18 +173,35 @@ def run_single(
           num_bins=num_bins,
           min_value=-max_value)
 
+      search_type = config.get('SEARCH_TYPE', 'gumbel')
       num_train_simulations = config.get('NUM_SIMULATIONS', 4)
-      mcts_policy = functools.partial(
-          mctx.gumbel_muzero_policy,
-          max_depth=config.get('MAX_SIM_DEPTH', None),
-          num_simulations=num_train_simulations,
-          gumbel_scale=config.get('GUMBEL_SCALE', 1.0))
-      eval_mcts_policy = functools.partial(
-          mctx.gumbel_muzero_policy,
-          max_depth=config.get('MAX_SIM_DEPTH', None),
-          num_simulations=config.get(
-            'NUM_EVAL_SIMULATIONS', num_train_simulations),
-          gumbel_scale=config.get('GUMBEL_SCALE', 1.0))
+      if search_type == 'gumbel':
+        train_gumbel_scale = config.get('GUMBEL_SCALE', 1.0)
+        mcts_policy = functools.partial(
+            mctx.gumbel_muzero_policy,
+            max_depth=config.get('MAX_SIM_DEPTH', None),
+            num_simulations=num_train_simulations,
+            gumbel_scale=train_gumbel_scale)
+        eval_mcts_policy = functools.partial(
+            mctx.gumbel_muzero_policy,
+            max_depth=config.get('MAX_SIM_DEPTH', None),
+            num_simulations=config.get(
+              'NUM_EVAL_SIMULATIONS', num_train_simulations),
+            gumbel_scale=config.get(
+              'EVAL_GUMBEL_SCALE', train_gumbel_scale))
+      elif search_type == 'vanilla':
+        mcts_policy = functools.partial(
+            mctx.muzero_policy,
+            max_depth=config.get('MAX_SIM_DEPTH', None),
+            num_simulations=num_train_simulations)
+        eval_mcts_policy = functools.partial(
+            mctx.muzero_policy,
+            max_depth=config.get('MAX_SIM_DEPTH', None),
+            num_simulations=config.get(
+              'NUM_EVAL_SIMULATIONS', num_train_simulations),
+            dirichlet_fraction=config.get('EVAL_FRACTION_DIRICHLET', .25),
+            dirichlet_alpha=config.get('EVAL_ALPHA_DIRICHLET', .3),
+            )
 
       make_train = functools.partial(
           vbb.make_train,
@@ -283,27 +300,41 @@ def sweep(search: str = ''):
             **shared,
         },
       ]
-  elif search == 'alpha':
+  elif search == 'alpha-gumbel':
     shared = {
       "config_name": tune.grid_search(['alpha_keyroom']),
     }
     space = [
         {
-            "group": tune.grid_search(['alpha-12']),
+            "group": tune.grid_search(['alpha-13-gumbel']),
             "alg": tune.grid_search(['alphazero']),
+            "EVAL_GUMBEL_SCALE": tune.grid_search([0, 1.0, 10.0, 100.]),
+            **shared,
+        },
+      ]
+  elif search == 'alpha-vanilla':
+    shared = {
+      "config_name": tune.grid_search(['alpha_keyroom']),
+    }
+    space = [
+        {
+            "group": tune.grid_search(['alpha-13-vanilla']),
+            "alg": tune.grid_search(['alphazero']),
+            "EVAL_FRACTION_DIRICHLET": tune.grid_search([.25, .75, 1.]),
+            "EVAL_ALPHA_DIRICHLET": tune.grid_search([.3, .1]),
             **shared,
         },
       ]
   elif search == 'symbolic':
     space = [
         {
-            "group": tune.grid_search(['symbolic-1']),
+            "group": tune.grid_search(['symbolic-2']),
             "alg": tune.grid_search(['alphazero']),
             "env.symbolic": tune.grid_search([True]),
             "config_name": tune.grid_search(['alpha_keyroom']),
         },
         {
-            "group": tune.grid_search(['symbolic-1']),
+            "group": tune.grid_search(['symbolic-2']),
             "alg": tune.grid_search(['qlearning']),
             "env.symbolic": tune.grid_search([True]),
             "config_name": tune.grid_search(['ql_keyroom']),
@@ -325,25 +356,25 @@ def sweep(search: str = ''):
         #    **shared,
         #},
         {
-            "group": tune.grid_search(['dyna-coeff-8-i5']),
+            "group": tune.grid_search(['dyna-coeff-9-i5']),
             "alg": tune.grid_search(['dynaq']),
             "DYNA_COEFF": tune.grid_search([1., 0.1]),
             # "NUM_SIMULATIONS": tune.grid_search([2]),
             # "SIMULATION_LENGTH": tune.grid_search([5, 15]),
              "TRAINING_INTERVAL": tune.grid_search([5]),
             **shared,
-            "TEMP_CONCENTRATION": tune.grid_search([.25, .5]),
+            "TEMP_CONCENTRATION": tune.grid_search([.25]),
             "TEMP_RATE": tune.grid_search([.25, .5]),
         },
         {
-            "group": tune.grid_search(['dyna-coeff-8-i10']),
+            "group": tune.grid_search(['dyna-coeff-9-i1']),
             "alg": tune.grid_search(['dynaq']),
             "DYNA_COEFF": tune.grid_search([1., 0.1]),
             # "NUM_SIMULATIONS": tune.grid_search([2]),
             # "SIMULATION_LENGTH": tune.grid_search([5, 15]),
-             "TRAINING_INTERVAL": tune.grid_search([10]),
+             "TRAINING_INTERVAL": tune.grid_search([1]),
             **shared,
-            "TEMP_CONCENTRATION": tune.grid_search([.25, .5]),
+            "TEMP_CONCENTRATION": tune.grid_search([.25]),
             "TEMP_RATE": tune.grid_search([.25, .5]),
         },
         #{

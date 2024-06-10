@@ -454,7 +454,7 @@ def load_hydra_config(
     tags=tags+[algo_name.upper(), env_name.upper()],
     config=config,
     save_code=False,
-    dir=os.path.join(save_path, 'wandb'),
+    dir=save_path,
   )
 
   try:
