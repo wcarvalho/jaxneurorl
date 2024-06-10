@@ -441,6 +441,7 @@ def sweep(search: str = ''):
         {
             "group": tune.grid_search(['qlearning-1']),
             "alg": tune.grid_search(['qlearning']),
+            "TOTAL_TIMESTEPS": tune.grid_search([30e6]),
             **shared,
         },
       ]
@@ -452,6 +453,7 @@ def sweep(search: str = ''):
         {
             "group": tune.grid_search(['alpha-1']),
             "alg": tune.grid_search(['alphazero']),
+            "TOTAL_TIMESTEPS": tune.grid_search([5e6]),
             **shared,
         },
       ]
@@ -460,19 +462,10 @@ def sweep(search: str = ''):
       "config_name": tune.grid_search(['dyna_housemaze']),
     }
     space = [
-        #{
-        #    "group": tune.grid_search(['dyna-temp-2']),
-        #    "alg": tune.grid_search(['dynaq']),
-        #    "DYNA_COEFF": tune.grid_search([0.1]),
-        #    "TEMP_CONCENTRATION": tune.grid_search([.5, 1.]),
-        #    "TEMP_RATE": tune.grid_search([.5, 1]),
-        #    #"NUM_SIMULATIONS": tune.grid_search([2]),
-        #    #"SIMULATION_LENGTH": tune.grid_search([5, 15]),
-        #    **shared,
-        #},
         {
             "group": tune.grid_search(['dynaq-1']),
             "alg": tune.grid_search(['dynaq']),
+            "TOTAL_TIMESTEPS": tune.grid_search([10e6]),
             "DYNA_COEFF": tune.grid_search([0.1, .01]),
             # "NUM_SIMULATIONS": tune.grid_search([2]),
             # "SIMULATION_LENGTH": tune.grid_search([5, 15]),
@@ -480,18 +473,6 @@ def sweep(search: str = ''):
             "TEMP_CONCENTRATION": tune.grid_search([.25, .5, 1.]),
             "TEMP_RATE": tune.grid_search([.25, .5]),
         },
-        #{
-        #    "group": tune.grid_search(['dyna-grad-4']),
-        #    "alg": tune.grid_search(['dynaq']),
-        #    "STOP_DYNA_GRAD": tune.grid_search([True, False]),
-        #    **shared,
-        #},
-        #{
-        #    "group": tune.grid_search(['dyna-sanity-2']),
-        #    "alg": tune.grid_search(['dynaq']),
-        #    "DYNA_COEFF": tune.grid_search([0.0]),
-        #    **shared,
-        #},
       ]
   else:
     raise NotImplementedError(search)
