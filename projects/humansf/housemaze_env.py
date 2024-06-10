@@ -167,7 +167,7 @@ class HouseMaze(maze.HouseMaze):
             task_state=task_state,
         )
 
-        reset_action = self.num_actions(None) + 1
+        reset_action = jnp.array(self.num_actions() + 1, dtype=jnp.int32)
         timestep = TimeStep(
             state=state,
             step_type=StepType.FIRST,
@@ -180,6 +180,7 @@ class HouseMaze(maze.HouseMaze):
         return timestep
 
     def step(self, rng: jax.Array, timestep: TimeStep, action: jax.Array, params: EnvParams) -> TimeStep:
+        del rng # deterministic function
 
         if self.action_spec == 'keyboard':
             grid, agent_pos, agent_dir = maze.take_action(

@@ -623,9 +623,8 @@ def make_train(
     """
 
     config["NUM_UPDATES"] = int(
-        config["TOTAL_TIMESTEPS"] // config["NUM_ENVS"]
+        config["TOTAL_TIMESTEPS"] // config["NUM_ENVS"] // config["TRAINING_INTERVAL"]
     )
-
     test_env_params = test_env_params or copy.deepcopy(train_env_params)
 
     def vmap_reset(rng, env_params):
