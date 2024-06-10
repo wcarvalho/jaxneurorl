@@ -27,9 +27,9 @@ from xminigrid.core.rules import EmptyRule
 from xminigrid.environment import Environment, EnvParams, EnvParamsT
 from xminigrid.types import AgentState, EnvCarry, State, TimeStep, EnvCarryT, IntOrArray, StepType, GridState
 
-import minigrid_common
-from minigrid_common import States
-from minigrid_common import make_obj as make_task_obj
+from projects.humansf import minigrid_common
+from projects.humansf.minigrid_common import States
+from projects.humansf.minigrid_common import make_obj as make_task_obj
 # from projects.humansf.minigrid_common import take_action as take_action_new
 
 KEY_IDX = 0
