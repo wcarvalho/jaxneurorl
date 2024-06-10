@@ -255,7 +255,7 @@ def run_single(
       category = keys[variables['category']]
       is_train_task = variables['is_train_task']
       setting = '0.pretrain' if map_idx == 0 else '1.main'
-      label = '0.train' if is_train_task else '1.test'
+      label = 'train' if is_train_task else 'TEST'
 
       return f'{setting} - {label} - {category}'
 
