@@ -4,8 +4,6 @@ import jax.numpy as jnp
 import chex
 import matplotlib.pyplot as plt
 
-from projects.socialsf.underspecified_env import EnvParams, EnvState
-from projects.socialsf.maze import DIR_TO_VEC, Maze
 from functools import partial
 
 
