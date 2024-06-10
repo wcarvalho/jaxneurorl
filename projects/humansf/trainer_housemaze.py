@@ -439,7 +439,7 @@ def sweep(search: str = ''):
     }
     space = [
         {
-            "group": tune.grid_search(['qlearning-1']),
+            "group": tune.grid_search(['qlearning-2']),
             "alg": tune.grid_search(['qlearning']),
             "TOTAL_TIMESTEPS": tune.grid_search([30e6]),
             **shared,
@@ -451,7 +451,7 @@ def sweep(search: str = ''):
     }
     space = [
         {
-            "group": tune.grid_search(['alpha-1']),
+            "group": tune.grid_search(['alpha-2']),
             "alg": tune.grid_search(['alphazero']),
             "TOTAL_TIMESTEPS": tune.grid_search([5e6]),
             **shared,
@@ -463,14 +463,14 @@ def sweep(search: str = ''):
     }
     space = [
         {
-            "group": tune.grid_search(['dynaq-1']),
+            "group": tune.grid_search(['dynaq-2']),
             "alg": tune.grid_search(['dynaq']),
             "TOTAL_TIMESTEPS": tune.grid_search([10e6]),
-            "DYNA_COEFF": tune.grid_search([0.1, .01]),
+            "DYNA_COEFF": tune.grid_search([1., 0.1, .01]),
             # "NUM_SIMULATIONS": tune.grid_search([2]),
             # "SIMULATION_LENGTH": tune.grid_search([5, 15]),
             **shared,
-            "TEMP_CONCENTRATION": tune.grid_search([.25, .5, 1.]),
+            "TEMP_CONCENTRATION": tune.grid_search([.25, .5]),
             "TEMP_RATE": tune.grid_search([.25, .5]),
         },
       ]
