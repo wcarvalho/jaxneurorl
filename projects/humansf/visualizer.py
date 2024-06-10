@@ -10,11 +10,6 @@ from projects.humansf import keyroom
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from typing import Optional
-from gymnax.visualize.vis_gym import init_gym, update_gym
-from gymnax.visualize.vis_minatar import init_minatar, update_minatar
-from gymnax.visualize.vis_circle import init_circle, update_circle
-from gymnax.visualize.vis_maze import init_maze, update_maze
-from gymnax.visualize.vis_catch import init_catch, update_catch
 
 
 def display_image(image):

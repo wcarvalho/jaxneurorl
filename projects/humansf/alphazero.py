@@ -39,25 +39,6 @@ AgentState = base_agent.AgentState
 
 from projects.humansf import observers as humansf_observers
 
-def make_logger(
-        config: dict,
-        env: environment.Environment,
-        env_params: environment.EnvParams,
-        maze_config: dict,
-        action_names: dict,
-        get_task_name: Callable = None,
-        ):
-
-    return loggers.Logger(
-        gradient_logger=loggers.default_gradient_logger,
-        learner_logger=loggers.default_learner_logger,
-        experience_logger=functools.partial(
-            humansf_observers.experience_logger,
-            action_names=action_names,
-            get_task_name=get_task_name),
-    )
-
-
 def make_agent(
         config: dict,
         env: environment.Environment,
@@ -65,11 +46,12 @@ def make_agent(
         example_timestep: TimeStep,
         rng: jax.random.KeyArray,
         test_env_params: environment.EnvParams,
+        ObsEncoderCls: nn.Module = KeyroomObsEncoder,
         ) -> Tuple[nn.Module, Params, vbb.AgentResetFn]:
 
     agent = base_agent.AlphaZeroAgent(
         action_dim=env.num_actions(env_params),
-        observation_encoder=KeyroomObsEncoder(
+        observation_encoder=ObsEncoderCls(
             embed_hidden_dim=config["AGENT_HIDDEN_DIM"],
             init=config.get('ENCODER_INIT', 'word_init'),
             grid_hidden_dim=config.get('GRID_HIDDEN', 256),
