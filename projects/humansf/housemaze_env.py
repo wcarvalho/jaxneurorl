@@ -50,6 +50,19 @@ class EnvState:
     task_state: Optional[maze.TaskState] = None
 
 
+def mask_sample(mask, rng):
+    # Creating logits based on the mask: -1e8 where mask is 0, 1 where mask is 1
+    logits = jnp.where(mask == 1, mask.astype(jnp.float32), -1e8).astype(jnp.float32)
+
+    # Creating the Categorical distribution with the specified logits
+    sampler = distrax.Categorical(logits=logits)
+
+    # Splitting the RNG
+    rng, rng_ = jax.random.split(rng)
+
+    # Sampling from the distribution
+    return sampler.sample(seed=rng_)
+
 class HouseMaze(maze.HouseMaze):
 
     def reset(self, rng: jax.Array, params: EnvParams) -> TimeStep:
@@ -75,19 +88,28 @@ class HouseMaze(maze.HouseMaze):
         ##################
         # sample pair
         ##################
-        object_sampler = distrax.Categorical(
-            logits=(reset_params.train_objects >=0).astype(jnp.float32))
-        rng, rng_ = jax.random.split(rng)
-        pair_idx = object_sampler.sample(seed=rng_)
+        #object_sampler = distrax.Categorical(
+        #    logits=(reset_params.train_objects >=0).astype(jnp.float32))
+        #rng, rng_ = jax.random.split(rng)
+        pair_idx = mask_sample(mask=reset_params.train_objects >= 0, rng=rng)
 
         ##################
         # sample position (function of which pair has been choice)
         ##################
         def sample_pos_from_curriculum(rng_):
+
             locs = jax.lax.dynamic_index_in_dim(
-                reset_params.starting_locs, pair_idx, keepdims=False,
-            )
-            return jax.random.choice(rng_, locs)
+                reset_params.starting_locs, pair_idx, keepdims=False)
+            jax.debug.print("locs={x}", x=locs)
+            loc_idx = mask_sample(mask=(locs >= 0).all(-1), rng=rng)
+            #jax.debug.print("valid_locs={x}", x=valid_locs)
+            #locs_sampler = distrax.Categorical(logits=valid_locs)
+            #loc_idx = locs_sampler.sample(seed=rng_)
+            jax.debug.print("loc_idx={x}", x=loc_idx)
+            loc = jax.lax.dynamic_index_in_dim(
+                locs, loc_idx, keepdims=False)
+            jax.debug.print("loc={x}", x=loc)
+            return loc
 
         rng, rng_ = jax.random.split(rng)
         agent_pos = jax.lax.cond(
