@@ -428,7 +428,7 @@ def load_hydra_config(
   except:
     pass
 
-  config['env']['ENV_KWARGS'] = all_env_kwargs
+  config['rlenv']['ENV_KWARGS'] = all_env_kwargs
 
   if verbose:
     print("="*50)
