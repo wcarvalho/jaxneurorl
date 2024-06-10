@@ -19,9 +19,9 @@ import matplotlib.pyplot as plt
 import wandb
 
 from library import losses
-from singleagent.basics import TimeStep
-from singleagent import value_based_basics as vbb
-from singleagent import qlearning as base_agent
+from agents.basics import TimeStep
+from agents import value_based_basics as vbb
+from agents import qlearning as base_agent
 from projects.humansf import qlearning
 from projects.humansf.networks import KeyroomObsEncoder
 from projects.humansf import keyroom

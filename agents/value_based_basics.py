@@ -56,7 +56,7 @@ import flax
 import rlax
 from gymnax.environments import environment
 
-from singleagent.basics import TimeStep
+from agents.basics import TimeStep
 
 
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']='false'
