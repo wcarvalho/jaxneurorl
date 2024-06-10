@@ -59,7 +59,7 @@ from projects.humansf.housemaze import renderer
 from projects.humansf import housemaze_env as maze
 
 from projects.humansf.housemaze import utils as housemaze_utils
-from singleagent import value_based_basics as vbb
+from agents import value_based_basics as vbb
 
 FLAGS = flags.FLAGS
 

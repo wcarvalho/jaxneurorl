@@ -23,8 +23,8 @@ from library import utils
 from library import loggers
 from library import losses
 
-from singleagent.basics import TimeStep
-from singleagent import value_based_basics as vbb
+from agents.basics import TimeStep
+from agents import value_based_basics as vbb
 
 Params = flax.core.FrozenDict
 RnnState = jax.Array
