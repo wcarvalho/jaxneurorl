@@ -198,7 +198,7 @@ def run_single(
     ###################
     # load data
     ###################
-    num_groups = config['env']['ENV_KWARGS'].pop('NUM_GROUPS', 3)
+    num_groups = config['rlenv']['ENV_KWARGS'].pop('NUM_GROUPS', 3)
     group_set, env_params = load_env_params(
         num_groups=num_groups,
        file='projects/humansf/housemaze_list_of_groups.npy',
