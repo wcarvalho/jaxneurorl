@@ -128,7 +128,10 @@ def plot_frames(
     H = ceil(T / ncols)  # Calculate number of rows required
     width = 3
 
-    fig, axs = plt.subplots(H, ncols, figsize=(ncols*width, H*width), squeeze=False)
+    fig_width = ncols*width
+    fig_height = int(1.7*H*width)
+    fig, axs = plt.subplots(
+        H, ncols, figsize=(fig_width, fig_height), squeeze=False)
 
     # Flatten the axes array for easy iteration
     axs = axs.ravel()
@@ -143,6 +146,5 @@ def plot_frames(
     for i in range(T, H * ncols):
         axs[i].axis('off')
 
-    plt.tight_layout()
 
     return fig

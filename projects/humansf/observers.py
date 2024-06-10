@@ -308,6 +308,7 @@ def experience_logger(
               frames=obs_images,
               panel_title_fn=panel_title_fn,
               ncols=6)
+
           if wandb.run is not None:
               wandb.log({f"{key}_example/trajectory": wandb.Image(fig)})
           plt.close(fig)

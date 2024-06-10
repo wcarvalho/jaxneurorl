@@ -195,7 +195,6 @@ def run_single(
         config: dict,
         save_path: str = None):
 
-
     ###################
     # load data
     ###################
@@ -349,9 +348,12 @@ def run_single(
         rate=config.get("TEMP_RATE", 1.))
 
       def make_init_offtask_timestep(x: maze.TimeStep, offtask_w: jax.Array):
+          task_object = (task_objects*offtask_w).sum(-1)
+          task_object = task_object.astype(jnp.int32)
           new_state = x.state.replace(
               step_num=jnp.zeros_like(x.state.step_num),
               task_w=offtask_w,
+              task_object=task_object,  # only used for logging
           )
 
           return x.replace(
@@ -448,7 +450,7 @@ def sweep(search: str = ''):
     }
     space = [
         {
-            "group": tune.grid_search(['alpha-12']),
+            "group": tune.grid_search(['alpha-1']),
             "alg": tune.grid_search(['alphazero']),
             **shared,
         },
@@ -469,7 +471,7 @@ def sweep(search: str = ''):
         #    **shared,
         #},
         {
-            "group": tune.grid_search(['dyna-coeff-6']),
+            "group": tune.grid_search(['dynaq-1']),
             "alg": tune.grid_search(['dynaq']),
             "DYNA_COEFF": tune.grid_search([0.1, .01]),
             # "NUM_SIMULATIONS": tune.grid_search([2]),
