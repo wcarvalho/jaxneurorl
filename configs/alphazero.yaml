@@ -49,4 +49,4 @@ defaults:
 - _self_
 - user: wilka.yaml
 - debug: default.yaml
-- env: cartpole.yaml
+- rlenv: cartpole.yaml
