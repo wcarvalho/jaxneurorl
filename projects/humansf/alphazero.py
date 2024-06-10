@@ -37,7 +37,6 @@ MLP = base_agent.MLP
 Predictions = base_agent.Predictions
 AgentState = base_agent.AgentState
 
-from projects.humansf import observers as humansf_observers
 
 def make_agent(
         config: dict,
