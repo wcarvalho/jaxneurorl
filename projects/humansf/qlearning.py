@@ -6,7 +6,7 @@ Recurrent Q-learning.
 
 import os
 import jax
-from typing import Tuple
+from typing import Tuple, Callable
 
 
 import flax.linen as nn
@@ -21,7 +21,7 @@ import matplotlib.pyplot as plt
 from xminigrid.rendering.rgb_render import render as rgb_render
 
 
-from projects.humansf.networks import KeyroomObsEncoder
+from projects.humansf.networks import KeyroomObsEncoder, HouzemazeObsEncoder
 from projects.humansf import keyroom
 from projects.humansf.visualizer import plot_frames
 
@@ -107,7 +107,9 @@ def make_agent(
         env: environment.Environment,
         env_params: environment.EnvParams,
         example_timestep: TimeStep,
-        rng: jax.random.KeyArray) -> Tuple[Agent, Params, vbb.AgentResetFn]:
+        rng: jax.random.KeyArray,
+        ObsEncoderCls: nn.Module = KeyroomObsEncoder,
+        ) -> Tuple[Agent, Params, vbb.AgentResetFn]:
 
     cell_type = config.get('RNN_CELL_TYPE', 'OptimizedLSTMCell')
     if cell_type.lower() == 'none':
@@ -117,7 +119,7 @@ def make_agent(
             hidden_dim=config["AGENT_RNN_DIM"])
 
     agent = RnnAgent(
-        observation_encoder=KeyroomObsEncoder(
+        observation_encoder=ObsEncoderCls(
             embed_hidden_dim=config["AGENT_HIDDEN_DIM"],
             init=config.get('ENCODER_INIT', 'word_init'),
             grid_hidden_dim=config.get('GRID_HIDDEN', 256),
@@ -148,7 +150,10 @@ def learner_log_extra(
         data: dict,
         config: dict,
         action_names: dict,
-        maze_config: dict,
+        render_fn: Callable,
+        extract_task_info: Callable[[TimeStep],
+                                    flax.struct.PyTreeNode] = lambda t: t,
+        get_task_name: Callable = lambda t: 'Task',
         ):
     def callback(d):
         n_updates = d.pop('n_updates')
@@ -231,9 +236,7 @@ def learner_log_extra(
             #    index(timesteps.state.agent),
             #    env_params.view_size,
             #    tile_size=8)
-            obs_image = keyroom.render_room(
-                index(d_['data'].timestep.state),
-                tile_size=8)
+            obs_image = render_fn(index(d_['data'].timestep.state))
             #state_images.append(state_image)
             obs_images.append(obs_image)
 
@@ -248,14 +251,15 @@ def learner_log_extra(
                 return f"action: {int(a)}"
         actions_taken = [action_name(a) for a in actions]
 
+        def index(t, idx): return jax.tree_map(lambda x: x[idx], t)
         def panel_title_fn(timesteps, i):
-            room_setting = int(timesteps.state.room_setting[i])
-            task_room = int(timesteps.state.goal_room_idx[i])
-            task_object = int(timesteps.state.task_object_idx[i])
-            setting = 'single' if room_setting == 0 else 'multi'
-            category, color = maze_config['pairs'][task_room][task_object]
-            task_name = f'{setting} - {color} {category}'
-
+            #room_setting = int(timesteps.state.room_setting[i])
+            #task_room = int(timesteps.state.goal_room_idx[i])
+            #task_object = int(timesteps.state.task_object_idx[i])
+            #setting = 'single' if room_setting == 0 else 'multi'
+            #category, color = maze_config['pairs'][task_room][task_object]
+            #task_name = f'{setting} - {color} {category}'
+            task_name = get_task_name(extract_task_info(index(timesteps, i)))
             title = f'{task_name}\n'
             title += f't={i}\n'
             title += f'{actions_taken[i]}\n'

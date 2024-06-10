@@ -2,7 +2,7 @@
 Dyna with the ability to do off-task simulation.
 """
 
-from typing import Tuple, Optional, Union
+from typing import Tuple, Optional, Union, Callable
 import functools
 
 import distrax
@@ -188,6 +188,8 @@ class OfftaskDyna(vbb.RecurrentLossFn):
 
     env_params: environment.EnvParams = None
 
+    make_init_offtask_timestep: Callable[[TimeStep], TimeStep] = None
+
     temp_dist: distrax.Distribution = distrax.Gamma(concentration=1, rate=.5)
 
     def loss_fn(
@@ -320,6 +322,7 @@ class OfftaskDyna(vbb.RecurrentLossFn):
                 lambda x: sg(x[1:]), online_preds.state.timestep)
 
             if self.offtask_simulation:
+                assert self.make_init_offtask_timestep is not None
                 #--------------
                 # get off task goal and place in timestep
                 # --------------
@@ -327,31 +330,32 @@ class OfftaskDyna(vbb.RecurrentLossFn):
                 # for now, just a single off-task goal
                 # TODO: generalize to doing this for multiple tasks
                 # TODO: right now, rely on task being part of state. next step should not be.
-                offtask_w = x_t.state.offtask_w
-                new_state = x_t.state.replace(
-                    step_num=jnp.zeros_like(x_t.state.step_num),
-                    task_w=offtask_w,
-                    task_object_idx=1-x_t.state.task_object_idx,
-                )
-
                 # TODO: generalize this process for other environments
-                # maybe have this function be an input to class?
-                make_obs = lambda s, a_tml: keyroom.make_observation(
-                        state=s,
-                        prev_action=a_tml,
-                        params=self.env_params,
-                    )
-                x_t = x_t.replace(
-                    state=new_state,
-                    observation=jax.vmap(jax.vmap(make_obs))(
-                        new_state,
-                        x_t.observation.prev_action,
-                    ),
-                    # reset reward, discount, step type
-                    reward=jnp.zeros_like(x_t.reward),
-                    discount=jnp.ones_like(x_t.discount),
-                    step_type=jnp.ones_like(x_t.step_type),
-                )
+                offtask_w = x_t.state.offtask_w
+                x_t = self.make_init_offtask_timestep(x_t, offtask_w)
+                #new_state = x_t.state.replace(
+                #    step_num=jnp.zeros_like(x_t.state.step_num),
+                #    task_w=offtask_w,
+                #    task_object_idx=1-x_t.state.task_object_idx,
+                #)
+
+                ## maybe have this function be an input to class?
+                #make_obs = lambda s, a_tml: keyroom.make_observation(
+                #        state=s,
+                #        prev_action=a_tml,
+                #        params=self.env_params,
+                #    )
+                #x_t = x_t.replace(
+                #    state=new_state,
+                #    observation=jax.vmap(jax.vmap(make_obs))(
+                #        new_state,
+                #        x_t.observation.prev_action,
+                #    ),
+                #    # reset reward, discount, step type
+                #    reward=jnp.zeros_like(x_t.reward),
+                #    discount=jnp.ones_like(x_t.discount),
+                #    step_type=jnp.ones_like(x_t.step_type),
+                #)
 
             T, B = offtask_w.shape[:2]
             rngs = jax.random.split(key_grad, T*B)
@@ -538,7 +542,10 @@ def learner_log_extra(
         data: dict,
         config: dict,
         action_names: dict,
-        maze_config: dict,
+        render_fn: Callable,
+        extract_task_info: Callable[[TimeStep],
+                                    flax.struct.PyTreeNode] = lambda t: t,
+        get_task_name: Callable = lambda t: 'Task',
         ):
 
     def log_data(
@@ -618,9 +625,10 @@ def learner_log_extra(
             #    index(timesteps.state.agent),
             #    env_params.view_size,
             #    tile_size=8)
-            obs_image = keyroom.render_room(
-                index(timesteps.state),
-                tile_size=8)
+            obs_image = render_fn(index(timesteps.state))
+            #obs_image = keyroom.render_room(
+            #    index(timesteps.state),
+            #    tile_size=8)
             #state_images.append(state_image)
             obs_images.append(obs_image)
 
@@ -635,13 +643,15 @@ def learner_log_extra(
                 return f"action: {int(a)}"
         actions_taken = [action_name(a) for a in actions]
 
+        index = lambda t, idx: jax.tree_map(lambda x: x[idx], t)
         def panel_title_fn(timesteps, i):
-            room_setting = int(timesteps.state.room_setting[i])
-            task_room = int(timesteps.state.goal_room_idx[i])
-            task_object = int(timesteps.state.task_object_idx[i])
-            setting = 'single' if room_setting == 0 else 'multi'
-            category, color = maze_config['pairs'][task_room][task_object]
-            task_name = f'{setting} - {color} {category}'
+            task_name = get_task_name(extract_task_info(index(timesteps, i)))
+            #room_setting = int(timesteps.state.room_setting[i])
+            #task_room = int(timesteps.state.goal_room_idx[i])
+            #task_object = int(timesteps.state.task_object_idx[i])
+            #setting = 'single' if room_setting == 0 else 'multi'
+            #category, color = maze_config['pairs'][task_room][task_object]
+            #task_name = f'{setting} - {color} {category}'
 
             title = f'{task_name}\n'
             title += f't={i}\n'
@@ -849,12 +859,13 @@ def make_agent(
         example_timestep: TimeStep,
         rng: jax.random.KeyArray,
         model_env_params: environment.EnvParams,
+        ObsEncoderCls: nn.Module = KeyroomObsEncoder,
         ) -> Tuple[nn.Module, Params, vbb.AgentResetFn]:
 
     model_env_params = model_env_params or env_params
     agent = DynaAgentEnvModel(
         action_dim=env.num_actions(env_params),
-        observation_encoder=KeyroomObsEncoder(
+        observation_encoder=ObsEncoderCls(
             embed_hidden_dim=config["AGENT_HIDDEN_DIM"],
             init=config.get('ENCODER_INIT', 'word_init'),
             grid_hidden_dim=config.get('GRID_HIDDEN', 256),

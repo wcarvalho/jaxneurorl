@@ -23,12 +23,13 @@ python projects/humansf/trainer_v1.py \
   --time '0-08:00:00' \
   --search=alpha
 """
-from typing import Dict, Union
+from typing import Any, Callable, Dict, Union, Optional
 
 from absl import flags
 from absl import app
 
 import os
+from gymnax.environments import environment
 import jax
 import json
 import functools
@@ -43,14 +44,14 @@ import hydra
 import gymnax
 from gymnax.wrappers.purerl import FlattenObservationWrapper, LogWrapper
 from library.wrappers import TimestepWrapper
-from projects.humansf import logger
+from projects.humansf import logger, observers as humansf_observers
 
 
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']='false'
 
 import library.flags
 
-from library import parallel
+from library import loggers, parallel
 from library import utils
 
 from projects.humansf import keyroom
@@ -64,6 +65,28 @@ from projects.humansf import offtask_dyna
 from singleagent import value_based_basics as vbb
 
 FLAGS = flags.FLAGS
+
+
+def make_logger(
+        config: dict,
+        env: environment.Environment,
+        env_params: environment.EnvParams,
+        maze_config: dict,
+        action_names: dict,
+        get_task_name: Callable = None,
+        learner_log_extra: Optional[Callable[[Any], Any]] = None
+):
+    return loggers.Logger(
+        gradient_logger=loggers.default_gradient_logger,
+        learner_logger=loggers.default_learner_logger,
+        experience_logger=functools.partial(
+            humansf_observers.experience_logger,
+            action_names=action_names,
+            get_task_name=get_task_name,
+            max_len=config['MAX_EPISODE_LOG_LEN'],
+        ),
+        learner_log_extra=learner_log_extra,
+    )
 
 def run_single(
         config: dict,
@@ -151,7 +174,7 @@ def run_single(
           make_loss_fn_class=qlearning.make_loss_fn_class,
           make_actor=qlearning.make_actor,
           make_logger=functools.partial(
-            logger.make_logger,
+            make_logger,
             maze_config=maze_config,
             get_task_name=get_task_name,
             action_names=action_names,
@@ -218,7 +241,7 @@ def run_single(
               mcts_policy=mcts_policy,
               eval_mcts_policy=eval_mcts_policy),
           make_logger=functools.partial(
-            logger.make_logger,
+            make_logger,
             maze_config=maze_config,
             get_task_name=get_task_name,
             action_names=action_names,
@@ -243,7 +266,7 @@ def run_single(
             ),
           make_actor=offtask_dyna.make_actor,
           make_logger=functools.partial(
-            logger.make_logger,
+            make_logger,
             maze_config=maze_config,
             get_task_name=get_task_name,
             action_names=action_names,
@@ -407,3 +430,4 @@ def main(_):
 
 if __name__ == '__main__':
   app.run(main)
+
