@@ -12,11 +12,31 @@ from xminigrid.types import AgentState, EnvCarry, State, TimeStep, EnvCarryT, In
 class SymbolicKeyRoomEnvParams(KeyRoomEnvParams):
     action_objects: jax.Array = None
 
-def get_action_names(env_params: SymbolicKeyRoomEnvParams):
-    color_map = keyroom.color_map
-    object_map = keyroom.object_map
-    # Create a dictionary to map object strings to their corresponding tile values
+color_map = {
+    "red": Colors.RED,
+    "green": Colors.GREEN,
+    "blue": Colors.BLUE,
+    "purple": Colors.PURPLE,
+    "yellow": Colors.YELLOW,
+    "grey": Colors.GREY,
+}
 
+# Create a dictionary to map object strings to their corresponding tile values
+object_map = {
+    "key": Tiles.KEY,
+    "box": Tiles.SQUARE,
+    "ball": Tiles.BALL,
+}
+
+all_room_coords = jnp.array([
+    (1, 2),  # right
+    (2, 1),  # bottom
+    (1, 0),  # left
+    (0, 1),  # top
+])
+
+def get_action_names(env_params: SymbolicKeyRoomEnvParams):
+    # Create a dictionary to map object strings to their corresponding tile values
 
     idx2color = {idx: color for color, idx in color_map.items()}
     idx2obj = {idx: obj for obj, idx in object_map.items()}
@@ -83,7 +103,7 @@ def object_action(rng, action, action_object, timestep, params):
       """Go to the room that this key maps to."""
       prior_agent = timestep.state.agent
       room_coords = jax.lax.dynamic_index_in_dim(
-          keyroom.all_room_coords, action, keepdims=False)
+          all_room_coords, action, keepdims=False)
 
       xL = room_coords[1] * roomW
       yT = room_coords[0] * roomH
