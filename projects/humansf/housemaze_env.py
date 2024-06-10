@@ -200,6 +200,7 @@ class HouseMaze(maze.HouseMaze):
             agent_pos=agent_pos,
             agent_dir=agent_dir,
             task_state=task_state,
+            step_num=timestep.state.step_num + 1,
         )
 
         terminated = (task_state.features > 0).any()  # any object picked up
