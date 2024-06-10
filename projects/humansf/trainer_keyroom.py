@@ -97,11 +97,11 @@ def run_single(
     with open(maze_path, "r") as file:
       maze_config = json.load(file)[0]
 
-    num_rooms = config['env']['ENV_KWARGS'].pop('NUM_ROOMS', 3)
-    num_tiles = config['env']['ENV_KWARGS'].pop('NUM_TILES', 16)
-    train_end_pair = config['env']['ENV_KWARGS'].pop('TRAIN_END_PAIR', True)
-    test_end_on = config['env']['ENV_KWARGS'].pop('TEST_END_ON', 'any_pair')
-    symbolic = config['env']['ENV_KWARGS'].pop('symbolic', False)
+    num_rooms = config['rlenv']['ENV_KWARGS'].pop('NUM_ROOMS', 3)
+    num_tiles = config['rlenv']['ENV_KWARGS'].pop('NUM_TILES', 16)
+    train_end_pair = config['rlenv']['ENV_KWARGS'].pop('TRAIN_END_PAIR', True)
+    test_end_on = config['rlenv']['ENV_KWARGS'].pop('TEST_END_ON', 'any_pair')
+    symbolic = config['rlenv']['ENV_KWARGS'].pop('symbolic', False)
 
     maze_config = keyroom.shorten_maze_config(
        maze_config, num_rooms)
@@ -110,7 +110,7 @@ def run_single(
       maze_config=maze_config,
       height=num_tiles,
       width=num_tiles,
-      **config['env']['ENV_KWARGS'])
+      **config['rlenv']['ENV_KWARGS'])
 
     if symbolic:
       env = keyroom_symbolic.KeyRoomSymbolic()

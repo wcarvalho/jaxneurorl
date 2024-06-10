@@ -413,11 +413,11 @@ def load_hydra_config(
     config = OmegaConf.to_container(config)
 
     # some setup to make sure env field is populated
-    config = update_sub(config, sub='env')
+    config = update_sub(config, sub='rlenv')
 
   # update hydra config with env config settings from sweep
   all_env_kwargs.update(sweep_env_config)
-  config['ENV_NAME'] = env_name = config["env"].get("ENV_NAME", 'env')
+  config['ENV_NAME'] = env_name = config["rlenv"].get("ENV_NAME", 'env')
  
   # update hydra config with algo config settings from sweep
   config.update(sweep_algo_config)
