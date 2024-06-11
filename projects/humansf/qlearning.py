@@ -40,6 +40,7 @@ Predictions = base_agent.Predictions
 make_optimizer = base_agent.make_optimizer
 make_loss_fn_class = base_agent.make_loss_fn_class
 make_actor = base_agent.make_actor
+epsilon_greedy_act = base_agent.epsilon_greedy_act
 
 class RnnAgent(nn.Module):
     """_summary_

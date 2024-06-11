@@ -195,6 +195,7 @@ def run_single(
         config: dict,
         save_path: str = None):
 
+    rng = jax.random.PRNGKey(config["SEED"])
     ###################
     # load data
     ###################
@@ -343,9 +344,46 @@ def run_single(
       )
     elif alg_name == 'dynaq':
       import distrax
-      temp_dist = distrax.Gamma(
-        concentration=config.get("TEMP_CONCENTRATION", 1.),
-        rate=config.get("TEMP_RATE", 1.))
+      sim_policy = config.get('SIM_POLICY', 'gamma')
+      num_simulations = config.get('NUM_SIMULATIONS', 15)
+      if sim_policy == 'gamma':
+        temp_dist = distrax.Gamma(
+          concentration=config.get("TEMP_CONCENTRATION", 1.),
+          rate=config.get("TEMP_RATE", 1.))
+
+        rng, rng_ = jax.random.split(rng)
+        temperatures = temp_dist.sample(
+            seed=rng_,
+            sample_shape=(num_simulations,))
+        greedy_idx = int(temperatures.argmin())
+        def simulation_policy(
+            q_values: jax.Array,
+            sim_rng: jax.Array):
+          import ipdb; ipdb.set_trace()
+          assert q_values.shape[0] == temperatures.shape[0]
+          logits = q_values / jnp.expand_dims(temperatures, -1)
+          return distrax.Categorical(
+              logits=logits).sample(seed=sim_rng)
+
+      elif sim_policy == 'epsilon':
+        vals = np.logspace(
+                  num=config.get('NUM_EPSILONS', 256),
+                  start=config.get('EPSILON_MIN', .05),
+                  stop=config.get('EPSILON_MAX', .9),
+                  base=config.get('EPSILON_BASE', .1))
+        epsilons = jax.random.choice(
+            rng, vals, shape=(num_simulations,))
+        greedy_idx = int(epsilons.argmin())
+        def simulation_policy(
+            q_values: jax.Array,
+            sim_rng: jax.Array):
+            assert q_values.shape[0] == epsilons.shape[0]
+            sim_rng = jax.random.split(sim_rng, q_values.shape[0])
+            return jax.vmap(qlearning.epsilon_greedy_act, in_axes=(0, 0, 0))(
+               q_values, epsilons, sim_rng)
+
+      else:
+        raise NotImplementedError
 
       def make_init_offtask_timestep(x: maze.TimeStep, offtask_w: jax.Array):
           task_object = (task_objects*offtask_w).sum(-1)
@@ -379,8 +417,8 @@ def run_single(
           make_optimizer=offtask_dyna.make_optimizer,
           make_loss_fn_class=functools.partial(
             offtask_dyna.make_loss_fn_class,
-            temp_dist=temp_dist,
             make_init_offtask_timestep=make_init_offtask_timestep,
+            simulation_policy=simulation_policy,
             ),
           make_actor=offtask_dyna.make_actor,
           make_logger=functools.partial(
@@ -396,6 +434,7 @@ def run_single(
               extract_task_info=extract_task_info,
               get_task_name=task_from_variables,
               render_fn=housemaze_render_fn,
+              sim_idx=greedy_idx,
               )
             ),
       )
@@ -412,7 +451,6 @@ def run_single(
       )
     train_vjit = jax.jit(jax.vmap(train_fn))
 
-    rng = jax.random.PRNGKey(config["SEED"])
     rngs = jax.random.split(rng, config["NUM_SEEDS"])
     outs = jax.block_until_ready(train_vjit(rngs))
 
@@ -472,16 +510,29 @@ def sweep(search: str = ''):
         #    "TEMP_RATE": tune.grid_search([.5]),
         #    **shared,
         #},
+        #{
+        #    "group": tune.grid_search(['dynaq-5-rate']),
+        #    "alg": tune.grid_search(['dynaq']),
+        #    "TOTAL_TIMESTEPS": tune.grid_search([7.5e6]),
+        #    #"AGENT_HIDDEN_DIM": tune.grid_search([32, 64]),
+        #    #"GRID_HIDDEN": tune.grid_search([256, 512]),
+        #    "DYNA_COEFF": tune.grid_search([1., .1]),
+        #    "TEMP_RATE": tune.grid_search([.5, 1., 1.5]),
+        #    **shared,
+        #},
+
         {
-            "group": tune.grid_search(['dynaq-5-rate']),
+            "group": tune.grid_search(['dynaq-6-policy']),
             "alg": tune.grid_search(['dynaq']),
             "TOTAL_TIMESTEPS": tune.grid_search([7.5e6]),
-            #"AGENT_HIDDEN_DIM": tune.grid_search([32, 64]),
+            "SIM_POLICY": tune.grid_search(['epsilon', 'gamma']),
+            "NUM_SIMULATIONS": tune.grid_search([15, 30, 45]),
             #"GRID_HIDDEN": tune.grid_search([256, 512]),
-            "DYNA_COEFF": tune.grid_search([1., .1]),
-            "TEMP_RATE": tune.grid_search([.5, 1., 1.5]),
+            #"DYNA_COEFF": tune.grid_search([1., .1]),
+            #"TEMP_RATE": tune.grid_search([.5, 1., 1.5]),
             **shared,
         },
+        
       ]
   else:
     raise NotImplementedError(search)
