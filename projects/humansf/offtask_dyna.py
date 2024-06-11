@@ -126,7 +126,7 @@ def  simulate_n_trajectories(
           jax.random.split(rng_, num_simulations)
         )
     init_a_t = policy_fn(
-        init_preds_t.q_vals, rng_)
+        init_preds_t, rng_)
 
     def _single_model_step(carry, inputs):
         del inputs  # unused
@@ -145,7 +145,7 @@ def  simulate_n_trajectories(
         ###########################
         # [N]
         next_a = policy_fn(
-            next_preds.q_vals,
+            next_preds,
             rng_,
         )
         carry = (next_preds.state, next_a, rng)
@@ -682,11 +682,6 @@ def learner_log_extra(
             #   T=0 (1st time-point)
             #   B=0 (1st batch sample)
             #   N=index(t_min) (simulation with lowest temperaturee)
-            # Given the same starting point at above, this __should__ give a __different__ trajectory
-            # lowest temperature, corresponds to most greedy
-            import ipdb; ipdb.set_trace()
-            #temperatures = d['dyna'].pop('temperatures')[0, 0]
-            #t_min = int(temperatures.argmin())
             d['dyna'] = jax.tree_map(lambda x: x[0, 0, :, sim_idx], d['dyna'])
             log_data(**d['dyna'], key='dyna')
 
