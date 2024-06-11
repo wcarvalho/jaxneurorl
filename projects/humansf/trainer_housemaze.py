@@ -358,7 +358,7 @@ def run_single(
             sample_shape=(num_simulations,))
         greedy_idx = int(temperatures.argmin())
         def simulation_policy(
-            preds: struct.PytreeNode,
+            preds: struct.PyTreeNode,
             sim_rng: jax.Array):
           q_values = preds.q_vals
           assert q_values.shape[0] == temperatures.shape[0]
@@ -376,7 +376,7 @@ def run_single(
             rng, vals, shape=(num_simulations,))
         greedy_idx = int(epsilons.argmin())
         def simulation_policy(
-            preds: struct.PytreeNode,
+            preds: struct.PyTreeNode,
             sim_rng: jax.Array):
             q_values = preds.q_vals
             assert q_values.shape[0] == epsilons.shape[0]
