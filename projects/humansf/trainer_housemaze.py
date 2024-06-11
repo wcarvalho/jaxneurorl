@@ -30,6 +30,7 @@ from absl import app
 
 import os
 import jax
+from flax import struct
 import functools
 import jax.numpy as jnp
 import jax.tree_util as jtu
@@ -357,9 +358,9 @@ def run_single(
             sample_shape=(num_simulations,))
         greedy_idx = int(temperatures.argmin())
         def simulation_policy(
-            q_values: jax.Array,
+            preds: struct.PytreeNode,
             sim_rng: jax.Array):
-          import ipdb; ipdb.set_trace()
+          q_values = preds.q_vals
           assert q_values.shape[0] == temperatures.shape[0]
           logits = q_values / jnp.expand_dims(temperatures, -1)
           return distrax.Categorical(
@@ -375,8 +376,9 @@ def run_single(
             rng, vals, shape=(num_simulations,))
         greedy_idx = int(epsilons.argmin())
         def simulation_policy(
-            q_values: jax.Array,
+            preds: struct.PytreeNode,
             sim_rng: jax.Array):
+            q_values = preds.q_vals
             assert q_values.shape[0] == epsilons.shape[0]
             sim_rng = jax.random.split(sim_rng, q_values.shape[0])
             return jax.vmap(qlearning.epsilon_greedy_act, in_axes=(0, 0, 0))(
@@ -525,7 +527,7 @@ def sweep(search: str = ''):
             "group": tune.grid_search(['dynaq-6-policy']),
             "alg": tune.grid_search(['dynaq']),
             "TOTAL_TIMESTEPS": tune.grid_search([7.5e6]),
-            "SIM_POLICY": tune.grid_search(['epsilon', 'gamma']),
+            "SIM_POLICY": tune.grid_search(['gamma', 'epsilon']),
             "NUM_SIMULATIONS": tune.grid_search([15, 30, 45]),
             #"GRID_HIDDEN": tune.grid_search([256, 512]),
             #"DYNA_COEFF": tune.grid_search([1., .1]),
