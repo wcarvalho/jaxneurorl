@@ -254,10 +254,10 @@ def run_single(
       map_idx = variables['map_idx']
       category = keys[variables['category']]
       is_train_task = variables['is_train_task']
-      setting = '0.pretrain' if map_idx == 0 else '1.main'
-      label = 'train' if is_train_task else 'TEST'
+      label = '1.train' if is_train_task else '0.TEST'
+      setting = 'S' if map_idx == 0 else 'L'
 
-      return f'{setting} - {label} - {category}'
+      return f'{label} - {setting} - {category}'
 
     observer_class = functools.partial(
       humansf_observers.TaskObserver,
@@ -462,13 +462,24 @@ def sweep(search: str = ''):
       "config_name": tune.grid_search(['dyna_housemaze']),
     }
     space = [
+        #{
+        #    "group": tune.grid_search(['dynaq-4']),
+        #    "alg": tune.grid_search(['dynaq']),
+        #    "TOTAL_TIMESTEPS": tune.grid_search([7.5e6]),
+        #    "AGENT_HIDDEN_DIM": tune.grid_search([32, 64]),
+        #    "GRID_HIDDEN": tune.grid_search([256, 512]),
+        #    "DYNA_COEFF": tune.grid_search([1., .1]),
+        #    "TEMP_RATE": tune.grid_search([.5]),
+        #    **shared,
+        #},
         {
-            "group": tune.grid_search(['dynaq-3']),
+            "group": tune.grid_search(['dynaq-5-rate']),
             "alg": tune.grid_search(['dynaq']),
-            "TOTAL_TIMESTEPS": tune.grid_search([10e6]),
-            "TRAINING_INTERVAL": tune.grid_search([5]),
-            "TEMP_CONCENTRATION": tune.grid_search([.25, .5]),
-            "TEMP_RATE": tune.grid_search([.25, .5]),
+            "TOTAL_TIMESTEPS": tune.grid_search([7.5e6]),
+            #"AGENT_HIDDEN_DIM": tune.grid_search([32, 64]),
+            #"GRID_HIDDEN": tune.grid_search([256, 512]),
+            "DYNA_COEFF": tune.grid_search([1., .1]),
+            "TEMP_RATE": tune.grid_search([.5, 1., 1.5]),
             **shared,
         },
       ]
