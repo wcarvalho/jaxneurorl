@@ -29,9 +29,13 @@ from projects.humansf.visualizer import plot_frames
 
 Agent = nn.Module
 Params = flax.core.FrozenDict
+Qvalues = jax.Array
+RngKey = jax.Array
 make_actor = base_agent.make_actor
 make_optimizer = base_agent.make_optimizer
 RnnState = jax.Array
+
+SimPolicy = Callable[[Qvalues, RngKey], int]
 
 @struct.dataclass
 class AgentState:
@@ -61,13 +65,14 @@ def concat_first_rest(first, rest):
     # output: [T+1, N, ...]
     return jax.vmap(concat_pytrees, 1, 1)(add_time(first), rest)
 
-def simulate_n_trajectories(
+def  simulate_n_trajectories(
         x_t: TimeStep,
         h_tm1: RnnState,
         rng:jax.random.PRNGKey,
         network: nn.Module,
         params: Params,
-        temperatures: Optional[jax.Array] = None,
+        #temperatures: Optional[jax.Array] = None,
+        policy_fn: SimPolicy = None,
         num_steps: int = 5,
         num_simulations: int = 5,
     ):
@@ -91,40 +96,37 @@ def simulate_n_trajectories(
     Returns:
         _type_: _description_
     """
-    if temperatures is None:
-       temperatures = jnp.ones(num_simulations)
-    assert len(temperatures) == num_simulations
+    #if temperatures is None:
+    #   temperatures = jnp.ones(num_simulations)
+    #assert len(temperatures) == num_simulations
 
-    def policy_fn(q_values, temp, rng_):
-       # q_values: [N, A] or [A]
-       # temp: [N] or []
-       logits = q_values / jnp.expand_dims(temp, -1)
-       return distrax.Categorical(
-           logits=logits).sample(seed=rng_)
+    #def policy_fn(q_values, temp, rng_):
+    #   # q_values: [N, A] or [A]
+    #   # temp: [N] or []
+    #   logits = q_values / jnp.expand_dims(temp, -1)
+    #   return distrax.Categorical(
+    #       logits=logits).sample(seed=rng_)
 
-    def initial_predictions(x, prior_s, temp, rng_):
+    def initial_predictions(x, prior_s, rng_):
         preds, s = network.apply(params, prior_s, x, rng_)
-        action = policy_fn(
-           preds.q_vals,
-           temp, rng_
-        )
-        return preds, action
+        return preds
 
     # by giving state as input and returning, will
     # return copies. 1 for each sampled action.
     rng, rng_ = jax.random.split(rng)
 
     # one for each simulation
-    # [N, ...], [N]
-    init_preds_t, init_a_t = jax.vmap(
+    # [N, ...]
+    init_preds_t = jax.vmap(
         initial_predictions,
-        in_axes=(None, None, 0, 0),
+        in_axes=(None, None, 0),
         out_axes=(0)
         )(x_t,           # [D]
           h_tm1,         # [D]
-          temperatures,  # [N]
           jax.random.split(rng_, num_simulations)
         )
+    init_a_t = policy_fn(
+        init_preds_t.q_vals, rng_)
 
     def _single_model_step(carry, inputs):
         del inputs  # unused
@@ -144,7 +146,6 @@ def simulate_n_trajectories(
         # [N]
         next_a = policy_fn(
             next_preds.q_vals,
-            temperatures,
             rng_,
         )
         carry = (next_preds.state, next_a, rng)
@@ -189,7 +190,7 @@ class OfftaskDyna(vbb.RecurrentLossFn):
     env_params: environment.EnvParams = None
 
     make_init_offtask_timestep: Callable[[TimeStep], TimeStep] = None
-
+    simulation_policy: SimPolicy = None
     temp_dist: distrax.Distribution = distrax.Gamma(concentration=1, rate=.5)
 
     def loss_fn(
@@ -434,10 +435,10 @@ class OfftaskDyna(vbb.RecurrentLossFn):
         # OUTPUT: a_0, s_1, a_1, s_2
         #   also: online_preds
 
-        rng, rng_ = jax.random.split(rng)
-        temperatures = self.temp_dist.sample(
-            seed=rng_,
-            sample_shape=(self.num_simulations,))
+        #rng, rng_ = jax.random.split(rng)
+        #temperatures = self.temp_dist.sample(
+        #    seed=rng_,
+        #    sample_shape=(self.num_simulations,))
 
         rng, rng_ = jax.random.split(rng)
         # [num_sim, ...]
@@ -449,7 +450,7 @@ class OfftaskDyna(vbb.RecurrentLossFn):
             params=params,
             num_steps=self.simulation_length,
             num_simulations=self.num_simulations,
-            temperatures=temperatures,
+            policy_fn=self.simulation_policy,
         )
         preds_t_online = sim_outputs_t.predictions
 
@@ -523,8 +524,6 @@ class OfftaskDyna(vbb.RecurrentLossFn):
             loss_mask=loss_mask_t,
         )
 
-        log_info['temperatures'] = temperatures
-
         return batch_td_error, batch_loss_mean, metrics, log_info
 
 def make_loss_fn_class(config, **kwargs) -> vbb.RecurrentLossFn:
@@ -546,6 +545,7 @@ def learner_log_extra(
         extract_task_info: Callable[[TimeStep],
                                     flax.struct.PyTreeNode] = lambda t: t,
         get_task_name: Callable = lambda t: 'Task',
+        sim_idx: int = 0,
         ):
 
     def log_data(
@@ -684,9 +684,10 @@ def learner_log_extra(
             #   N=index(t_min) (simulation with lowest temperaturee)
             # Given the same starting point at above, this __should__ give a __different__ trajectory
             # lowest temperature, corresponds to most greedy
-            temperatures = d['dyna'].pop('temperatures')[0, 0]
-            t_min = int(temperatures.argmin())
-            d['dyna'] = jax.tree_map(lambda x: x[0, 0, :, t_min], d['dyna'])
+            import ipdb; ipdb.set_trace()
+            #temperatures = d['dyna'].pop('temperatures')[0, 0]
+            #t_min = int(temperatures.argmin())
+            d['dyna'] = jax.tree_map(lambda x: x[0, 0, :, sim_idx], d['dyna'])
             log_data(**d['dyna'], key='dyna')
 
     # this will be the value after update is applied
