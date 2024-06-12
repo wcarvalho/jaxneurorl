@@ -272,8 +272,7 @@ def run(
     sweep_fn,
     folder: str,
     trainer_filename: str,
-    config_path: str,
-    remove_wandb_files: bool = True):
+    config_path: str):
   """The basic logics is as follows:
 
   Simplest: if FLAGS.parallel == 'none', simply runs run_fn
@@ -350,14 +349,6 @@ def run(
     run_fn(
       config=config,
       save_path=experiment_config['log_dir'])
-    if remove_wandb_files:
-      #---------------
-      # clean up wandb dir
-      #---------------
-      wandb_dir = wandb_init.get("dir", './wandb')
-      if os.path.exists(wandb_dir):
-        import shutil
-        shutil.rmtree(wandb_dir)
 
   else:
     raise NotImplementedError

@@ -77,7 +77,7 @@ def  simulate_n_trajectories(
         num_simulations: int = 5,
     ):
     """
-    
+
     return predictions and actions for every time-step including the current one.
 
     This first applies the model to the current time-step and then simulates T more time-steps. 
