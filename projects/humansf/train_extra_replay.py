@@ -3,13 +3,38 @@ import copy
 from gymnax.environments import environment
 import jax
 import jax.numpy as jnp
-from flax.core import FrozenDict
-import flashbax as fbx
 
+import flax
+from flax.core import FrozenDict
+from flax.training.train_state import TrainState
+
+import flashbax as fbx
+from safetensors.flax import save_file
+from flax.traverse_util import flatten_dict
 from agents import value_based_basics as vbb
 
 from library import observers
 from library import loggers
+
+
+class CustomTrainState(TrainState):
+    target_network_params: flax.core.FrozenDict
+    timesteps: int
+    n_updates: int
+    n_logs: int
+    n_extra_updates: int = 0
+
+
+def save_params(params, n_updates, filename_fn):
+    def callback(p, n):
+        filename = filename_fn(n)
+        flattened_dict = flatten_dict(p, sep=',')
+        save_file(flattened_dict, filename)
+        print(f'Saved: {filename}')
+
+    jax.debug.callback(callback, params, n_updates)
+
+
 
 def make_train(
         config: dict,
@@ -22,6 +47,7 @@ def make_train(
         make_actor: vbb.MakeActorFn,
         make_logger: vbb.MakeLoggerFn = loggers.default_make_logger,
         test_env_params: vbb.Optional[environment.EnvParams] = None,
+        save_params_fn=save_params,
         ObserverCls: observers.BasicObserver = observers.BasicObserver,
 ):
     """Creates a train function that does learning after unrolling agent for K timesteps.
@@ -96,7 +122,7 @@ def make_train(
         ##############################
         tx = make_optimizer(config)
 
-        train_state = vbb.CustomTrainState.create(
+        train_state = CustomTrainState.create(
             apply_fn=agent.apply,
             params=network_params,
             target_network_params=jax.tree_map(
@@ -370,6 +396,12 @@ def make_train(
             _train_step, runner_state, None, config["NUM_UPDATES"]
         )
 
+        #------------------
+        # save params
+        #------------------
+        n_updates = runner_state.train_state.n_updates
+        save_params_fn(runner_state.train_state.params, n_updates)
+
         ##############################
         # DEFINE EXTRA REPLAY LOOP
         ##############################
@@ -446,6 +478,24 @@ def make_train(
                 train_state=train_state,
                 rng=rng)
 
+            #-----------------
+            # optionally save params
+            #-----------------
+            n_extra_updates = runner_state.train_state.n_extra_updates
+
+            stride = config["NUM_EXTRA_REPLAY"] // 4
+            save_timepoints = jnp.arange(0, config["NUM_EXTRA_REPLAY"], stride)
+            save_timepoints = save_timepoints[1:]
+
+            # should save at 25%, 50%, 75%
+            should_save = (n_extra_updates == save_timepoints).any()
+            n_updates = runner_state.train_state.n_updates
+            total_updates = n_updates + n_extra_updates
+            jax.lax.cond(
+                should_save,
+                lambda: save_params_fn(runner_state.train_state.params, total_updates),
+                lambda: None)
+
             return next_runner_state, {}
 
         ##############################
@@ -455,6 +505,10 @@ def make_train(
         runner_state, _ = jax.lax.scan(
             _extra_replay_step, runner_state, None, config["NUM_EXTRA_REPLAY"]
         )
+        n_updates = runner_state.train_state.n_updates
+        n_extra_updates = runner_state.train_state.n_extra_updates
+        total_updates = n_updates + n_extra_updates
+        save_params_fn(runner_state.train_state.params, total_updates)
 
 
         return {"runner_state": runner_state}
