@@ -182,6 +182,7 @@ class OfftaskDyna(vbb.RecurrentLossFn):
     """
     num_simulations: int = 15
     simulation_length: int = 5
+    online_coeff: float = 1.0
     dyna_coeff: float = 1.0
 
     offtask_simulation: bool = True
@@ -284,23 +285,29 @@ class OfftaskDyna(vbb.RecurrentLossFn):
         truncated = (non_terminal+is_last) > 1
         loss_mask = make_float(1-truncated)
 
-        td_error, batch_loss, metrics, log_info = self.loss_fn(
-            timestep=data.timestep,
-            online_preds=online_preds,
-            target_preds=target_preds,
-            actions=data.action,
-            rewards=data.reward,
-            is_last=is_last,
-            non_terminal=non_terminal,
-            loss_mask=loss_mask,
-            )
-
-        # first label online loss with online
-        metrics = {f'online/{k}': v for k,v in metrics.items()}
-        log_info = {
-            'online': log_info,
+        all_metrics = {}
+        all_log_info = {
             'n_updates': steps,
-            }
+        }
+        if self.online_coeff > 0.0:
+            td_error, batch_loss, metrics, log_info = self.loss_fn(
+                timestep=data.timestep,
+                online_preds=online_preds,
+                target_preds=target_preds,
+                actions=data.action,
+                rewards=data.reward,
+                is_last=is_last,
+                non_terminal=non_terminal,
+                loss_mask=loss_mask,
+                )
+
+            # first label online loss with online
+            all_metrics.update({f'online/{k}': v for k, v in metrics.items()})
+            all_log_info['online'] = log_info
+        else:
+            td_error = jnp.zeros_like((loss_mask[:-1]))
+            batch_loss = td_error.sum(0)  # time axis
+
         #################
         # Dyna Q-learning loss over simulated data
         #################
@@ -334,29 +341,6 @@ class OfftaskDyna(vbb.RecurrentLossFn):
                 # TODO: generalize this process for other environments
                 offtask_w = x_t.state.offtask_w
                 x_t = self.make_init_offtask_timestep(x_t, offtask_w)
-                #new_state = x_t.state.replace(
-                #    step_num=jnp.zeros_like(x_t.state.step_num),
-                #    task_w=offtask_w,
-                #    task_object_idx=1-x_t.state.task_object_idx,
-                #)
-
-                ## maybe have this function be an input to class?
-                #make_obs = lambda s, a_tml: keyroom.make_observation(
-                #        state=s,
-                #        prev_action=a_tml,
-                #        params=self.env_params,
-                #    )
-                #x_t = x_t.replace(
-                #    state=new_state,
-                #    observation=jax.vmap(jax.vmap(make_obs))(
-                #        new_state,
-                #        x_t.observation.prev_action,
-                #    ),
-                #    # reset reward, discount, step type
-                #    reward=jnp.zeros_like(x_t.reward),
-                #    discount=jnp.ones_like(x_t.discount),
-                #    step_type=jnp.ones_like(x_t.step_type),
-                #)
 
             T, B = offtask_w.shape[:2]
             rngs = jax.random.split(key_grad, T*B)
@@ -386,15 +370,15 @@ class OfftaskDyna(vbb.RecurrentLossFn):
             batch_loss += self.dyna_coeff*dyna_batch_loss
 
             # update metrics with dyna metrics
-            metrics.update(
+            all_metrics.update(
                 {f'dyna/{k}': v for k, v in dyna_metrics.items()})
 
-            log_info['dyna'] = dyna_log_info
+            all_log_info['dyna'] = dyna_log_info
 
         if self.logger.learner_log_extra is not None:
-            self.logger.learner_log_extra(log_info)
-
-        return td_error, batch_loss, metrics
+            self.logger.learner_log_extra(all_log_info)
+        
+        return td_error, batch_loss, all_metrics
 
     def dyna_loss_fn(
         self,
@@ -507,11 +491,13 @@ class OfftaskDyna(vbb.RecurrentLossFn):
         # Apply loss function to trajectories
         ################
         # prepare data
-        is_last_t = make_float(timesteps_t.last())  # either termination or truncation
+        non_terminal = timesteps_t.discount
+        # either termination or truncation
+        is_last_t = make_float(timesteps_t.last())
 
         # time-step of termination and everything afterwards is masked out
-        terminated_t = jnp.cumsum(is_last_t, 0)
-        loss_mask_t = make_float(terminated_t < 1)
+        term_cumsum_t = jnp.cumsum(is_last_t, 0)
+        loss_mask_t = make_float((term_cumsum_t + non_terminal) < 2)
 
         batch_td_error, batch_loss_mean, metrics, log_info = self.loss_fn(
             timestep=timesteps_t,
@@ -532,7 +518,6 @@ def make_loss_fn_class(config, **kwargs) -> vbb.RecurrentLossFn:
         discount=config['GAMMA'],
         num_simulations=config.get('NUM_SIMULATIONS', 15),
         simulation_length=config.get('SIMULATION_LENGTH', 5),
-        dyna_coeff=config.get('DYNA_COEFF', 1.0),
         stop_dyna_gradient=config.get('STOP_DYNA_GRAD', True),
         **kwargs
         )
@@ -672,8 +657,9 @@ def learner_log_extra(
     def callback(d):
         n_updates = d.pop('n_updates')
         # [T, B] --> [T]
-        d['online'] = jax.tree_map(lambda x: x[:, 0], d['online'])
-        log_data(**d['online'], key='online')
+        if 'online' in d:
+            d['online'] = jax.tree_map(lambda x: x[:, 0], d['online'])
+            log_data(**d['online'], key='online')
 
         if 'dyna' in d:
             # [T, B, K, N] --> [K]
