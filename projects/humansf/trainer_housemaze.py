@@ -357,6 +357,7 @@ def run_single(
             seed=rng_,
             sample_shape=(num_simulations,))
         greedy_idx = int(temperatures.argmin())
+
         def simulation_policy(
             preds: struct.PyTreeNode,
             sim_rng: jax.Array):
@@ -467,8 +468,16 @@ def run_single(
         model_state = outs['runner_state'][0]
         params = jax.tree_map(lambda x: x[0], model_state.params) # save only params of the firt run
         os.makedirs(save_path, exist_ok=True)
+
         save_params(params, f'{save_path}/{alg_name}.safetensors')
         print(f'Parameters of first batch saved in {save_path}/{alg_name}.safetensors')
+
+        config_filename = f'{save_path}/{alg_name}.config'
+        import pickle
+        # Save the dictionary as a pickle file
+        with open(config_filename, 'wb') as f:
+          pickle.dump(config, f)
+        print(f'Config saved in {config_filename}')
 
 
 def sweep(search: str = ''):
@@ -479,11 +488,13 @@ def sweep(search: str = ''):
     }
     space = [
         {
-            "group": tune.grid_search(['qlearning-3']),
+            "group": tune.grid_search(['qlearning-5']),
             "alg": tune.grid_search(['qlearning']),
+            "SAMPLE_LENGTH": tune.grid_search([sl]),
+            "BUFFER_BATCH_SIZE": tune.grid_search([int(40//sl)*32]),
             "TOTAL_TIMESTEPS": tune.grid_search([30e6]),
             **shared,
-        },
+        } for sl in [5, 10, 20, 40]
       ]
   elif search == 'alpha':
     shared = {
@@ -493,47 +504,30 @@ def sweep(search: str = ''):
         {
             "group": tune.grid_search(['alpha-3']),
             "alg": tune.grid_search(['alphazero']),
+            "SAMPLE_LENGTH": tune.grid_search([sl]),
+            "BUFFER_BATCH_SIZE": tune.grid_search([int(40//sl)*32]),
             "TOTAL_TIMESTEPS": tune.grid_search([5e6]),
             **shared,
-        },
+        } for sl in [5, 10, 20, 40]
       ]
   elif search == 'dynaq':
     shared = {
       "config_name": tune.grid_search(['dyna_housemaze']),
     }
     space = [
-        #{
-        #    "group": tune.grid_search(['dynaq-4']),
-        #    "alg": tune.grid_search(['dynaq']),
-        #    "TOTAL_TIMESTEPS": tune.grid_search([7.5e6]),
-        #    "AGENT_HIDDEN_DIM": tune.grid_search([32, 64]),
-        #    "GRID_HIDDEN": tune.grid_search([256, 512]),
-        #    "DYNA_COEFF": tune.grid_search([1., .1]),
-        #    "TEMP_RATE": tune.grid_search([.5]),
-        #    **shared,
-        #},
-        #{
-        #    "group": tune.grid_search(['dynaq-5-rate']),
-        #    "alg": tune.grid_search(['dynaq']),
-        #    "TOTAL_TIMESTEPS": tune.grid_search([7.5e6]),
-        #    #"AGENT_HIDDEN_DIM": tune.grid_search([32, 64]),
-        #    #"GRID_HIDDEN": tune.grid_search([256, 512]),
-        #    "DYNA_COEFF": tune.grid_search([1., .1]),
-        #    "TEMP_RATE": tune.grid_search([.5, 1., 1.5]),
-        #    **shared,
-        #},
-
         {
-            "group": tune.grid_search(['dynaq-6-policy']),
+            "group": tune.grid_search(['dynaq-7-policy']),
             "alg": tune.grid_search(['dynaq']),
+            "SAMPLE_LENGTH": tune.grid_search([sl]),
+            "BUFFER_BATCH_SIZE": tune.grid_search([int(40//sl)*32]),
             "TOTAL_TIMESTEPS": tune.grid_search([7.5e6]),
             "SIM_POLICY": tune.grid_search(['gamma', 'epsilon']),
-            "NUM_SIMULATIONS": tune.grid_search([15, 30, 45]),
+            "NUM_SIMULATIONS": tune.grid_search([15]),
             #"GRID_HIDDEN": tune.grid_search([256, 512]),
             #"DYNA_COEFF": tune.grid_search([1., .1]),
             #"TEMP_RATE": tune.grid_search([.5, 1., 1.5]),
             **shared,
-        },
+        } for sl in [5, 10, 20, 40]
         
       ]
   else:
