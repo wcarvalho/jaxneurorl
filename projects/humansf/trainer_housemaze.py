@@ -345,6 +345,7 @@ def run_single(
       )
     elif alg_name == 'dynaq':
       import distrax
+      from projects.humansf import train_extra_replay
       sim_policy = config.get('SIM_POLICY', 'gamma')
       num_simulations = config.get('NUM_SIMULATIONS', 15)
       if sim_policy == 'gamma':
@@ -420,17 +421,15 @@ def run_single(
           make_optimizer=offtask_dyna.make_optimizer,
           make_loss_fn_class=functools.partial(
             offtask_dyna.make_loss_fn_class,
-            make_init_offtask_timestep=make_init_offtask_timestep,
-            simulation_policy=simulation_policy,
             online_coeff=config.get('ONLINE_COEFF', 1.0),
             dyna_coeff=0.0,
             ),
           make_replay_loss_fn_class=functools.partial(
-              offtask_dyna.make_loss_fn_class,
-              temp_dist=temp_dist,
-              make_init_offtask_timestep=make_init_offtask_timestep,
-              online_coeff=config.get('DYNA_ONLINE_COEFF', 0.0),
-              dyna_coeff=config.get('DYNA_COEFF', 1.0),
+            offtask_dyna.make_loss_fn_class,
+            make_init_offtask_timestep=make_init_offtask_timestep,
+            simulation_policy=simulation_policy,
+            online_coeff=config.get('DYNA_ONLINE_COEFF', 0.0),
+            dyna_coeff=config.get('DYNA_COEFF', 1.0),
           ),
           make_actor=offtask_dyna.make_actor,
           make_logger=functools.partial(

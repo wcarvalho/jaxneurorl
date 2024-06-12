@@ -660,7 +660,6 @@ def learner_log_extra(
         if 'online' in d:
             d['online'] = jax.tree_map(lambda x: x[:, 0], d['online'])
             log_data(**d['online'], key='online')
-
         if 'dyna' in d:
             # [T, B, K, N] --> [K]
             # K = the simulation length
