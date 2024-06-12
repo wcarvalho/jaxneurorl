@@ -197,6 +197,7 @@ def run_single(
         save_path: str = None):
 
     rng = jax.random.PRNGKey(config["SEED"])
+    #config['save_path'] = save_path
     ###################
     # load data
     ###################
@@ -410,7 +411,7 @@ def run_single(
               step_type=jnp.ones_like(x.step_type),
           )
 
-
+      
       make_train = functools.partial(
           train_extra_replay.make_train,
           make_agent=functools.partial(
@@ -446,8 +447,10 @@ def run_single(
               get_task_name=task_from_variables,
               render_fn=housemaze_render_fn,
               sim_idx=greedy_idx,
-              )
-            ),
+              )),
+          save_params_fn=functools.partial(
+             train_extra_replay.save_params,
+             filename_fn=lambda n: f"{save_path}/{alg_name}_{n}.safetensors")
       )
 
     else:
@@ -474,7 +477,8 @@ def run_single(
             save_file(flattened_dict, filename)
 
         model_state = outs['runner_state'][0]
-        params = jax.tree_map(lambda x: x[0], model_state.params) # save only params of the firt run
+        # save only params of the firt run
+        params = jax.tree_map(lambda x: x[0], model_state.params)
         os.makedirs(save_path, exist_ok=True)
 
         save_params(params, f'{save_path}/{alg_name}.safetensors')
