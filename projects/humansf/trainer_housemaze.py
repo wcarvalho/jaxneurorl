@@ -343,6 +343,7 @@ def run_single(
       )
     elif alg_name == 'dynaq':
       import distrax
+      from projects.humansf import train_extra_replay
       temp_dist = distrax.Gamma(
         concentration=config.get("TEMP_CONCENTRATION", 1.),
         rate=config.get("TEMP_RATE", 1.))
@@ -370,7 +371,7 @@ def run_single(
 
 
       make_train = functools.partial(
-          vbb.make_train,
+          train_extra_replay.make_train,
           make_agent=functools.partial(
             offtask_dyna.make_agent,
             ObsEncoderCls=networks.HouzemazeObsEncoder,
@@ -381,7 +382,16 @@ def run_single(
             offtask_dyna.make_loss_fn_class,
             temp_dist=temp_dist,
             make_init_offtask_timestep=make_init_offtask_timestep,
+            online_coeff=config.get('ONLINE_COEFF', 1.0),
+            dyna_coeff=0.0,
             ),
+          make_replay_loss_fn_class=functools.partial(
+              offtask_dyna.make_loss_fn_class,
+              temp_dist=temp_dist,
+              make_init_offtask_timestep=make_init_offtask_timestep,
+              online_coeff=config.get('DYNA_ONLINE_COEFF', 0.0),
+              dyna_coeff=config.get('DYNA_COEFF', 1.0),
+          ),
           make_actor=offtask_dyna.make_actor,
           make_logger=functools.partial(
             make_logger,
