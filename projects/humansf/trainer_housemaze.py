@@ -94,6 +94,7 @@ def load_env_params(
       num_groups: int,
       max_objects: int = 3,
       file: str = 'list_of_groups.npy',
+      large_only: bool = False,
     ):
     # load groups
     if os.path.exists(file):
@@ -177,6 +178,8 @@ def load_env_params(
         starting_locs = np.array([path[i] for i in range(0, len(path), width)])
         all_starting_locs[idx, :len(starting_locs)] = starting_locs
 
+    if large_only:
+       list_of_reset_params = []
     list_of_reset_params.append(
         make_reset_params(
             map_init=map_init,
@@ -528,20 +531,54 @@ def sweep(search: str = ''):
     }
     space = [
         {
-            "group": tune.grid_search(['dynaq-7-policy']),
+            "group": tune.grid_search(['dynaq-11-extra']),
             "alg": tune.grid_search(['dynaq']),
-            "SAMPLE_LENGTH": tune.grid_search([sl]),
-            "BUFFER_BATCH_SIZE": tune.grid_search([int(40//sl)*32]),
-            "TOTAL_TIMESTEPS": tune.grid_search([7.5e6]),
+            #"SAMPLE_LENGTH": tune.grid_search([sl]),
+            #"BUFFER_BATCH_SIZE": tune.grid_search([int(40//sl)*32]),
+            "TOTAL_TIMESTEPS": tune.grid_search([5e6]),
             "SIM_POLICY": tune.grid_search(['gamma', 'epsilon']),
-            "NUM_SIMULATIONS": tune.grid_search([15]),
-            #"GRID_HIDDEN": tune.grid_search([256, 512]),
+            "DYNA_ONLINE_COEFF": tune.grid_search([0., .1, 1.]),
+            "DYNA_COEFF": tune.grid_search([.1, 1.]),
             #"DYNA_COEFF": tune.grid_search([1., .1]),
             #"TEMP_RATE": tune.grid_search([.5, 1., 1.5]),
             **shared,
-        } for sl in [5, 10, 20, 40]
-        
+        },
+        #{
+        #    "group": tune.grid_search(['dynaq-11-speed-cnn']),
+        #    "alg": tune.grid_search(['dynaq']),
+        #    "TOTAL_TIMESTEPS": tune.grid_search([10e6]),
+        #    "RNN_CELL_TYPE": tune.grid_search(['none']),
+        #    "NUM_EMBED_LAYERS": tune.grid_search([0, 1]),
+        #    **shared,
+        #},
       ]
+  #elif search == 'dynaq2':
+  #  shared = {
+  #    "config_name": tune.grid_search(['dyna_housemaze']),
+  #  }
+  #  space = [
+  #      {
+  #          "group": tune.grid_search(['dynaq-12-speed-iql']),
+  #          "alg": tune.grid_search(['dynaq']),
+  #          "TOTAL_TIMESTEPS": tune.grid_search([10e6]),
+  #          "RNN_CELL_TYPE": tune.grid_search(['GRUCell']),
+  #          "TOTAL_BATCH_SIZE": tune.grid_search([32*2, 32*3, 32*4, 32*5]),
+  #          "LR": tune.grid_search([.005]),
+  #          "TD_LAMBDA": tune.grid_search([.6]),
+  #          "EPS_ADAM": tune.grid_search([.001]),
+  #          "MAX_GRAD_NORM": tune.grid_search([25]),
+  #          **shared,
+  #      },
+  #      {
+  #          "group": tune.grid_search(['dynaq-12-speed-reg']),
+  #          "alg": tune.grid_search(['dynaq']),
+  #          "TOTAL_TIMESTEPS": tune.grid_search([10e6]),
+  #          "RNN_CELL_TYPE": tune.grid_search(['GRUCell']),
+  #          "TOTAL_BATCH_SIZE": tune.grid_search([32*2, 32*3, 32*4, 32*5]),
+  #          "LR": tune.grid_search([.005, .001]),
+  #          **shared,
+  #      },
+  #    ]
   else:
     raise NotImplementedError(search)
 

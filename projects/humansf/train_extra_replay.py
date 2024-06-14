@@ -137,14 +137,21 @@ def make_train(
         # INIT BUFFER
         ##############################
         period = config.get("SAMPLING_PERIOD", 1)
+        total_batch_size = config.get("TOTAL_BATCH_SIZE")
+        sample_batch_size = config['BUFFER_BATCH_SIZE']
+        sample_sequence_length = config.get('SAMPLE_LENGTH')
+        if sample_sequence_length is None:
+            sample_sequence_length = total_batch_size//sample_batch_size
+
         buffer = fbx.make_trajectory_buffer(
             max_length_time_axis=config['BUFFER_SIZE']//config['NUM_ENVS'],
-            min_length_time_axis=config['SAMPLE_LENGTH'],
+            min_length_time_axis=sample_sequence_length,
             add_batch_size=config['NUM_ENVS'],
             sample_batch_size=config['BUFFER_BATCH_SIZE'],
-            sample_sequence_length=config['SAMPLE_LENGTH'],
+            sample_sequence_length=sample_sequence_length,
             period=period,
         )
+
         buffer = buffer.replace(
             init=jax.jit(buffer.init),
             add=jax.jit(buffer.add, donate_argnums=0),
@@ -172,12 +179,15 @@ def make_train(
         # ---------------
         # make buffer for replay. will use same buffer state.
         # ---------------
+        total_batch_size = config.get("TOTAL_EXTRA_BATCH_SIZE") or total_batch_size
+        sample_batch_size = config['EXTRA_BATCH_SIZE']
+        sample_sequence_length = total_batch_size//sample_batch_size
         extra_buffer = fbx.make_trajectory_buffer(
             max_length_time_axis=config['BUFFER_SIZE']//config['NUM_ENVS'],
-            min_length_time_axis=config['SAMPLE_LENGTH'],
+            min_length_time_axis=sample_sequence_length,
             add_batch_size=config['NUM_ENVS'],
-            sample_batch_size=config['EXTRA_BATCH_SIZE'],
-            sample_sequence_length=config['EXTRA_SAMPLE_LENGTH'],
+            sample_batch_size=sample_batch_size,
+            sample_sequence_length=sample_sequence_length,
             period=period,
         )
         extra_buffer = extra_buffer.replace(
@@ -359,15 +369,17 @@ def make_train(
             # ------------------------
             # log gradient information
             # ------------------------
-            log_period = max(1, int(config.get("GRADIENT_LOG_PERIOD", 500)))
-            is_log_time = jnp.logical_and(
-                is_learn_time, train_state.n_updates % log_period == 0)
+            gradient_log_period = config.get("GRADIENT_LOG_PERIOD", 500)
+            if gradient_log_period:
+                log_period = max(1, int(gradient_log_period))
+                is_log_time = jnp.logical_and(
+                    is_learn_time, train_state.n_updates % log_period == 0)
 
-            jax.lax.cond(
-                is_log_time,
-                lambda: logger.gradient_logger(train_state, grads),
-                lambda: None,
-            )
+                jax.lax.cond(
+                    is_log_time,
+                    lambda: logger.gradient_logger(train_state, grads),
+                    lambda: None,
+                )
 
             ##############################
             # 4. Creat next runner state
@@ -408,8 +420,9 @@ def make_train(
         print("="*50)
         print("EXTRA REPLAY")
         print("="*50)
+        n_updates_pre_replay = runner_state.train_state.n_updates
 
-        def _extra_replay_step(old_runner_state: vbb.RunnerState, unused):
+        def _extra_replay_step(runner_state: vbb.RunnerState, unused):
             del unused
 
             ##############################
@@ -471,32 +484,54 @@ def make_train(
                 lambda: None,
             )
 
+            # log performance information
+            # ------------------------
+            log_period = max(1, int(config["LEARNER_LOG_PERIOD"]))
+            is_log_time = train_state.n_updates % log_period == 0
+            jax.lax.cond(
+                is_log_time,
+                lambda: vbb.log_performance(
+                    config=config,
+                    agent_reset_fn=agent_reset_fn,
+                    actor_train_step_fn=actor.train_step,
+                    actor_eval_step_fn=actor.eval_step,
+                    env_reset_fn=vmap_reset,
+                    env_step_fn=vmap_step,
+                    train_env_params=train_env_params,
+                    test_env_params=test_env_params,
+                    runner_state=runner_state,
+                    observer=eval_observer,
+                    observer_state=init_eval_observer_state,
+                    logger=logger,
+                ),
+                lambda: None,
+            )
             ##############################
             # 3. Creat next runner state
             ##############################
-            next_runner_state = runner_state._replace(
+            runner_state = runner_state._replace(
                 train_state=train_state,
                 rng=rng)
 
             #-----------------
             # optionally save params
             #-----------------
-            n_extra_updates = runner_state.train_state.n_extra_updates
 
-            stride = config["NUM_EXTRA_REPLAY"] // 4
-            save_timepoints = jnp.arange(0, config["NUM_EXTRA_REPLAY"], stride)
+            stride = config["NUM_EXTRA_REPLAY"] // config.get("NUM_EXTRA_SAVE", 10)
+            save_timepoints = jnp.arange(
+                0,
+                config["NUM_EXTRA_REPLAY"],
+                max(stride, 1)) + n_updates_pre_replay
+
             save_timepoints = save_timepoints[1:]
+            should_save = (train_state.n_updates == save_timepoints).any()
 
-            # should save at 25%, 50%, 75%
-            should_save = (n_extra_updates == save_timepoints).any()
-            n_updates = runner_state.train_state.n_updates
-            total_updates = n_updates + n_extra_updates
             jax.lax.cond(
                 should_save,
-                lambda: save_params_fn(runner_state.train_state.params, total_updates),
+                lambda: save_params_fn(runner_state.train_state.params, train_state.n_updates),
                 lambda: None)
 
-            return next_runner_state, {}
+            return runner_state, {}
 
         ##############################
         # TRAINING LOOP DEFINED. NOW RUN
@@ -505,10 +540,7 @@ def make_train(
         runner_state, _ = jax.lax.scan(
             _extra_replay_step, runner_state, None, config["NUM_EXTRA_REPLAY"]
         )
-        n_updates = runner_state.train_state.n_updates
-        n_extra_updates = runner_state.train_state.n_extra_updates
-        total_updates = n_updates + n_extra_updates
-        save_params_fn(runner_state.train_state.params, total_updates)
+        save_params_fn(runner_state.train_state.params, runner_state.train_state.n_updates)
 
 
         return {"runner_state": runner_state}

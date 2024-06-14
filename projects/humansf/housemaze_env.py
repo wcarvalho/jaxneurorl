@@ -27,6 +27,7 @@ class ResetParams:
 class EnvParams:
     reset_params: ResetParams
     time_limit: int = 100
+    p_test_sample_train: float = .5
     training: bool = True
 
 
@@ -128,8 +129,9 @@ class HouseMaze(maze.HouseMaze):
             return test_object, train_object, is_train_task
 
         def train_or_test_sample(rng):
+
             return jax.lax.cond(
-                jax.random.bernoulli(rng),
+                jax.random.bernoulli(rng, p=params.p_test_sample_train),
                 train_sample,
                 test_sample,
                 rng

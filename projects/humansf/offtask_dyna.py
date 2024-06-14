@@ -516,6 +516,7 @@ def make_loss_fn_class(config, **kwargs) -> vbb.RecurrentLossFn:
     return functools.partial(
         OfftaskDyna,
         discount=config['GAMMA'],
+        lambda_=config.get('TD_LAMBDA', .9),
         num_simulations=config.get('NUM_SIMULATIONS', 15),
         simulation_length=config.get('SIMULATION_LENGTH', 5),
         stop_dyna_gradient=config.get('STOP_DYNA_GRAD', True),
@@ -844,6 +845,15 @@ def make_agent(
         ) -> Tuple[nn.Module, Params, vbb.AgentResetFn]:
 
     model_env_params = model_env_params or env_params
+    cell_type = config.get('RNN_CELL_TYPE', 'OptimizedLSTMCell')
+    if cell_type.lower() == 'none':
+        rnn = vbb.DummyRNN()
+    else:
+        rnn = vbb.ScannedRNN(
+            hidden_dim=config.get("AGENT_RNN_DIM", 128),
+            cell_type=cell_type,
+            unroll_output_state=True,
+            )
     agent = DynaAgentEnvModel(
         action_dim=env.num_actions(env_params),
         observation_encoder=ObsEncoderCls(
@@ -854,9 +864,7 @@ def make_agent(
             num_grid_layers=config['NUM_GRID_LAYERS'],
             num_joint_layers=config['NUM_ENCODER_LAYERS'],
         ),
-        rnn=vbb.ScannedRNN(
-            hidden_dim=config.get("AGENT_RNN_DIM", 128),
-            unroll_output_state=True),
+        rnn=rnn,
         env=env,
         env_params=env_params,
     )
