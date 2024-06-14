@@ -117,7 +117,9 @@ def make_agent(
         rnn = vbb.DummyRNN()
     else:
         rnn = vbb.ScannedRNN(
-            hidden_dim=config["AGENT_RNN_DIM"])
+            hidden_dim=config["AGENT_RNN_DIM"],
+            cell_type=cell_type,
+            )
 
     agent = RnnAgent(
         observation_encoder=ObsEncoderCls(

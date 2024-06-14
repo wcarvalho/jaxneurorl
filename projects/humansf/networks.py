@@ -87,7 +87,7 @@ class KeyroomObsEncoder(nn.Module):
            )
 
         vector = jnp.concatenate(vector_inputs, axis=-1)
-        vector = MLP(128, self.num_embed_layers)(vector)
+        vector = MLP(512, self.num_embed_layers)(vector)
         ###################
         # embed image inputs
         ###################
@@ -134,6 +134,7 @@ class HouzemazeObsEncoder(nn.Module):
     - MLP with truncated-normal-initialized Linear layer as initial layer for other inputs
     """
     embed_hidden_dim: int = 32
+    embed_vector_dim: int = 512
     grid_hidden_dim: int = 256
     include_task: bool = True
     init: str = 'word_init'
@@ -176,7 +177,7 @@ class HouzemazeObsEncoder(nn.Module):
            )
 
         vector = jnp.concatenate(vector_inputs, axis=-1)
-        vector = MLP(128, self.num_embed_layers)(vector)
+        vector = MLP(self.embed_vector_dim, self.num_embed_layers)(vector)
         ###################
         # embed image inputs
         ###################
