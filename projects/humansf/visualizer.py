@@ -38,9 +38,8 @@ def update_image(im, image):
 
 
 class Visualizer(object):
-    def __init__(self, env, env_params, state_seq, reward_seq=None):
+    def __init__(self, env, state_seq, reward_seq=None):
         self.env = env
-        self.env_params = env_params
         self.state_seq = state_seq
         self.reward_seq = reward_seq
         self.fig, self.ax = plt.subplots(1, 1, figsize=(5, 5))
@@ -91,8 +90,9 @@ class Visualizer(object):
             )
 def plot_timestep_observations(
         timestep: TimeStep,
+        render_fn,
         max_len: int = 40,
-        tile_size: int =8):
+        ):
 
     obs_images = []
     for idx in range(max_len):
@@ -102,9 +102,7 @@ def plot_timestep_observations(
         #    agent=index(timestep.state.agent),
         #    tile_size=tile_size)
         #state_images.append(state_image)
-        obs_image = keyroom.render_room(
-            index(timestep.state),
-            tile_size=tile_size)
+        obs_image = render_fn(index(timestep.state))
         obs_images.append(obs_image)
 
 
