@@ -4,7 +4,7 @@ TESTING:
 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue projects/humansf/trainer_housemaze.py \
   --debug=True \
   --wandb=False \
-  --search=ql
+  --search=dynaq
 
 JAX_DISABLE_JIT=1 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue projects/humansf/trainer_housemaze.py \
   --debug=True \
@@ -22,11 +22,16 @@ python projects/humansf/trainer_housemaze.py \
   --parallel=sbatch \
   --time '0-02:30:00' \
   --search=alpha
+
+python library/sweep.py \
+  --program=projects/humansf/trainer_housemaze.py \
+  --parallel=sbatch \
+  --time '0-02:30:00' \
+  --search=alpha
 """
 from typing import Any, Callable, Dict, Union, Optional
 
-from absl import flags
-from absl import app
+
 
 import os
 import jax
@@ -44,9 +49,8 @@ import numpy as np
 
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']='false'
 
-import library.flags
 
-from library import parallel
+from library import launcher
 from library import utils
 from library import loggers
 
@@ -62,7 +66,7 @@ from projects.humansf import housemaze_env as maze
 from projects.humansf.housemaze import utils as housemaze_utils
 from agents import value_based_basics as vbb
 
-FLAGS = flags.FLAGS
+###FLAGS = flags.FLAGS
 
 
 def make_logger(
@@ -495,60 +499,53 @@ def run_single(
 def sweep(search: str = ''):
   search = search or 'ql'
   if search == 'ql':
-    shared = {
-      "config_name": tune.grid_search(['ql_housemaze']),
+    sweep_config = {
+        'metric': {
+            'name': 'evaluator_performance/0.0 avg_episode_return',
+            'goal': 'maximize',
+        },
+        'parameters': {
+            "config_name": {'values': ['ql_housemaze']},
+            'TOTAL_TIMESTEPS': {'values': [30e6]},
+        }
     }
-    space = [
-        {
-            "group": tune.grid_search(['qlearning-5']),
-            "alg": tune.grid_search(['qlearning']),
-            "SAMPLE_LENGTH": tune.grid_search([sl]),
-            "BUFFER_BATCH_SIZE": tune.grid_search([int(40//sl)*32]),
-            "TOTAL_TIMESTEPS": tune.grid_search([30e6]),
-            **shared,
-        } for sl in [5, 10, 20, 40]
-      ]
   elif search == 'alpha':
-    shared = {
-      "config_name": tune.grid_search(['alpha_housemaze']),
+    sweep_config = {
+        'metric': {
+            'name': 'evaluator_performance/0.0 avg_episode_return',
+            'goal': 'maximize',
+        },
+        'parameters': {
+            "config_name": {'values': ['alpha_housemaze']},
+            'TOTAL_TIMESTEPS': {'values': [5e6]},
+        }
     }
-    space = [
-        {
-            "group": tune.grid_search(['alpha-3']),
-            "alg": tune.grid_search(['alphazero']),
-            "SAMPLE_LENGTH": tune.grid_search([sl]),
-            "BUFFER_BATCH_SIZE": tune.grid_search([int(40//sl)*32]),
-            "TOTAL_TIMESTEPS": tune.grid_search([5e6]),
-            **shared,
-        } for sl in [5, 10, 20, 40]
-      ]
   elif search == 'dynaq':
-    shared = {
-      "config_name": tune.grid_search(['dyna_housemaze']),
+    sweep_config = {
+       'metric': {
+            'name': 'evaluator_performance/0.0 avg_episode_return',
+            'goal': 'maximize',
+        },
+        'parameters': {
+            "config_name": {'values': ['dyna_keyroom']},
+            'DYNA_COEFF': {'values': [1, .1, .01]},
+            'TOTAL_TIMESTEPS': {'values': [5e6]},
+            'alg': {'values': ['dynaq']},
+        }
     }
-    space = [
-        {
-            "group": tune.grid_search(['dynaq-7-policy']),
-            "alg": tune.grid_search(['dynaq']),
-            "SAMPLE_LENGTH": tune.grid_search([sl]),
-            "BUFFER_BATCH_SIZE": tune.grid_search([int(40//sl)*32]),
-            "TOTAL_TIMESTEPS": tune.grid_search([7.5e6]),
-            "SIM_POLICY": tune.grid_search(['gamma', 'epsilon']),
-            "NUM_SIMULATIONS": tune.grid_search([15]),
-            #"GRID_HIDDEN": tune.grid_search([256, 512]),
-            #"DYNA_COEFF": tune.grid_search([1., .1]),
-            #"TEMP_RATE": tune.grid_search([.5, 1., 1.5]),
-            **shared,
-        } for sl in [5, 10, 20, 40]
-        
-      ]
   else:
     raise NotImplementedError(search)
 
-  return space
+  return sweep_config
 
-def main(_):
-  parallel.run(
+
+
+if __name__ == '__main__':
+  from library.utils import make_parser
+  parser = make_parser()
+  args = parser.parse_args()
+  launcher.run(
+      args,
       trainer_filename=__file__,
       config_path='projects/humansf/configs',
       run_fn=run_single,
@@ -556,6 +553,3 @@ def main(_):
       folder=os.environ.get(
           'RL_RESULTS_DIR', '/tmp/rl_results_dir')
   )
-
-if __name__ == '__main__':
-  app.run(main)

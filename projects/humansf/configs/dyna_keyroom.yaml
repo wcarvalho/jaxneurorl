@@ -1,4 +1,4 @@
-"ALG": 'qlearning'
+"alg": 'qlearning'
 
 # EXPERIMENT PARAMS
 "NUM_SEEDS": 1
