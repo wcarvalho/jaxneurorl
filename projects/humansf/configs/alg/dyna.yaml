@@ -1,4 +1,4 @@
-"ALG": 'qlearning'
+"ALG": 'dynaq'
 
 # EXPERIMENT PARAMS
 "NUM_SEEDS": 1
@@ -23,7 +23,7 @@
 "NUM_EMBED_LAYERS": 0
 "NUM_GRID_LAYERS": 1
 "NUM_ENCODER_LAYERS": 2
-"IMAGE_HIDDEN": 256
+"GRID_HIDDEN": 256
 "ENCODER_INIT": 'word_init'
 "AGENT_RNN_DIM": 256
 
@@ -32,7 +32,7 @@
 "BUFFER_BATCH_SIZE": 32
 "SAMPLE_LENGTH": 40
 "LEARNING_STARTS": 10_000
-"TRAINING_INTERVAL": 10
+"TRAINING_INTERVAL": 5
 
 # DYNA PARAMS
 "NUM_SIMULATIONS": 15
@@ -44,7 +44,7 @@
 
 
 "FIXED_EPSILON": 2 # range of epsilons
-"TOTAL_TIMESTEPS": 1e7
+"TOTAL_TIMESTEPS": 1e8
 "EPSILON_START": 1.0
 "EPSILON_FINISH": 0.1
 "EPSILON_ANNEAL_TIME": 5e5
@@ -55,14 +55,3 @@
 "EPS_ADAM": 0.00001
 
 "GAMMA": 0.99
-
-hydra/output_subdir: null
-hydra/hydra_logging: disabled
-hydra/job_logging: disabled
-
-
-defaults:
-- _self_
-- user: wilka.yaml
-- debug: short.yaml
-- env: keyroom.yaml

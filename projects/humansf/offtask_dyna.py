@@ -2,7 +2,7 @@
 Dyna with the ability to do off-task simulation.
 """
 
-from typing import Tuple, Optional, Union
+from typing import Tuple, Optional, Union, Callable
 import functools
 
 import distrax
@@ -19,9 +19,9 @@ import matplotlib.pyplot as plt
 import wandb
 
 from library import losses
-from singleagent.basics import TimeStep
-from singleagent import value_based_basics as vbb
-from singleagent import qlearning as base_agent
+from agents.basics import TimeStep
+from agents import value_based_basics as vbb
+from agents import qlearning as base_agent
 from projects.humansf import qlearning
 from projects.humansf.networks import KeyroomObsEncoder
 from projects.humansf import keyroom
@@ -29,9 +29,13 @@ from projects.humansf.visualizer import plot_frames
 
 Agent = nn.Module
 Params = flax.core.FrozenDict
+Qvalues = jax.Array
+RngKey = jax.Array
 make_actor = base_agent.make_actor
 make_optimizer = base_agent.make_optimizer
 RnnState = jax.Array
+
+SimPolicy = Callable[[Qvalues, RngKey], int]
 
 @struct.dataclass
 class AgentState:
@@ -61,18 +65,19 @@ def concat_first_rest(first, rest):
     # output: [T+1, N, ...]
     return jax.vmap(concat_pytrees, 1, 1)(add_time(first), rest)
 
-def simulate_n_trajectories(
+def  simulate_n_trajectories(
         x_t: TimeStep,
         h_tm1: RnnState,
         rng:jax.random.PRNGKey,
         network: nn.Module,
         params: Params,
-        temperatures: Optional[jax.Array] = None,
+        #temperatures: Optional[jax.Array] = None,
+        policy_fn: SimPolicy = None,
         num_steps: int = 5,
         num_simulations: int = 5,
     ):
     """
-    
+
     return predictions and actions for every time-step including the current one.
 
     This first applies the model to the current time-step and then simulates T more time-steps. 
@@ -91,40 +96,37 @@ def simulate_n_trajectories(
     Returns:
         _type_: _description_
     """
-    if temperatures is None:
-       temperatures = jnp.ones(num_simulations)
-    assert len(temperatures) == num_simulations
+    #if temperatures is None:
+    #   temperatures = jnp.ones(num_simulations)
+    #assert len(temperatures) == num_simulations
 
-    def policy_fn(q_values, temp, rng_):
-       # q_values: [N, A] or [A]
-       # temp: [N] or []
-       logits = q_values / jnp.expand_dims(temp, -1)
-       return distrax.Categorical(
-           logits=logits).sample(seed=rng_)
+    #def policy_fn(q_values, temp, rng_):
+    #   # q_values: [N, A] or [A]
+    #   # temp: [N] or []
+    #   logits = q_values / jnp.expand_dims(temp, -1)
+    #   return distrax.Categorical(
+    #       logits=logits).sample(seed=rng_)
 
-    def initial_predictions(x, prior_s, temp, rng_):
+    def initial_predictions(x, prior_s, rng_):
         preds, s = network.apply(params, prior_s, x, rng_)
-        action = policy_fn(
-           preds.q_vals,
-           temp, rng_
-        )
-        return preds, action
+        return preds
 
     # by giving state as input and returning, will
     # return copies. 1 for each sampled action.
     rng, rng_ = jax.random.split(rng)
 
     # one for each simulation
-    # [N, ...], [N]
-    init_preds_t, init_a_t = jax.vmap(
+    # [N, ...]
+    init_preds_t = jax.vmap(
         initial_predictions,
-        in_axes=(None, None, 0, 0),
+        in_axes=(None, None, 0),
         out_axes=(0)
         )(x_t,           # [D]
           h_tm1,         # [D]
-          temperatures,  # [N]
           jax.random.split(rng_, num_simulations)
         )
+    init_a_t = policy_fn(
+        init_preds_t, rng_)
 
     def _single_model_step(carry, inputs):
         del inputs  # unused
@@ -143,8 +145,7 @@ def simulate_n_trajectories(
         ###########################
         # [N]
         next_a = policy_fn(
-            next_preds.q_vals,
-            temperatures,
+            next_preds,
             rng_,
         )
         carry = (next_preds.state, next_a, rng)
@@ -181,6 +182,7 @@ class OfftaskDyna(vbb.RecurrentLossFn):
     """
     num_simulations: int = 15
     simulation_length: int = 5
+    online_coeff: float = 1.0
     dyna_coeff: float = 1.0
 
     offtask_simulation: bool = True
@@ -188,6 +190,8 @@ class OfftaskDyna(vbb.RecurrentLossFn):
 
     env_params: environment.EnvParams = None
 
+    make_init_offtask_timestep: Callable[[TimeStep], TimeStep] = None
+    simulation_policy: SimPolicy = None
     temp_dist: distrax.Distribution = distrax.Gamma(concentration=1, rate=.5)
 
     def loss_fn(
@@ -281,23 +285,29 @@ class OfftaskDyna(vbb.RecurrentLossFn):
         truncated = (non_terminal+is_last) > 1
         loss_mask = make_float(1-truncated)
 
-        td_error, batch_loss, metrics, log_info = self.loss_fn(
-            timestep=data.timestep,
-            online_preds=online_preds,
-            target_preds=target_preds,
-            actions=data.action,
-            rewards=data.reward,
-            is_last=is_last,
-            non_terminal=non_terminal,
-            loss_mask=loss_mask,
-            )
-
-        # first label online loss with online
-        metrics = {f'online/{k}': v for k,v in metrics.items()}
-        log_info = {
-            'online': log_info,
+        all_metrics = {}
+        all_log_info = {
             'n_updates': steps,
-            }
+        }
+        if self.online_coeff > 0.0:
+            td_error, batch_loss, metrics, log_info = self.loss_fn(
+                timestep=data.timestep,
+                online_preds=online_preds,
+                target_preds=target_preds,
+                actions=data.action,
+                rewards=data.reward,
+                is_last=is_last,
+                non_terminal=non_terminal,
+                loss_mask=loss_mask,
+                )
+
+            # first label online loss with online
+            all_metrics.update({f'online/{k}': v for k, v in metrics.items()})
+            all_log_info['online'] = log_info
+        else:
+            td_error = jnp.zeros_like((loss_mask[:-1]))
+            batch_loss = td_error.sum(0)  # time axis
+
         #################
         # Dyna Q-learning loss over simulated data
         #################
@@ -320,6 +330,7 @@ class OfftaskDyna(vbb.RecurrentLossFn):
                 lambda x: sg(x[1:]), online_preds.state.timestep)
 
             if self.offtask_simulation:
+                assert self.make_init_offtask_timestep is not None
                 #--------------
                 # get off task goal and place in timestep
                 # --------------
@@ -327,30 +338,9 @@ class OfftaskDyna(vbb.RecurrentLossFn):
                 # for now, just a single off-task goal
                 # TODO: generalize to doing this for multiple tasks
                 # TODO: right now, rely on task being part of state. next step should not be.
-                offtask_w = x_t.state.offtask_w
-                new_state = x_t.state.replace(
-                    step_num=jnp.zeros_like(x_t.state.step_num),
-                    task_w=offtask_w,
-                )
-
                 # TODO: generalize this process for other environments
-                # maybe have this function be an input to class?
-                make_obs = lambda s, a_tml: keyroom.make_observation(
-                        state=s,
-                        prev_action=a_tml,
-                        params=self.env_params,
-                    )
-                x_t = x_t.replace(
-                    state=new_state,
-                    observation=jax.vmap(jax.vmap(make_obs))(
-                        new_state,
-                        x_t.observation.prev_action,
-                    ),
-                    # reset reward, discount, step type
-                    reward=jnp.zeros_like(x_t.reward),
-                    discount=jnp.ones_like(x_t.discount),
-                    step_type=jnp.ones_like(x_t.step_type),
-                )
+                offtask_w = x_t.state.offtask_w
+                x_t = self.make_init_offtask_timestep(x_t, offtask_w)
 
             T, B = offtask_w.shape[:2]
             rngs = jax.random.split(key_grad, T*B)
@@ -380,15 +370,15 @@ class OfftaskDyna(vbb.RecurrentLossFn):
             batch_loss += self.dyna_coeff*dyna_batch_loss
 
             # update metrics with dyna metrics
-            metrics.update(
+            all_metrics.update(
                 {f'dyna/{k}': v for k, v in dyna_metrics.items()})
 
-            log_info['dyna'] = dyna_log_info
+            all_log_info['dyna'] = dyna_log_info
 
         if self.logger.learner_log_extra is not None:
-            self.logger.learner_log_extra(log_info)
-
-        return td_error, batch_loss, metrics
+            self.logger.learner_log_extra(all_log_info)
+        
+        return td_error, batch_loss, all_metrics
 
     def dyna_loss_fn(
         self,
@@ -429,10 +419,10 @@ class OfftaskDyna(vbb.RecurrentLossFn):
         # OUTPUT: a_0, s_1, a_1, s_2
         #   also: online_preds
 
-        rng, rng_ = jax.random.split(rng)
-        temperatures = self.temp_dist.sample(
-            seed=rng_,
-            sample_shape=(self.num_simulations,))
+        #rng, rng_ = jax.random.split(rng)
+        #temperatures = self.temp_dist.sample(
+        #    seed=rng_,
+        #    sample_shape=(self.num_simulations,))
 
         rng, rng_ = jax.random.split(rng)
         # [num_sim, ...]
@@ -444,7 +434,7 @@ class OfftaskDyna(vbb.RecurrentLossFn):
             params=params,
             num_steps=self.simulation_length,
             num_simulations=self.num_simulations,
-            temperatures=temperatures,
+            policy_fn=self.simulation_policy,
         )
         preds_t_online = sim_outputs_t.predictions
 
@@ -501,11 +491,13 @@ class OfftaskDyna(vbb.RecurrentLossFn):
         # Apply loss function to trajectories
         ################
         # prepare data
-        is_last_t = make_float(timesteps_t.last())  # either termination or truncation
+        non_terminal = timesteps_t.discount
+        # either termination or truncation
+        is_last_t = make_float(timesteps_t.last())
 
         # time-step of termination and everything afterwards is masked out
-        terminated_t = jnp.cumsum(is_last_t, 0)
-        loss_mask_t = make_float(terminated_t < 1)
+        term_cumsum_t = jnp.cumsum(is_last_t, 0)
+        loss_mask_t = make_float((term_cumsum_t + non_terminal) < 2)
 
         batch_td_error, batch_loss_mean, metrics, log_info = self.loss_fn(
             timestep=timesteps_t,
@@ -518,17 +510,15 @@ class OfftaskDyna(vbb.RecurrentLossFn):
             loss_mask=loss_mask_t,
         )
 
-        log_info['temperatures'] = temperatures
-
         return batch_td_error, batch_loss_mean, metrics, log_info
 
 def make_loss_fn_class(config, **kwargs) -> vbb.RecurrentLossFn:
     return functools.partial(
         OfftaskDyna,
         discount=config['GAMMA'],
+        lambda_=config.get('TD_LAMBDA', .9),
         num_simulations=config.get('NUM_SIMULATIONS', 15),
         simulation_length=config.get('SIMULATION_LENGTH', 5),
-        dyna_coeff=config.get('DYNA_COEFF', 1.0),
         stop_dyna_gradient=config.get('STOP_DYNA_GRAD', True),
         **kwargs
         )
@@ -537,7 +527,11 @@ def learner_log_extra(
         data: dict,
         config: dict,
         action_names: dict,
-        maze_config: dict,
+        render_fn: Callable,
+        extract_task_info: Callable[[TimeStep],
+                                    flax.struct.PyTreeNode] = lambda t: t,
+        get_task_name: Callable = lambda t: 'Task',
+        sim_idx: int = 0,
         ):
 
     def log_data(
@@ -562,7 +556,8 @@ def learner_log_extra(
         # Create a figure with three subplots
         width = .3
         nT = len(rewards)  # e.g. 20 --> 8
-        fig, (ax1, ax2, ax3, ax4) = plt.subplots(4, 1, figsize=(int(width*nT), 16))
+        width = max(int(width*nT), 10)
+        fig, (ax1, ax2, ax3, ax4) = plt.subplots(4, 1, figsize=(width, 20))
 
         # Plot rewards and q-values in the top subplot
         def format(ax):
@@ -616,9 +611,10 @@ def learner_log_extra(
             #    index(timesteps.state.agent),
             #    env_params.view_size,
             #    tile_size=8)
-            obs_image = keyroom.render_room(
-                index(timesteps.state),
-                tile_size=8)
+            obs_image = render_fn(index(timesteps.state))
+            #obs_image = keyroom.render_room(
+            #    index(timesteps.state),
+            #    tile_size=8)
             #state_images.append(state_image)
             obs_images.append(obs_image)
 
@@ -633,13 +629,15 @@ def learner_log_extra(
                 return f"action: {int(a)}"
         actions_taken = [action_name(a) for a in actions]
 
+        index = lambda t, idx: jax.tree_map(lambda x: x[idx], t)
         def panel_title_fn(timesteps, i):
-            room_setting = int(timesteps.state.room_setting[i])
-            task_room = int(timesteps.state.goal_room_idx[i])
-            task_object = int(timesteps.state.task_object_idx[i])
-            setting = 'single' if room_setting == 0 else 'multi'
-            category, color = maze_config['pairs'][task_room][task_object]
-            task_name = f'{setting} - {color} {category}'
+            task_name = get_task_name(extract_task_info(index(timesteps, i)))
+            #room_setting = int(timesteps.state.room_setting[i])
+            #task_room = int(timesteps.state.goal_room_idx[i])
+            #task_object = int(timesteps.state.task_object_idx[i])
+            #setting = 'single' if room_setting == 0 else 'multi'
+            #category, color = maze_config['pairs'][task_room][task_object]
+            #task_name = f'{setting} - {color} {category}'
 
             title = f'{task_name}\n'
             title += f't={i}\n'
@@ -660,9 +658,9 @@ def learner_log_extra(
     def callback(d):
         n_updates = d.pop('n_updates')
         # [T, B] --> [T]
-        d['online'] = jax.tree_map(lambda x: x[:, 0], d['online'])
-        log_data(**d['online'], key='online')
-
+        if 'online' in d:
+            d['online'] = jax.tree_map(lambda x: x[:, 0], d['online'])
+            log_data(**d['online'], key='online')
         if 'dyna' in d:
             # [T, B, K, N] --> [K]
             # K = the simulation length
@@ -670,11 +668,7 @@ def learner_log_extra(
             #   T=0 (1st time-point)
             #   B=0 (1st batch sample)
             #   N=index(t_min) (simulation with lowest temperaturee)
-            # Given the same starting point at above, this __should__ give a __different__ trajectory
-            # lowest temperature, corresponds to most greedy
-            temperatures = d['dyna'].pop('temperatures')[0, 0]
-            t_min = int(temperatures.argmin())
-            d['dyna'] = jax.tree_map(lambda x: x[0, 0, :, t_min], d['dyna'])
+            d['dyna'] = jax.tree_map(lambda x: x[0, 0, :, sim_idx], d['dyna'])
             log_data(**d['dyna'], key='dyna')
 
     # this will be the value after update is applied
@@ -847,12 +841,22 @@ def make_agent(
         example_timestep: TimeStep,
         rng: jax.random.KeyArray,
         model_env_params: environment.EnvParams,
+        ObsEncoderCls: nn.Module = KeyroomObsEncoder,
         ) -> Tuple[nn.Module, Params, vbb.AgentResetFn]:
 
     model_env_params = model_env_params or env_params
+    cell_type = config.get('RNN_CELL_TYPE', 'OptimizedLSTMCell')
+    if cell_type.lower() == 'none':
+        rnn = vbb.DummyRNN()
+    else:
+        rnn = vbb.ScannedRNN(
+            hidden_dim=config.get("AGENT_RNN_DIM", 128),
+            cell_type=cell_type,
+            unroll_output_state=True,
+            )
     agent = DynaAgentEnvModel(
         action_dim=env.num_actions(env_params),
-        observation_encoder=KeyroomObsEncoder(
+        observation_encoder=ObsEncoderCls(
             embed_hidden_dim=config["AGENT_HIDDEN_DIM"],
             init=config.get('ENCODER_INIT', 'word_init'),
             grid_hidden_dim=config.get('GRID_HIDDEN', 256),
@@ -860,9 +864,7 @@ def make_agent(
             num_grid_layers=config['NUM_GRID_LAYERS'],
             num_joint_layers=config['NUM_ENCODER_LAYERS'],
         ),
-        rnn=vbb.ScannedRNN(
-            hidden_dim=config.get("AGENT_RNN_DIM", 128),
-            unroll_output_state=True),
+        rnn=rnn,
         env=env,
         env_params=env_params,
     )

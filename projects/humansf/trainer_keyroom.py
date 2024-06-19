@@ -20,15 +20,16 @@ python projects/humansf/trainer_v1.py \
 RUNNING ON SLURM:
 python projects/humansf/trainer_v1.py \
   --parallel=sbatch \
-  --time '0-02:30:00' \
+  --time '0-08:00:00' \
   --search=alpha
 """
-from typing import Dict, Union
+from typing import Any, Callable, Dict, Union, Optional
 
 from absl import flags
 from absl import app
 
 import os
+from gymnax.environments import environment
 import jax
 import json
 import functools
@@ -43,14 +44,14 @@ import hydra
 import gymnax
 from gymnax.wrappers.purerl import FlattenObservationWrapper, LogWrapper
 from library.wrappers import TimestepWrapper
-from projects.humansf import logger
+from projects.humansf import logger, observers as humansf_observers
 
 
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']='false'
 
 import library.flags
 
-from library import parallel
+from library import loggers, parallel
 from library import utils
 
 from projects.humansf import keyroom
@@ -61,9 +62,31 @@ from projects.humansf import alphazero
 from projects.humansf import qlearning
 from projects.humansf import offtask_dyna
 
-from singleagent import value_based_basics as vbb
+from agents import value_based_basics as vbb
 
 FLAGS = flags.FLAGS
+
+
+def make_logger(
+        config: dict,
+        env: environment.Environment,
+        env_params: environment.EnvParams,
+        maze_config: dict,
+        action_names: dict,
+        get_task_name: Callable = None,
+        learner_log_extra: Optional[Callable[[Any], Any]] = None
+):
+    return loggers.Logger(
+        gradient_logger=loggers.default_gradient_logger,
+        learner_logger=loggers.default_learner_logger,
+        experience_logger=functools.partial(
+            humansf_observers.experience_logger,
+            action_names=action_names,
+            get_task_name=get_task_name,
+            max_len=config['MAX_EPISODE_LOG_LEN'],
+        ),
+        learner_log_extra=learner_log_extra,
+    )
 
 def run_single(
         config: dict,
@@ -74,11 +97,11 @@ def run_single(
     with open(maze_path, "r") as file:
       maze_config = json.load(file)[0]
 
-    num_rooms = config['env']['ENV_KWARGS'].pop('NUM_ROOMS', 3)
-    symbolic = config['env']['ENV_KWARGS'].pop('symbolic', False)
-    num_tiles = config['env']['ENV_KWARGS'].pop('NUM_TILES', 16)
-    train_end_pair = config['env']['ENV_KWARGS'].pop('TRAIN_END_PAIR', True)
-    test_end_on = config['env']['ENV_KWARGS'].pop('TEST_END_ON', 'any_pair')
+    num_rooms = config['rlenv']['ENV_KWARGS'].pop('NUM_ROOMS', 3)
+    num_tiles = config['rlenv']['ENV_KWARGS'].pop('NUM_TILES', 16)
+    train_end_pair = config['rlenv']['ENV_KWARGS'].pop('TRAIN_END_PAIR', True)
+    test_end_on = config['rlenv']['ENV_KWARGS'].pop('TEST_END_ON', 'any_pair')
+    symbolic = config['rlenv']['ENV_KWARGS'].pop('symbolic', False)
 
     maze_config = keyroom.shorten_maze_config(
        maze_config, num_rooms)
@@ -87,7 +110,7 @@ def run_single(
       maze_config=maze_config,
       height=num_tiles,
       width=num_tiles,
-      **config['env']['ENV_KWARGS'])
+      **config['rlenv']['ENV_KWARGS'])
 
     if symbolic:
       env = keyroom_symbolic.KeyRoomSymbolic()
@@ -151,7 +174,7 @@ def run_single(
           make_loss_fn_class=qlearning.make_loss_fn_class,
           make_actor=qlearning.make_actor,
           make_logger=functools.partial(
-            logger.make_logger,
+            make_logger,
             maze_config=maze_config,
             get_task_name=get_task_name,
             action_names=action_names,
@@ -173,18 +196,35 @@ def run_single(
           num_bins=num_bins,
           min_value=-max_value)
 
+      search_type = config.get('SEARCH_TYPE', 'gumbel')
       num_train_simulations = config.get('NUM_SIMULATIONS', 4)
-      mcts_policy = functools.partial(
-          mctx.gumbel_muzero_policy,
-          max_depth=config.get('MAX_SIM_DEPTH', None),
-          num_simulations=num_train_simulations,
-          gumbel_scale=config.get('GUMBEL_SCALE', 1.0))
-      eval_mcts_policy = functools.partial(
-          mctx.gumbel_muzero_policy,
-          max_depth=config.get('MAX_SIM_DEPTH', None),
-          num_simulations=config.get(
-            'NUM_EVAL_SIMULATIONS', num_train_simulations),
-          gumbel_scale=config.get('GUMBEL_SCALE', 1.0))
+      if search_type == 'gumbel':
+        train_gumbel_scale = config.get('GUMBEL_SCALE', 1.0)
+        mcts_policy = functools.partial(
+            mctx.gumbel_muzero_policy,
+            max_depth=config.get('MAX_SIM_DEPTH', None),
+            num_simulations=num_train_simulations,
+            gumbel_scale=train_gumbel_scale)
+        eval_mcts_policy = functools.partial(
+            mctx.gumbel_muzero_policy,
+            max_depth=config.get('MAX_SIM_DEPTH', None),
+            num_simulations=config.get(
+              'NUM_EVAL_SIMULATIONS', num_train_simulations),
+            gumbel_scale=config.get(
+              'EVAL_GUMBEL_SCALE', train_gumbel_scale))
+      elif search_type == 'vanilla':
+        mcts_policy = functools.partial(
+            mctx.muzero_policy,
+            max_depth=config.get('MAX_SIM_DEPTH', None),
+            num_simulations=num_train_simulations)
+        eval_mcts_policy = functools.partial(
+            mctx.muzero_policy,
+            max_depth=config.get('MAX_SIM_DEPTH', None),
+            num_simulations=config.get(
+              'NUM_EVAL_SIMULATIONS', num_train_simulations),
+            dirichlet_fraction=config.get('EVAL_FRACTION_DIRICHLET', .25),
+            dirichlet_alpha=config.get('EVAL_ALPHA_DIRICHLET', .3),
+            )
 
       make_train = functools.partial(
           vbb.make_train,
@@ -201,7 +241,7 @@ def run_single(
               mcts_policy=mcts_policy,
               eval_mcts_policy=eval_mcts_policy),
           make_logger=functools.partial(
-            logger.make_logger,
+            make_logger,
             maze_config=maze_config,
             get_task_name=get_task_name,
             action_names=action_names,
@@ -226,7 +266,7 @@ def run_single(
             ),
           make_actor=offtask_dyna.make_actor,
           make_logger=functools.partial(
-            logger.make_logger,
+            make_logger,
             maze_config=maze_config,
             get_task_name=get_task_name,
             action_names=action_names,
@@ -283,15 +323,44 @@ def sweep(search: str = ''):
             **shared,
         },
       ]
-  elif search == 'alpha':
+  elif search == 'alpha-gumbel':
     shared = {
       "config_name": tune.grid_search(['alpha_keyroom']),
     }
     space = [
         {
-            "group": tune.grid_search(['alpha-12']),
+            "group": tune.grid_search(['alpha-13-gumbel']),
             "alg": tune.grid_search(['alphazero']),
+            "EVAL_GUMBEL_SCALE": tune.grid_search([0, 1.0, 10.0, 100.]),
             **shared,
+        },
+      ]
+  elif search == 'alpha-vanilla':
+    shared = {
+      "config_name": tune.grid_search(['alpha_keyroom']),
+    }
+    space = [
+        {
+            "group": tune.grid_search(['alpha-13-vanilla']),
+            "alg": tune.grid_search(['alphazero']),
+            "EVAL_FRACTION_DIRICHLET": tune.grid_search([.25, .75, 1.]),
+            "EVAL_ALPHA_DIRICHLET": tune.grid_search([.3, .1]),
+            **shared,
+        },
+      ]
+  elif search == 'symbolic':
+    space = [
+        {
+            "group": tune.grid_search(['symbolic-2']),
+            "alg": tune.grid_search(['alphazero']),
+            "env.symbolic": tune.grid_search([True]),
+            "config_name": tune.grid_search(['alpha_keyroom']),
+        },
+        {
+            "group": tune.grid_search(['symbolic-2']),
+            "alg": tune.grid_search(['qlearning']),
+            "env.symbolic": tune.grid_search([True]),
+            "config_name": tune.grid_search(['ql_keyroom']),
         },
       ]
   elif search == 'dynaq':
@@ -310,13 +379,25 @@ def sweep(search: str = ''):
         #    **shared,
         #},
         {
-            "group": tune.grid_search(['dyna-coeff-6']),
+            "group": tune.grid_search(['dyna-coeff-9-i5']),
             "alg": tune.grid_search(['dynaq']),
-            "DYNA_COEFF": tune.grid_search([0.1, .01]),
+            "DYNA_COEFF": tune.grid_search([1., 0.1]),
             # "NUM_SIMULATIONS": tune.grid_search([2]),
             # "SIMULATION_LENGTH": tune.grid_search([5, 15]),
+             "TRAINING_INTERVAL": tune.grid_search([5]),
             **shared,
-            "TEMP_CONCENTRATION": tune.grid_search([.25, .5, 1.]),
+            "TEMP_CONCENTRATION": tune.grid_search([.25]),
+            "TEMP_RATE": tune.grid_search([.25, .5]),
+        },
+        {
+            "group": tune.grid_search(['dyna-coeff-9-i1']),
+            "alg": tune.grid_search(['dynaq']),
+            "DYNA_COEFF": tune.grid_search([1., 0.1]),
+            # "NUM_SIMULATIONS": tune.grid_search([2]),
+            # "SIMULATION_LENGTH": tune.grid_search([5, 15]),
+             "TRAINING_INTERVAL": tune.grid_search([1]),
+            **shared,
+            "TEMP_CONCENTRATION": tune.grid_search([.25]),
             "TEMP_RATE": tune.grid_search([.25, .5]),
         },
         #{
@@ -349,3 +430,4 @@ def main(_):
 
 if __name__ == '__main__':
   app.run(main)
+

@@ -1,4 +1,4 @@
-"ALG": 'qlearning'
+"ALG": 'alphazero'
 
 # EXPERIMENT PARAMS
 "NUM_SEEDS": 1
@@ -9,7 +9,7 @@
 
 
 # RUN PARAMS
-"TOTAL_TIMESTEPS": 1e7
+"TOTAL_TIMESTEPS": 2e6
 "NUM_ENVS": 32
 "EVAL_STEPS": 100
 "EVAL_EPISODES": 100
@@ -24,7 +24,6 @@
 "NUM_EMBED_LAYERS": 0
 "NUM_GRID_LAYERS": 1
 "NUM_ENCODER_LAYERS": 2
-
 "GRID_HIDDEN": 256
 "ENCODER_INIT": 'word_init'
 "AGENT_RNN_DIM": 256
@@ -51,14 +50,3 @@
 "EPS_ADAM": 0.00001
 "GAMMA": 0.99
 
-
-hydra/output_subdir: null
-hydra/hydra_logging: disabled
-hydra/job_logging: disabled
-
-
-defaults:
-- _self_
-- user: wilka.yaml
-- debug: short.yaml
-- env: keyroom.yaml

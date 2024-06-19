@@ -1,10 +1,6 @@
-from typing import TypeVar
-
 from flax import struct
-from typing import Generic
 import jax
 import jax.numpy as jnp
-EnvCarryT = TypeVar("EnvCarryT")
 
 
 class StepType(jnp.uint8):
@@ -13,7 +9,7 @@ class StepType(jnp.uint8):
     LAST: jax.Array = jnp.asarray(2, dtype=jnp.uint8)
 
 
-class TimeStep(struct.PyTreeNode, Generic[EnvCarryT]):
+class TimeStep(struct.PyTreeNode):
     state: struct.PyTreeNode
 
     step_type: StepType

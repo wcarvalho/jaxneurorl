@@ -4,17 +4,12 @@ import jax
 from math import ceil
 
 #from xminigrid.rendering.rgb_render import render as rgb_render
-from singleagent.basics import TimeStep
+from agents.basics import TimeStep
 from projects.humansf import keyroom
 
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from typing import Optional
-from gymnax.visualize.vis_gym import init_gym, update_gym
-from gymnax.visualize.vis_minatar import init_minatar, update_minatar
-from gymnax.visualize.vis_circle import init_circle, update_circle
-from gymnax.visualize.vis_maze import init_maze, update_maze
-from gymnax.visualize.vis_catch import init_catch, update_catch
 
 
 def display_image(image):
@@ -43,9 +38,8 @@ def update_image(im, image):
 
 
 class Visualizer(object):
-    def __init__(self, env, env_params, state_seq, reward_seq=None):
+    def __init__(self, env, state_seq, reward_seq=None):
         self.env = env
-        self.env_params = env_params
         self.state_seq = state_seq
         self.reward_seq = reward_seq
         self.fig, self.ax = plt.subplots(1, 1, figsize=(5, 5))
@@ -96,8 +90,9 @@ class Visualizer(object):
             )
 def plot_timestep_observations(
         timestep: TimeStep,
+        render_fn,
         max_len: int = 40,
-        tile_size: int =8):
+        ):
 
     obs_images = []
     for idx in range(max_len):
@@ -107,9 +102,7 @@ def plot_timestep_observations(
         #    agent=index(timestep.state.agent),
         #    tile_size=tile_size)
         #state_images.append(state_image)
-        obs_image = keyroom.render_room(
-            index(timestep.state),
-            tile_size=tile_size)
+        obs_image = render_fn(index(timestep.state))
         obs_images.append(obs_image)
 
 
@@ -133,7 +126,10 @@ def plot_frames(
     H = ceil(T / ncols)  # Calculate number of rows required
     width = 3
 
-    fig, axs = plt.subplots(H, ncols, figsize=(ncols*width, H*width), squeeze=False)
+    fig_width = ncols*width
+    fig_height = int(1.7*H*width)
+    fig, axs = plt.subplots(
+        H, ncols, figsize=(fig_width, fig_height), squeeze=False)
 
     # Flatten the axes array for easy iteration
     axs = axs.ravel()
@@ -148,6 +144,5 @@ def plot_frames(
     for i in range(T, H * ncols):
         axs[i].axis('off')
 
-    plt.tight_layout()
 
     return fig

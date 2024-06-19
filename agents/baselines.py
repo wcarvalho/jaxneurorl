@@ -1,24 +1,24 @@
 """
 
 TESTING:
-JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue singleagent/baselines.py \
+JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue agents/baselines.py \
   --debug=False \
   --wandb=False \
   --search=alpha
 
-JAX_DISABLE_JIT=1 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue singleagent/baselines.py \
+JAX_DISABLE_JIT=1 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue agents/baselines.py \
   --debug=True \
   --wandb=False \
   --search=alpha
 
 TESTING SLURM LAUNCH:
-python singleagent/baselines.py \
+python agents/baselines.py \
   --parallel=sbatch \
   --debug_parallel=True \
   --search=alpha
 
 RUNNING ON SLURM:
-python singleagent/baselines.py \
+python agents/baselines.py \
   --parallel=sbatch \
   --time '0-00:30:00' \
   --search=alpha
@@ -32,26 +32,23 @@ import jax
 from typing import Dict, Union
 
 from functools import partial
-from ray import tune
 
-import wandb
+
 from safetensors.flax import save_file
 from flax.traverse_util import flatten_dict
 
-import hydra
+
 import gymnax
 from gymnax.wrappers.purerl import FlattenObservationWrapper, LogWrapper
 from library.wrappers import TimestepWrapper
 
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']='false'
 
-import library.flags
-from library import parallel
-from singleagent import value_based_basics as vbb
+from library import launcher
+from agents import value_based_basics as vbb
 
-from singleagent import alphazero
-from singleagent import qlearning
-FLAGS = flags.FLAGS
+from agents import alphazero
+from agents import qlearning
 
 def run_single(
         config: dict,
@@ -109,31 +106,31 @@ def sweep(search: str = ''):
   if search == 'test':
     space = [
         {
-            "group": tune.grid_search(['baselines-Catch-12']),
-            "alg": tune.grid_search(['qlearning']),
-            "config_name": tune.grid_search(['qlearning']),
-            "ENV_NAME": tune.grid_search(['Catch-bsuite']),
+            "group": {'values:' ['baselines-Catch-12']},
+            "alg": {'values:' ['qlearning']},
+            "config_name": {'values:' ['qlearning']},
+            "ENV_NAME": {'values:' ['Catch-bsuite']},
         },
     ]
   elif search == 'alpha':
     space = [
         {
-            "group": tune.grid_search(['alphazero-CartPole-4']),
-            "alg": tune.grid_search(['alphazero']),
-            "config_name": tune.grid_search(['alphazero']),
-            "ENV_NAME": tune.grid_search(['CartPole-v1',]),
+            "group": {'values:' ['alphazero-CartPole-4']},
+            "alg": {'values:' ['alphazero']},
+            "config_name": {'values:' ['alphazero']},
+            "ENV_NAME": {'values:' ['CartPole-v1',]},
         },
         {
-            "group": tune.grid_search(['alphazero-Breakout-7']),
-            "alg": tune.grid_search(['alphazero']),
-            "config_name": tune.grid_search(['alphazero']),
-            "ENV_NAME": tune.grid_search(['Breakout-MinAtar',]),
+            "group": {'values:' ['alphazero-Breakout-7']},
+            "alg": {'values:' ['alphazero']},
+            "config_name": {'values:' ['alphazero']},
+            "ENV_NAME": {'values:' ['Breakout-MinAtar',]},
         },
         {
-            "group": tune.grid_search(['alphazero-Catch-6']),
-            "alg": tune.grid_search(['alphazero']),
-            "config_name": tune.grid_search(['alphazero']),
-            "ENV_NAME": tune.grid_search(['Catch-bsuite']),
+            "group": {'values:' ['alphazero-Catch-6']},
+            "alg": {'values:' ['alphazero']},
+            "config_name": {'values:' ['alphazero']},
+            "ENV_NAME": {'values:' ['Catch-bsuite']},
         },
     ]
   else:
@@ -141,8 +138,12 @@ def sweep(search: str = ''):
 
   return space
 
-def main(_):
-  parallel.run(
+if __name__ == '__main__':
+  from library.utils import make_parser
+  parser = make_parser()
+  args = parser.parse_args()
+  launcher.run(
+      args,
       trainer_filename=__file__,
       config_path='configs',
       run_fn=run_single,
@@ -150,6 +151,3 @@ def main(_):
       folder=os.environ.get(
           'RL_RESULTS_DIR', '/tmp/rl_results_dir')
   )
-
-if __name__ == '__main__':
-  app.run(main)

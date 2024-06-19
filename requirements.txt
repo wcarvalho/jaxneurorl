@@ -1,7 +1,9 @@
 wandb
 xminigrid==0.6.0
 ipdb
-tqdm
-rlax
-mctx
-ray[tune]
+tqdm==4.66.2
+rlax==0.1.6
+mctx==0.0.5
+typing_extensions==4.11.0
+optax==0.2.1
+scipy==1.12.0

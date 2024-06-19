@@ -1,3 +1,4 @@
-ENTITY: "wcarvalho92"
-SLURM_PARTITION: "kempner"
-SLURM_ACCOUNT: "kempner_fellows"
+entity: "wcarvalho92"
+partition: "kempner"
+account: "kempner_fellows"
+wandb_api_key: c72e8e6582dfa869d309b9db5a0910ff1fae8c48

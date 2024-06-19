@@ -35,7 +35,6 @@
 "TRAINING_INTERVAL": 10
 
 "FIXED_EPSILON": 2 # range of epsilons
-"TOTAL_TIMESTEPS": 1e7
 "EPSILON_START": 1.0
 "EPSILON_FINISH": 0.1
 "EPSILON_ANNEAL_TIME": 5e5
@@ -46,14 +45,3 @@
 "EPS_ADAM": 0.00001
 
 "GAMMA": 0.99
-
-hydra/output_subdir: null
-hydra/hydra_logging: disabled
-hydra/job_logging: disabled
-
-
-defaults:
-- _self_
-- user: wilka.yaml
-- debug: short.yaml
-- env: keyroom.yaml
