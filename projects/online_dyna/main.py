@@ -23,6 +23,7 @@ load_dotenv()
 stage_list = []
 interaction_list = []
 
+TILE_SIZE = 32
 DEBUG = int(os.environ.get('DEBUG_APP', 0))
 DEBUG_SEED = os.environ.get('DEBUG_SEED', 1)
 
@@ -89,11 +90,12 @@ keyparser = KeyParser()
 # Set up stages
 ############
 default_env_caption = """
-        Move with up,down,left,right arrows
+        <span style="font-weight: bold; font-size: 1.25em;">Movement</span>:<br>
+        up, down, left, right arrows
         <br><br>
-        Interactions:<br>
-        z: interact. pick up or open.
-        x: put down.
+        <span style="font-weight: bold; font-size: 1.25em;">Interactions</span>:<br>
+        <span style="font-weight: bold; font-size: 1.05em;">Z</span>: pick up or open.<br>
+        <span style="font-weight: bold; font-size: 1.05em;">X</span>: put down.
         """
 
 get_readies = [3, 10]  # small, large
@@ -211,6 +213,7 @@ stages = [
         'explanation-timed.html',
         title='Practice 3: 1-shot',
         body="""Get ready.""",
+        type='1shot',
         seconds=5,
         ),
     utils.Stage(
@@ -296,7 +299,7 @@ def render(timestep):
         np.asarray(timestep.state.grid),
         timestep.state.agent,
         0,
-        tile_size=32)
+        tile_size=TILE_SIZE)
 
 
 def encode_image(state_image):
@@ -863,6 +866,7 @@ def handle_key_press(json):
 @socketio.on('timer_finished')
 def on_timer_finish():
     stage = stages[session['stage_idx']]
+    print(f'{stage.title}: timer finished')
     if stage.type == '1shot':
         end_1shot_timer()
     else:

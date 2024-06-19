@@ -399,7 +399,7 @@ def render_map(timestep, env_params=None, rng=None):
         np.asarray(timestep.state.grid),
         timestep.state.agent,
         0,
-        tile_size=20)
+        tile_size=32)
 
 
 def render_keys(timestep, env_params, rng):

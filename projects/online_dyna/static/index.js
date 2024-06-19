@@ -90,9 +90,12 @@ document.addEventListener('DOMContentLoaded', function () {
   /////////////////////////
   // Listen for the 'update_html_fields' event from the server to update the page content
   socket.on('update_html_fields', function (data) {
-    document.getElementById('title').innerHTML = data.title
-    document.getElementById('subtitle').innerHTML = data.subtitle
-    document.getElementById('body').innerHTML = data.body
+    var title = document.getElementById('title')
+    if (title){
+      document.getElementById('title').innerHTML = data.title
+      document.getElementById('subtitle').innerHTML = data.subtitle
+      document.getElementById('body').innerHTML = data.body
+    }
     var taskDesc = document.getElementById('taskDesc');
     if (taskDesc) {
       taskDesc.innerHTML = data.taskDesc
@@ -167,16 +170,21 @@ document.addEventListener('DOMContentLoaded', function () {
       if (timerDuration <= 0) {
         clearInterval(timerInterval);
         socket.emit('timer_finished'); // Emit the 'timer_finished' event to the server
+        console.log('timer finished')
       }
     }, 1000);
   });
 
   // Listen for the 'stage_advanced' event
   socket.on('stop_timer', function () {
-    clearInterval(timerInterval); // Clear the timer interval
+    if (typeof timerInterval !== 'undefined') { // Check if timerInterval is defined
+      clearInterval(timerInterval); // Clear the timer interval
+      console.log('stop timer')
+    }
     var timer = document.getElementById('timer')
     if (timer) {
       timer.textContent = ''; // Clear the timer display
+      console.log('remove timer content')
     }
   });
 });
