@@ -6,17 +6,6 @@ JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue projects/humansf/trainer_
   app.wandb=False \
   app.search=dynaq
 
-JAX_DISABLE_JIT=1 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue projects/humansf/trainer_housemaze.py \
-  app.debug=True \
-  app.wandb=False \
-  app.search=alpha
-
-TESTING SLURM LAUNCH:
-python projects/humansf/trainer_housemaze.py \
-  app.parallel=sbatch \
-  app.debug_parallel=True \
-  app.search=alpha
-
 RUNNING ON SLURM:
 python projects/humansf/trainer_housemaze.py \
   app.parallel=sbatch \
@@ -359,7 +348,8 @@ def run_single(
         rng, rng_ = jax.random.split(rng)
         temperatures = temp_dist.sample(
             seed=rng_,
-            sample_shape=(num_simulations,))
+            sample_shape=(num_simulations - 1,))
+        temperatures = jnp.concatenate((temperatures, jnp.zeros(1e-5)))
         greedy_idx = int(temperatures.argmin())
 
         def simulation_policy(
@@ -372,14 +362,24 @@ def run_single(
               logits=logits).sample(seed=sim_rng)
 
       elif sim_policy == 'epsilon':
-        vals = np.logspace(
-                  num=config.get('NUM_EPSILONS', 256),
-                  start=config.get('EPSILON_MIN', .05),
-                  stop=config.get('EPSILON_MAX', .9),
-                  base=config.get('EPSILON_BASE', .1))
+        epsilon_setting = config.get('SIM_EPSILON_SETTING', 1)
+        if epsilon_setting == 1:
+          vals = np.logspace(
+                    start=config.get('EPSILON_MIN', 1),
+                    stop=config.get('EPSILON_MAX', 3),
+                    num=config.get('NUM_EPSILONS', 256),
+                    base=config.get('EPSILON_BASE', .1))
+        elif epsilon_setting == 2:
+           vals = np.logspace(
+                    num=config.get('NUM_EPSILONS', 256),
+                    start=config.get('EPSILON_MIN', .05),
+                    stop=config.get('EPSILON_MAX', .9),
+                    base=config.get('EPSILON_BASE', .1))
         epsilons = jax.random.choice(
-            rng, vals, shape=(num_simulations,))
+            rng, vals, shape=(num_simulations - 1,))
+        epsilons = jnp.concatenate((jnp.zeros(1), epsilons))
         greedy_idx = int(epsilons.argmin())
+
         def simulation_policy(
             preds: struct.PyTreeNode,
             sim_rng: jax.Array):
@@ -525,11 +525,16 @@ def sweep(search: str = ''):
             'goal': 'maximize',
         },
         'parameters': {
-            'DYNA_COEFF': {'values': [1]},
-            'TOTAL_TIMESTEPS': {'values': [5e6]},
+            #'TOTAL_TIMESTEPS': {'values': [5e6]},
+            'DYNA_COEFF': {'values': [1, .1]},
+            'DYNA_ONLINE_COEFF': {'values': [.1, .01, .001]},
+            #'STOP_DYNA_GRAD': {'values': [False]},
+            'SIM_EPSILON_SETTING': {'values': [1, 2]},
         },
-        'overrides': ['alg=dyna', 'rlenv=housemaze', 'user=wilka'],
-        'group': 'dynaq-14',
+        'overrides': ['alg=dyna_replay_split',
+                      'rlenv=housemaze',
+                      'user=wilka'],
+        'group': 'dynaq-15',
     }
   else:
     raise NotImplementedError(search)

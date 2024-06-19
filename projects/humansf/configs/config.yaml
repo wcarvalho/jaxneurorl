@@ -13,6 +13,7 @@ defaults:
 
 app:
   parallel: "none"  # none, sbatch, or ray
+  wandb_search: false
   search_method: "bayes"
   debug_sweep: false
   debug: false
@@ -20,6 +21,7 @@ app:
   wandb: true
   num_gpus: 1
   num_cpus: 16
+  config_idx: 1  # which config to load, only used by vanilla slurm
   memory: 120000  # in MB
   time: "0-01:00:00"  # duration format for SLURM
   max_concurrent: 16
