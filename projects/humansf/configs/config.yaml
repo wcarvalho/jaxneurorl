@@ -1,0 +1,32 @@
+
+hydra/output_subdir: null
+hydra/hydra_logging: disabled
+hydra/job_logging: disabled
+
+defaults:
+- _self_
+- alg: ql.yaml
+- rlenv: housemaze.yaml
+- user: example.yaml
+- debug: short.yaml
+
+
+app:
+  parallel: "none"  # none, sbatch, or ray
+  search_method: "bayes"
+  debug_sweep: false
+  debug: false
+  search: ""  # Specify the search term if needed
+  wandb: true
+  num_gpus: 1
+  num_cpus: 16
+  memory: 120000  # in MB
+  time: "0-01:00:00"  # duration format for SLURM
+  max_concurrent: 16
+  account: "kempner_fellows"  # specify if there's a default account
+  partition: "kempner"  # default SLURM partition
+  settings_config: ""  # to be set by parallel.py
+  subprocess: false  # indicate if this run is a subprocess
+  PROJECT: null  # name of wandb project, note uppercase
+  group: null  # name of wandb project
+  base_path: null  # name of wandb project
