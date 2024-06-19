@@ -191,7 +191,7 @@ def default_process_configs(
   pprint(config)
   return config
 
-def run_sweep(
+def start_sweep(
     hydra_config: dict,
     sweep_config: dict,
     config_path: str,
@@ -220,7 +220,8 @@ def run_sweep(
   ########
   cmd_overrides = HydraConfig.get().overrides.task
   overrides = set(cmd_overrides)
-  overrides.update(sweep_config.pop('overrides', []))
+  sweep_config_overrides = sweep_config.pop('overrides', [])
+  overrides.update(sweep_config_overrides)
   overrides = list(overrides)
 
   group = sweep_config.pop('group', app_config['search'])
@@ -253,7 +254,7 @@ def run_sweep(
        f"app.PROJECT={final_config['PROJECT']}",
        f"app.base_path={base_path}",
        f"app.group={group}"
-       ]
+       ] + sweep_config_overrides
   if debug:
     sweep_config['command'].append(
       'app.debug=True'
@@ -281,11 +282,14 @@ def run_sweep(
   if debug:
     # create file and run single python command
     run_file_contents = "#!/bin/bash\n" + python_file_command
+    print("-"*20)
     print(run_file_contents)
+    print("-"*20)
     with open(run_file, 'w') as file:
       # Write the string to the file
       file.write(run_file_contents)
     process = subprocess.Popen(f"chmod +x {run_file}", shell=True)
+    process.wait()
     process = subprocess.Popen(run_file, shell=True)
     process.wait()
     return
@@ -310,12 +314,12 @@ def run_sweep(
   sbatch_contents += f"#SBATCH -o {sbatch_base_path}/id=%j.out\n"
   sbatch_contents += f"#SBATCH -e {sbatch_base_path}/id=%j.err\n"
 
+  wandb_api_key = final_config['wandb_api_key']
+  sbatch_contents += f"export WANDB_API_KEY={wandb_api_key}\n"
   sbatch_contents += sbatch_contents + python_file_command
 
-  #wandb_api_key = final_config['wandb_api_key']
   #project = final_config['PROJECT']
   #entity = final_config["entity"]
-  #sbatch_contents += f"export WANDB_API_KEY={wandb_api_key}\n"
   #sbatch_contents += f"echo 'logging into wandb...'\n"
   #sbatch_contents += f"wandb login {wandb_api_key} && "
   #sbatch_contents += f"echo 'Checking wandb service status...' && "
@@ -335,8 +339,66 @@ def run_sweep(
   sbatch_command = f"sbatch --array=1-{total_jobs}%{max_concurrent} {run_file}"
   pprint(sbatch_command)
   process = subprocess.Popen(f"chmod +x {run_file}", shell=True)
+  process.wait()
   process = subprocess.Popen(sbatch_command, shell=True)
   process.wait()
+
+def run_sweep_run(
+    run_fn,
+    hydra_config: dict,
+    process_configs_fn=default_process_configs,
+  ):
+
+  def wrapped_run_fn():
+    wandb_init = dict(
+      project=hydra_config['app']['PROJECT'],
+      entity=hydra_config['user']['entity'],
+      group=hydra_config['app']['group'],
+      save_code=True,
+      mode='offline',
+      )
+    if not hydra_config['app']['wandb']:
+      wandb_init['mode'] = 'disabled'
+
+    wandb.init(**wandb_init)
+
+    run_config = wandb.config.as_dict()
+    default_config = OmegaConf.to_container(hydra_config)
+    final_config = process_configs_fn(
+      default_config,
+      run_config,
+      debug=hydra_config['app']['debug'])
+
+    experiment_config = setup_experiment_config(
+        base_path=hydra_config['app']['base_path'],
+        run_config=run_config,
+        group=hydra_config['app']['group'],
+        datetime_name=False,
+    )
+
+    # Update wandb configuration
+    wandb_kwargs = dict(
+      #group=final_config['group'],
+      #entity=final_config["entity"],
+      name=experiment_config['wandb_name'],
+      #dir=experiment_config['log_dir'],
+    )
+    for key, value in wandb_kwargs.items():
+      setattr(wandb.run, key, value)
+
+    run_fn(
+        config=final_config,
+        save_path=experiment_config['log_dir']
+    )
+
+  filename = hydra_config['app']['settings_config']
+  with open(filename, 'rb') as fp:
+    settings = pickle.load(fp)
+    sweep_id = settings['sweep_id']
+    logging.info(f'Loaded sweep_id: {sweep_id}')
+
+  wandb.login(key=os.environ['WANDB_API_KEY'])
+  wandb.agent(sweep_id, wrapped_run_fn, count=1)
 
 def run_individual(
     run_fn,
@@ -443,7 +505,7 @@ def run(
   ):
   config_path = os.path.join("..", config_path)
   if hydra_config['app']['parallel'] == 'sbatch':
-    run_sweep(
+    return start_sweep(
       hydra_config=hydra_config,
       sweep_config=sweep_fn(hydra_config['app']['search']),
       config_path=config_path,
@@ -452,65 +514,21 @@ def run(
       folder=folder,
       debug=hydra_config['app']['debug_sweep'],
     )
-    return
 
   elif hydra_config['app']['parallel'] == 'none':
     # -------------------
     # load experiment config. varies based on whether called by slurm or not.
     # -------------------
     if hydra_config['app']['subprocess']:  # called by SLURM
-      project = hydra_config['app']['PROJECT']
-      assert project, 'set project by master run'
-
-      def wrapped_run_fn():
-        wandb_init = dict(project=project)
-        if not hydra_config['app']['wandb']:
-          wandb_init['mode'] = 'disabled'
-        wandb.init(**wandb_init)
-
-        run_config = wandb.config.as_dict()
-        final_config = process_configs_fn(
-          hydra_config,
-          run_config,
-          debug=hydra_config['app']['debug'])
-
-        experiment_config = setup_experiment_config(
-            base_path=hydra_config['app']['base_path'],
-            run_config=run_config,
-            group=hydra_config['app']['group'],
-            datetime_name=False,
-        )
-
-        # Update wandb configuration
-        wandb_kwargs = dict(
-          group=final_config['group'],
-          entity=final_config["entity"],
-          name=experiment_config['wandb_name'],
-          save_code=False,
-          dir=experiment_config['log_dir'],
-        )
-        for key, value in wandb_kwargs['items']():
-            setattr(wandb.run, key, value)
-        wandb.run.save()
-
-        run_fn(
-            config=final_config,
-            save_path=experiment_config['log_dir']
-        )
-
-      filename = hydra_config['app']['settings_config']
-      with open(filename, 'rb') as fp:
-        settings = pickle.load(fp)
-        sweep_id = settings['sweep_id']
-        logging.info(f'Loaded sweep_id: {sweep_id}')
-
-      wandb.login()
-      wandb.agent(sweep_id, wrapped_run_fn, count=1)
-      return
+      return run_sweep_run(
+        run_fn=run_fn,
+        hydra_config=hydra_config,
+        process_configs_fn=process_configs_fn,
+      )
 
     else:  # called by this script (i.e. you)
       # mimics the structure of sweep so file naming is consistent
-      run_individual(
+      return run_individual(
         run_fn=run_fn,
         app_config=hydra_config['app'],
         sweep_config=sweep_fn(hydra_config['app']['search']),
@@ -520,7 +538,6 @@ def run(
         process_configs_fn=process_configs_fn,
         debug=hydra_config['app']['debug'],
       )
-      return
 
   else:
     raise NotImplementedError
