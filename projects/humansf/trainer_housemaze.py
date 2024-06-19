@@ -2,31 +2,30 @@
 
 TESTING:
 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue projects/humansf/trainer_housemaze.py \
-  --debug=True \
-  --wandb=False \
-  --search=ql
+  app.debug=True \
+  app.wandb=False \
+  app.search=dynaq
 
 JAX_DISABLE_JIT=1 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue projects/humansf/trainer_housemaze.py \
-  --debug=True \
-  --wandb=False \
-  --search=alpha
+  app.debug=True \
+  app.wandb=False \
+  app.search=alpha
 
 TESTING SLURM LAUNCH:
 python projects/humansf/trainer_housemaze.py \
-  --parallel=sbatch \
-  --debug_parallel=True \
-  --search=alpha
+  app.parallel=sbatch \
+  app.debug_parallel=True \
+  app.search=alpha
 
 RUNNING ON SLURM:
 python projects/humansf/trainer_housemaze.py \
-  --parallel=sbatch \
-  --time '0-02:30:00' \
-  --search=alpha
+  app.parallel=sbatch \
+  app.time='0-02:30:00' \
+  app.search=dynaq
 """
 from typing import Any, Callable, Dict, Union, Optional
 
-from absl import flags
-from absl import app
+
 
 import os
 import jax
@@ -35,7 +34,9 @@ import functools
 import jax.numpy as jnp
 import jax.tree_util as jtu
 
-from ray import tune
+import hydra
+from omegaconf import DictConfig
+
 
 from safetensors.flax import save_file
 from flax.traverse_util import flatten_dict
@@ -44,9 +45,8 @@ import numpy as np
 
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']='false'
 
-import library.flags
 
-from library import parallel
+from library import launcher
 from library import utils
 from library import loggers
 
@@ -62,7 +62,6 @@ from projects.humansf import housemaze_env as maze
 from projects.humansf.housemaze import utils as housemaze_utils
 from agents import value_based_basics as vbb
 
-FLAGS = flags.FLAGS
 
 
 def make_logger(
@@ -274,7 +273,7 @@ def run_single(
     ##################
     # algorithms
     ##################
-    alg_name = config['alg']
+    alg_name = config['ALG']
     if alg_name == 'qlearning':
       make_train = functools.partial(
           vbb.make_train,
@@ -498,94 +497,52 @@ def run_single(
 def sweep(search: str = ''):
   search = search or 'ql'
   if search == 'ql':
-    shared = {
-      "config_name": tune.grid_search(['ql_housemaze']),
-    }
-    space = [
-        {
-            "group": tune.grid_search(['qlearning-5']),
-            "alg": tune.grid_search(['qlearning']),
-            "SAMPLE_LENGTH": tune.grid_search([sl]),
-            "BUFFER_BATCH_SIZE": tune.grid_search([int(40//sl)*32]),
-            "TOTAL_TIMESTEPS": tune.grid_search([30e6]),
-            **shared,
-        } for sl in [5, 10, 20, 40]
-      ]
-  elif search == 'alpha':
-    shared = {
-      "config_name": tune.grid_search(['alpha_housemaze']),
-    }
-    space = [
-        {
-            "group": tune.grid_search(['alpha-3']),
-            "alg": tune.grid_search(['alphazero']),
-            "SAMPLE_LENGTH": tune.grid_search([sl]),
-            "BUFFER_BATCH_SIZE": tune.grid_search([int(40//sl)*32]),
-            "TOTAL_TIMESTEPS": tune.grid_search([5e6]),
-            **shared,
-        } for sl in [5, 10, 20, 40]
-      ]
-  elif search == 'dynaq':
-    shared = {
-      "config_name": tune.grid_search(['dyna_housemaze']),
-    }
-    space = [
-        {
-            "group": tune.grid_search(['dynaq-11-extra']),
-            "alg": tune.grid_search(['dynaq']),
-            #"SAMPLE_LENGTH": tune.grid_search([sl]),
-            #"BUFFER_BATCH_SIZE": tune.grid_search([int(40//sl)*32]),
-            "TOTAL_TIMESTEPS": tune.grid_search([5e6]),
-            "SIM_POLICY": tune.grid_search(['gamma', 'epsilon']),
-            "DYNA_ONLINE_COEFF": tune.grid_search([0., .1, 1.]),
-            "DYNA_COEFF": tune.grid_search([.1, 1.]),
-            #"DYNA_COEFF": tune.grid_search([1., .1]),
-            #"TEMP_RATE": tune.grid_search([.5, 1., 1.5]),
-            **shared,
+    sweep_config = {
+        'metric': {
+            'name': 'evaluator_performance/0.0 avg_episode_return',
+            'goal': 'maximize',
         },
-        #{
-        #    "group": tune.grid_search(['dynaq-11-speed-cnn']),
-        #    "alg": tune.grid_search(['dynaq']),
-        #    "TOTAL_TIMESTEPS": tune.grid_search([10e6]),
-        #    "RNN_CELL_TYPE": tune.grid_search(['none']),
-        #    "NUM_EMBED_LAYERS": tune.grid_search([0, 1]),
-        #    **shared,
-        #},
-      ]
-  #elif search == 'dynaq2':
-  #  shared = {
-  #    "config_name": tune.grid_search(['dyna_housemaze']),
-  #  }
-  #  space = [
-  #      {
-  #          "group": tune.grid_search(['dynaq-12-speed-iql']),
-  #          "alg": tune.grid_search(['dynaq']),
-  #          "TOTAL_TIMESTEPS": tune.grid_search([10e6]),
-  #          "RNN_CELL_TYPE": tune.grid_search(['GRUCell']),
-  #          "TOTAL_BATCH_SIZE": tune.grid_search([32*2, 32*3, 32*4, 32*5]),
-  #          "LR": tune.grid_search([.005]),
-  #          "TD_LAMBDA": tune.grid_search([.6]),
-  #          "EPS_ADAM": tune.grid_search([.001]),
-  #          "MAX_GRAD_NORM": tune.grid_search([25]),
-  #          **shared,
-  #      },
-  #      {
-  #          "group": tune.grid_search(['dynaq-12-speed-reg']),
-  #          "alg": tune.grid_search(['dynaq']),
-  #          "TOTAL_TIMESTEPS": tune.grid_search([10e6]),
-  #          "RNN_CELL_TYPE": tune.grid_search(['GRUCell']),
-  #          "TOTAL_BATCH_SIZE": tune.grid_search([32*2, 32*3, 32*4, 32*5]),
-  #          "LR": tune.grid_search([.005, .001]),
-  #          **shared,
-  #      },
-  #    ]
+        'parameters': {
+            "config_name": {'values': ['ql_housemaze']},
+            'TOTAL_TIMESTEPS': {'values': [30e6]},
+        }
+    }
+  elif search == 'alpha':
+    sweep_config = {
+        'metric': {
+            'name': 'evaluator_performance/0.0 avg_episode_return',
+            'goal': 'maximize',
+        },
+        'parameters': {
+            "config_name": {'values': ['alpha_housemaze']},
+            'TOTAL_TIMESTEPS': {'values': [5e6]},
+        }
+    }
+  elif search == 'dynaq':
+    sweep_config = {
+       'metric': {
+            'name': 'evaluator_performance/0.0 avg_episode_return',
+            'goal': 'maximize',
+        },
+        'parameters': {
+            'DYNA_COEFF': {'values': [1]},
+            'TOTAL_TIMESTEPS': {'values': [5e6]},
+        },
+        'overrides': ['alg=dyna', 'rlenv=housemaze', 'user=wilka'],
+        'group': 'dynaq-14',
+    }
   else:
     raise NotImplementedError(search)
 
-  return space
+  return sweep_config
 
-def main(_):
-  parallel.run(
+@hydra.main(
+      version_base=None,
+      config_path='configs',
+      config_name="config")
+def main(config: DictConfig):
+  launcher.run(
+      config,
       trainer_filename=__file__,
       config_path='projects/humansf/configs',
       run_fn=run_single,
@@ -594,5 +551,6 @@ def main(_):
           'RL_RESULTS_DIR', '/tmp/rl_results_dir')
   )
 
+
 if __name__ == '__main__':
-  app.run(main)
+  main()
