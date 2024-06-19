@@ -1,0 +1,3 @@
+[submodule "projects/web_dyna_exp/JaxHouseMaze"]
+	path = projects/web_dyna_exp/JaxHouseMaze
+	url = https://github.com/wcarvalho/JaxHouseMaze
