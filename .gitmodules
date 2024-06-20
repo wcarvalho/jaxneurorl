@@ -1,0 +1,3 @@
+[submodule "projects/online_dyna/ml/housemaze"]
+	path = projects/online_dyna/ml/housemaze
+	url = https://github.com/wcarvalho/JaxHouseMaze
