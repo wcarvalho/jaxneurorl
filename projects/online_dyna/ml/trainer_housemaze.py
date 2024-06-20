@@ -1,13 +1,13 @@
 """
 
 TESTING:
-JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue projects/humansf/trainer_housemaze.py \
+JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue projects/online_dyna/ml/trainer_housemaze.py \
   app.debug=True \
   app.wandb=False \
   app.search=dynaq
 
 RUNNING ON SLURM:
-python projects/humansf/trainer_housemaze.py \
+python projects/online_dyna/ml/trainer_housemaze.py \
   app.parallel=sbatch \
   app.time='0-02:30:00' \
   app.search=dynaq
@@ -27,7 +27,7 @@ import hydra
 from omegaconf import DictConfig
 
 
-from safetensors.flax import save_file
+
 from flax.traverse_util import flatten_dict
 
 import numpy as np
@@ -39,16 +39,16 @@ from library import launcher
 from library import utils
 from library import loggers
 
-from projects.humansf import alphazero
-from projects.humansf import qlearning
-from projects.humansf import offtask_dyna
-from projects.humansf import networks
-from projects.humansf import observers as humansf_observers
-from projects.humansf.housemaze import levels
-from projects.humansf.housemaze import renderer
-from projects.humansf import housemaze_env as maze
+from projects.online_dyna.ml import alphazero
+from projects.online_dyna.ml import qlearning
+from projects.online_dyna.ml import offtask_dyna
+from projects.online_dyna.ml import networks
+from projects.online_dyna.ml import observers as humansf_observers
+from projects.online_dyna.ml.housemaze import levels
+from projects.online_dyna.ml.housemaze import renderer
+from projects.online_dyna.ml import housemaze_env as maze
 
-from projects.humansf.housemaze import utils as housemaze_utils
+from projects.online_dyna.ml.housemaze import utils as housemaze_utils
 from agents import value_based_basics as vbb
 
 
@@ -186,7 +186,7 @@ def load_env_params(
 def run_single(
         config: dict,
         save_path: str = None):
-
+    from safetensors.flax import save_file
     rng = jax.random.PRNGKey(config["SEED"])
     #config['save_path'] = save_path
     ###################
@@ -195,12 +195,12 @@ def run_single(
     num_groups = config['rlenv']['ENV_KWARGS'].pop('NUM_GROUPS', 3)
     group_set, env_params = load_env_params(
         num_groups=num_groups,
-       file='projects/humansf/housemaze_list_of_groups.npy',
+       file='projects/online_dyna/ml/housemaze_list_of_groups.npy',
        )
     test_env_params = env_params.replace(training=False)
 
     image_dict = housemaze_utils.load_image_dict(
-        'projects/humansf/housemaze/image_data.pkl')
+        'projects/online_dyna/ml/housemaze/image_data.pkl')
     # Reshape the images to separate the blocks
     images = image_dict['images']
     reshaped = images.reshape(len(images), 8, 4, 8, 4, 3)
@@ -337,7 +337,7 @@ def run_single(
       )
     elif alg_name == 'dynaq':
       import distrax
-      from projects.humansf import train_extra_replay
+      from projects.online_dyna.ml import train_extra_replay
       sim_policy = config.get('SIM_POLICY', 'gamma')
       num_simulations = config.get('NUM_SIMULATIONS', 15)
       if sim_policy == 'gamma':
@@ -549,7 +549,7 @@ def main(config: DictConfig):
   launcher.run(
       config,
       trainer_filename=__file__,
-      config_path='projects/humansf/configs',
+      config_path='projects/online_dyna/ml/configs',
       run_fn=run_single,
       sweep_fn=sweep,
       folder=os.environ.get(

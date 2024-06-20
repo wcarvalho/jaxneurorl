@@ -6,11 +6,10 @@ Recurrent Q-learning.
 
 import os
 import jax
-from typing import Tuple, Callable
+from typing import Tuple, Callable, Any
 
 
 import flax.linen as nn
-import flashbax as fbx
 import wandb
 
 import flax
@@ -18,19 +17,18 @@ import rlax
 from gymnax.environments import environment
 import matplotlib.pyplot as plt
 
-from xminigrid.rendering.rgb_render import render as rgb_render
 
 
-from projects.humansf.networks import KeyroomObsEncoder, HouzemazeObsEncoder
-from projects.humansf import keyroom
-from projects.humansf.visualizer import plot_frames
+from projects.online_dyna.ml.networks import KeyroomObsEncoder
+from projects.online_dyna.ml.visualizer import plot_frames
 
 from agents.basics import TimeStep
 from agents import value_based_basics as vbb
 from agents import qlearning as base_agent
 
 
-
+Environment = Any
+EnvParams = Any
 Agent = nn.Module
 Params = flax.core.FrozenDict
 AgentState = flax.struct.PyTreeNode
@@ -105,8 +103,8 @@ class RnnAgent(nn.Module):
 
 def make_agent(
         config: dict,
-        env: environment.Environment,
-        env_params: environment.EnvParams,
+        env: Environment,
+        env_params: EnvParams,
         example_timestep: TimeStep,
         rng: jax.random.KeyArray,
         ObsEncoderCls: nn.Module = KeyroomObsEncoder,

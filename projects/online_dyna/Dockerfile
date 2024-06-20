@@ -8,13 +8,13 @@ WORKDIR /app
 COPY . /app
 
 # Install any needed packages specified in requirements.txt
-RUN pip install --no-cache-dir -r requirements-online-dyna.txt
+RUN pip install --no-cache-dir -r ./web_exp/requirements-online-dyna.txt
 
 # Make port 8080 available to the world outside this container
 EXPOSE 8080
 
 # Define environment variable
-ENV GOOGLE_APPLICATION_CREDENTIALS ./keys/datastore-key.json
+ENV GOOGLE_APPLICATION_CREDENTIALS ./web_exp/keys/datastore-key.json
 
 # Run app.py when the container launches
 CMD ["gunicorn", "--bind", "0.0.0.0:8080", "--worker-class", "gevent", "wsgi:app"]

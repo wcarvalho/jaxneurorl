@@ -1,24 +1,24 @@
 """
 
 TESTING:
-JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue projects/humansf/trainer_v1.py \
+JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue projects/online_dyna/ml/trainer_v1.py \
   --debug=True \
   --wandb=False \
   --search=alpha
 
-JAX_DISABLE_JIT=1 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue projects/humansf/trainer_v1.py \
+JAX_DISABLE_JIT=1 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue projects/online_dyna/ml/trainer_v1.py \
   --debug=True \
   --wandb=False \
   --search=alpha
 
 TESTING SLURM LAUNCH:
-python projects/humansf/trainer_v1.py \
+python projects/online_dyna/ml/trainer_v1.py \
   --parallel=sbatch \
   --debug_parallel=True \
   --search=alpha
 
 RUNNING ON SLURM:
-python projects/humansf/trainer_v1.py \
+python projects/online_dyna/ml/trainer_v1.py \
   --parallel=sbatch \
   --time '0-08:00:00' \
   --search=alpha
@@ -44,7 +44,7 @@ import hydra
 import gymnax
 from gymnax.wrappers.purerl import FlattenObservationWrapper, LogWrapper
 from library.wrappers import TimestepWrapper
-from projects.humansf import logger, observers as humansf_observers
+from projects.online_dyna.ml import logger, observers as humansf_observers
 
 
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']='false'
@@ -54,13 +54,13 @@ import library.flags
 from library import loggers, parallel
 from library import utils
 
-from projects.humansf import keyroom
-from projects.humansf import keyroom_symbolic
-from projects.humansf.minigrid_common import AutoResetWrapper
-from projects.humansf import observers
-from projects.humansf import alphazero
-from projects.humansf import qlearning
-from projects.humansf import offtask_dyna
+from projects.online_dyna.ml import keyroom
+from projects.online_dyna.ml import keyroom_symbolic
+from projects.online_dyna.ml.minigrid_common import AutoResetWrapper
+from projects.online_dyna.ml import observers
+from projects.online_dyna.ml import alphazero
+from projects.online_dyna.ml import qlearning
+from projects.online_dyna.ml import offtask_dyna
 
 from agents import value_based_basics as vbb
 
@@ -93,7 +93,7 @@ def run_single(
         save_path: str = None):
 
     # Open the file and load the JSON data
-    maze_path = os.path.join('projects/humansf', "maze_pairs.json")
+    maze_path = os.path.join('projects/online_dyna/ml', "maze_pairs.json")
     with open(maze_path, "r") as file:
       maze_config = json.load(file)[0]
 
@@ -421,7 +421,7 @@ def sweep(search: str = ''):
 def main(_):
   parallel.run(
       trainer_filename=__file__,
-      config_path='projects/humansf/configs',
+      config_path='projects/online_dyna/ml/configs',
       run_fn=run_single,
       sweep_fn=sweep,
       folder=os.environ.get(

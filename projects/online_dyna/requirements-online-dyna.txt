@@ -1,3 +1,12 @@
+#env
+jax==0.4.20
+jaxlib==0.4.20
+distrax==0.1.5
+flax==0.8.2
+numpy==1.26.4
+scipy==1.12.0
+# web
+hydra-core
 flask
 flask-socketio
 Pillow
@@ -5,11 +14,6 @@ tqdm
 python-dotenv
 google-cloud-storage
 Flask-Cors
-jax==0.4.20
-jaxlib==0.4.20
-xminigrid==0.6.0
-flax
-gymnax==0.0.6
 tqdm
 ipdb
 gunicorn

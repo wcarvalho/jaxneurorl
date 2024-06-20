@@ -1,27 +1,16 @@
 """
 Alpha-Zero
 """
-import functools
-from typing import Callable, Dict, List, Optional, Tuple, Union
 
-import distrax
+from typing import Tuple
+
 import flax
-from flax import struct
 import flax.linen as nn
 from gymnax.environments import environment
 
 import jax
-import jax.numpy as jnp
-import matplotlib.pyplot as plt
-import mctx
-import optax
-import rlax
-import wandb
 
-from library import utils
-from library import loggers
-
-from projects.humansf.networks import KeyroomObsEncoder
+from projects.online_dyna.ml.networks import KeyroomObsEncoder
 
 from agents.basics import TimeStep
 from agents import value_based_basics as vbb

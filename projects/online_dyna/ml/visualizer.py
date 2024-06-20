@@ -3,9 +3,7 @@ import matplotlib.pyplot as plt
 import jax
 from math import ceil
 
-#from xminigrid.rendering.rgb_render import render as rgb_render
 from agents.basics import TimeStep
-from projects.humansf import keyroom
 
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation

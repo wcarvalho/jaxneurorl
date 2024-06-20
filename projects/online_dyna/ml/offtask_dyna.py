@@ -22,10 +22,10 @@ from library import losses
 from agents.basics import TimeStep
 from agents import value_based_basics as vbb
 from agents import qlearning as base_agent
-from projects.humansf import qlearning
-from projects.humansf.networks import KeyroomObsEncoder
-from projects.humansf import keyroom
-from projects.humansf.visualizer import plot_frames
+from projects.online_dyna.ml import qlearning
+from projects.online_dyna.ml.networks import KeyroomObsEncoder
+from projects.online_dyna.ml import keyroom
+from projects.online_dyna.ml.visualizer import plot_frames
 
 Agent = nn.Module
 Params = flax.core.FrozenDict

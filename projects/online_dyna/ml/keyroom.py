@@ -1,6 +1,3 @@
-<<<<<<< HEAD
-from projects.online_dyna.keyroom import *
-=======
 """
 
 Grid features:
@@ -30,9 +27,9 @@ from xminigrid.core.rules import EmptyRule
 from xminigrid.environment import Environment, EnvParams, EnvParamsT
 from xminigrid.types import AgentState, EnvCarry, State, TimeStep, EnvCarryT, IntOrArray, StepType, GridState
 
-from projects.humansf import minigrid_common
-from projects.humansf.minigrid_common import States
-from projects.humansf.minigrid_common import make_obj as make_task_obj
+from projects.online_dyna.ml import minigrid_common
+from projects.online_dyna.ml.minigrid_common import States
+from projects.online_dyna.ml.minigrid_common import make_obj as make_task_obj
 # from projects.humansf.minigrid_common import take_action as take_action_new
 
 KEY_IDX = 0
@@ -1025,4 +1022,3 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
             observation=new_observation,
         )
         return new_timestep
->>>>>>> origin/socialsf

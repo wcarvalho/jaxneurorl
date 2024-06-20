@@ -1,11 +1,17 @@
 
+from enum import IntEnum
 from typing import Optional
 import jax
 import jax.numpy as jnp
 from flax import struct
 import distrax
 
-from projects.humansf.housemaze import maze
+try:
+    from projects.online_dyna.ml.housemaze import maze
+except ModuleNotFoundError:
+    from housemaze import maze
+except Exception as e:
+    raise e
 
 TaskRunner = maze.TaskRunner
 TimeStep = maze.TimeStep
@@ -29,6 +35,8 @@ class EnvParams:
     time_limit: int = 100
     p_test_sample_train: float = .5
     training: bool = True
+    terminate_with_done: bool = False
+
 
 
 @struct.dataclass
@@ -63,6 +71,7 @@ def mask_sample(mask, rng):
 
     # Sampling from the distribution
     return sampler.sample(seed=rng_)
+
 
 class HouseMaze(maze.HouseMaze):
 
@@ -206,7 +215,10 @@ class HouseMaze(maze.HouseMaze):
             step_num=timestep.state.step_num + 1,
         )
 
-        terminated = (task_state.features > 0).any()  # any object picked up
+        if params.terminate_with_done:
+            terminated = action == self.action_enum().done
+        else:
+            terminated = (task_state.features > 0).any()  # any object picked up
         task_w = timestep.state.task_w.astype(jnp.float32)
         features = task_state.features.astype(jnp.float32)
         reward = (task_w*features).sum(-1)

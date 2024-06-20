@@ -1,3 +1,7 @@
+import sys
+import time
+sys.path.append('ml')
+
 from typing import NamedTuple
 
 from base64 import b64encode
@@ -16,8 +20,14 @@ import random
 import numpy as np
 import os
 from PIL import Image
-import utils
-import keyroom
+
+from functools import partial
+import web_utils
+from ml.housemaze import levels
+from ml.housemaze import renderer
+import ml.housemaze_env as maze
+from ml import housemaze_utils
+
 
 load_dotenv()
 stage_list = []
@@ -30,14 +40,32 @@ DEBUG_SEED = os.environ.get('DEBUG_SEED', 1)
 ############
 # Set up environment
 ############
-with open("maze_pairs.json", "r") as file:
-    maze_config = json.load(file)[0]
+group_set, default_env_params = housemaze_utils.load_env_params(
+    num_groups=3,
+    file='ml/housemaze_list_of_groups.npy',
+    large_only=True,
+)
+default_env_params = default_env_params.replace(
+    training=False,
+    )
+image_dict = housemaze_utils.load_image_dict(
+    'ml/housemaze/image_data.pkl')
+task_objects = group_set.reshape(-1)
+task_runner = maze.TaskRunner(
+    task_objects=task_objects)
+keys = image_dict['keys']
 
-env = utils.KeyRoomUpDownLeftRight()
+env = maze.HouseMaze(
+    task_runner=task_runner,
+    num_categories=len(keys),
+    use_done=True,
+)
+env = housemaze_utils.AutoResetWrapper(env)
+################
 
-# Action mappings
-default_env_params = env.default_params(
-    maze_config=keyroom.shorten_maze_config(maze_config, 3))
+
+
+# RNG
 dummy_rng = jax.random.PRNGKey(0)
 dummy_action = 0
 default_timestep = env.reset(dummy_rng, default_env_params)
@@ -45,31 +73,43 @@ env.step(
     dummy_rng, default_timestep, dummy_action, default_env_params)
 
 
+def render_timestep(timestep, env_params, **kwargs):
+    del env_params
+    image = renderer.create_image_from_grid(
+        timestep.state.grid,
+        timestep.state.agent_pos,
+        timestep.state.agent_dir,
+        image_dict,
+        **kwargs)
+    return np.asarray(image)
+
+
+render_timestep_no_obj = partial(
+    render_timestep, include_objects=False)
+
+def get_task_name(timestep):
+    category = keys[timestep.state.task_object]
+    return f"<b>GOAL: {category}</b>"
+
+
+def evaluate_success(timestep):
+    return int(timestep.reward > .8)
+
 
 class KeyParser(NamedTuple):
     int_to_action_str = {
-        0: 'up',
-        1: 'right',
-        2: 'down',
-        3: 'left',
-        4: 'interact',
-        5: 'put_down',
-    }
+        action.value: action.name for action in env.action_enum()}
     key_to_action = {
-        'w': 'up',
+        #'w': 'up',
         'ArrowUp': 'up',
-        'a': 'left',
+        #'a': 'left',
         'ArrowLeft': 'left',
-        'd': 'right',
+        #'d': 'right',
         'ArrowRight': 'right',
-        's': 'down',
+        #'s': 'down',
         'ArrowDown': 'down',
-        'z': 'interact',
-        'x': 'put_down',
-        #'p': 'pickup',
-        #'l': 'put_down',
-        #'o': 'toggle',
         'c': 'continue',
+        'd': 'done',
     }
 
     def valid_key(self, key: str):
@@ -90,13 +130,9 @@ keyparser = KeyParser()
 # Set up stages
 ############
 default_env_caption = """
-        <span style="font-weight: bold; font-size: 1.25em;">Movement</span>:<br>
-        up, down, left, right arrows
-        <br><br>
-        <span style="font-weight: bold; font-size: 1.25em;">Interactions</span>:<br>
-        <span style="font-weight: bold; font-size: 1.05em;">Z</span>: pick up or open.<br>
-        <span style="font-weight: bold; font-size: 1.05em;">X</span>: put down.
-        """
+<span style="font-weight: bold; font-size: 1.25em;">Movement</span>:<br>
+up, down, left, right arrows
+"""
 
 get_readies = [3, 10]  # small, large
 eval_times = [3, 10]  # small, large
@@ -108,41 +144,37 @@ def make_block(
 
     def _make_sublock():
         block = [
-            utils.Stage(
+            web_utils.Stage(
                 'explanation.html',
                 title="Training",
                 body="Please learn to perform these training tasks."
             ),
-            utils.Stage(
+            web_utils.Stage(
                 'env.html',
                 title="Training",
                 type='interaction',
-                #subtitle="goal object in a different room",
-                env_params=default_env_params.replace(
-                    train_multi_probs=1.),
-                render_fn=utils.render_map,
+                env_params=default_env_params.replace(p_test_sample_train=1.),
+                render_fn=render_timestep,
                 min_success=1 if DEBUG else min_success,
                 max_episodes=3 if DEBUG else max_episodes,
                 envcaption=default_env_caption
                 ),
-            utils.Stage(
-                'explanation-timed.html',
+            web_utils.Stage(
+                'env.html',
                 title='Evaluation',
-                subtitle="Pick the key which will get the object.",
-                body="""Get ready.""",
-                seconds=get_ready_time,
+                subtitle="Get ready.",
+                type='interaction',
+                env_params=default_env_params.replace(p_test_sample_train=0.),
+                render_fn=render_timestep_no_obj,
+                show_progress=False,
                 ),
-            utils.Stage(
+            web_utils.Stage(
                 'env.html',
                 title='Evaluation',
                 subtitle="Pick the key which will get the object.",
-                type='1shot',
-                env_params=default_env_params.replace(
-                    train_multi_probs=1.,
-                    training=False,
-                    time_limit=1,
-                ),
-                render_fn=utils.render_keys,
+                type='interaction',
+                env_params=default_env_params.replace(p_test_sample_train=0.),
+                render_fn=render_timestep_no_obj,
                 show_progress=False,
                 seconds=eval_time,
                 ),
@@ -154,81 +186,69 @@ def make_block(
 
 
 stages = [
-    utils.Stage('consent.html'),
+    web_utils.Stage('consent.html'),
     ############################
     # Practice
     ############################
-    utils.Stage(
-        'explanation.html',
-        title="Practice 1 - same room",
-        body="""
-        In this section of the experiment, you'll practice to understand how the environment works. First, you'll practice getting the object in the same room.
-        <br><br>
-        Please note: right now, loading is slow in the beginning. After a couple of interactions, interacting with the environment should speed up for the rest of the experiment. Please be patient in the beginning.
-        <br><br>
-        Please click the right arrow when you are ready.
-        """
-        ),
-    utils.Stage(
+    #web_utils.Stage(
+    #    'explanation.html',
+    #    title="Practice",
+    #    body="""
+    #    Now, you'll practice getting an object when it's in another room.
+    #    <br><br>
+    #    Please click the right arrow when you are ready.
+    #    """
+    #    ),
+    #web_utils.Stage(
+    #    'env.html',
+    #    title="Practice",
+    #    subtitle="goal object in a different room",
+    #    type='interaction',
+    #    env_params=default_env_params.replace(p_test_sample_train=1.),
+    #    render_fn=render_timestep,
+    #    min_success=1 if DEBUG else 5,
+    #    max_episodes=3 if DEBUG else 5,
+    #    envcaption=default_env_caption
+    #    ),
+    #web_utils.Stage(
+    #    'explanation.html',
+    #    title='Practice 3: 1-shot',
+    #    body="""
+    #        Now, you'll practice doing a 1-shot query.
+    #        <br><br>
+    #        Please click the right arrow when you are ready.
+    #        """,
+    #    ),
+    web_utils.Stage(
         'env.html',
-        title="Practice 1 - same room",
-        subtitle="goal object in the same room",
-        type='interaction',
-        env_params=default_env_params.replace(train_multi_probs=0.),
-        render_fn=utils.render_map,
-        min_success=1 if DEBUG else 3,
-        max_episodes=3 if DEBUG else 50,
+        title='Practice preparation',
+        subtitle="Get ready.",
+        type='pause',
+        env_params=default_env_params.replace(p_test_sample_train=0.),
+        render_fn=render_timestep_no_obj,
+        min_success=1,
+        max_episodes=1,
         envcaption=default_env_caption,
-        ),
-    utils.Stage(
-        'explanation.html',
-        title="Practice 2 - multiroom",
-        body="""
-        Now, you'll practice getting an object when it's in another room.
-        <br><br>
-        Please click the right arrow when you are ready.
-        """
-        ),
-    utils.Stage(
-        'env.html',
-        title="Practice 2 - multiroom",
-        subtitle="goal object in a different room",
-        type='interaction',
-        env_params=default_env_params.replace(train_multi_probs=1.),
-        render_fn=utils.render_map,
-        min_success=1 if DEBUG else 5,
-        max_episodes=3 if DEBUG else 50,
-        envcaption=default_env_caption
-        ),
-    utils.Stage(
-        'explanation.html',
-        title='Practice 3: 1-shot',
-        body="""
-            Now, you'll practice doing a 1-shot query.
-            <br><br>
-            Please click the right arrow when you are ready.
-            """,
-        ),
-    utils.Stage(
-        'explanation-timed.html',
-        title='Practice 3: 1-shot',
-        body="""Get ready.""",
-        type='1shot',
-        seconds=5,
-        ),
-    utils.Stage(
-        'env.html',
-        title='Practice 3: 1-shot',
-        subtitle="Pick the key which will get this object.",
-        type='1shot',
-        env_params=default_env_params.replace(
-            train_multi_probs=1.,
-            training=False,
-            time_limit=1,
-            ),
-        render_fn=utils.render_keys,
+        seconds=2,
         show_progress=False,
+        show_goal=False,
+        ),
+    web_utils.Stage(
+        'env.html',
+        title='Practice evaluation',
+        subtitle="",
+        type='interaction',
+        env_params=default_env_params.replace(
+            p_test_sample_train=0.,
+            terminate_with_done=True,
+            ),
+        render_fn=render_timestep_no_obj,
+        min_success=1,
+        max_episodes=1,
+        envcaption=default_env_caption,
         seconds=10,
+        show_progress=False,
+        restart=False,
         ),
     ############################
     # Block 1:
@@ -269,7 +289,7 @@ stages = [
     ############################
     # Done
     ############################
-    utils.Stage('done.html',
+    web_utils.Stage('done.html',
             title='Experiment Finished',
             subtitle='Please wait as data is uploaded.'
             ),
@@ -294,13 +314,6 @@ def split_rng():
     session['rng'] = rng_from_jax(rng)
     return rng_
 
-def render(timestep):
-    return utils.render(
-        np.asarray(timestep.state.grid),
-        timestep.state.agent,
-        0,
-        tile_size=TILE_SIZE)
-
 
 def encode_image(state_image):
     buffer = io.BytesIO()
@@ -309,15 +322,6 @@ def encode_image(state_image):
     return 'data:image/jpeg;base64,' + encoded_image
 
 
-def get_task_name(timestep):
-    room_idx = int(timestep.state.goal_room_idx)
-    object_idx = int(timestep.state.task_object_idx)
-
-    category, color = maze_config['pairs'][room_idx][object_idx]
-    return f"<b>GOAL</b>: pickup the {color} {category}"
-
-def evaluate_success(timestep):
-    return int(timestep.reward > .8)
 
 def reset_environment(env_params):
     rng_ = split_rng()
@@ -338,14 +342,14 @@ def take_action(action_key, env_params):
             raise RuntimeError("no previous time-step to re-emit and no action taken?")
 
     stage = stages[session['stage_idx']]
-    state_image = stage.render_fn(timestep, env_params, rng_)
+    state_image = stage.render_fn(timestep, env_params)
 
     session['timestep'] = timestep
     return state_image
 
 def serialize(pytree):
     pytree = serialization.to_state_dict(pytree)
-    pytree = utils.array_to_python(pytree)
+    pytree = web_utils.array_to_python(pytree)
     return json.dumps(pytree)
 
 
@@ -432,10 +436,6 @@ def update_html_fields(**kwargs):
         **kwargs,
     })
 
-    seconds = stages[session['stage_idx']].seconds
-    if seconds:
-        emit('start_timer', {'seconds': seconds})
-
 
 def update_env_html_fields(**kwargs):
 
@@ -447,14 +447,20 @@ def update_env_html_fields(**kwargs):
     if stage.show_progress:
         subtitle += f"<br>Successes: {stage_info.num_success}/{stage.min_success}"
         subtitle += f"<br>Episodes: {stage_info.ep_idx}/{stage.max_episodes}"
+    
+    task = get_task_name(session['timestep']) if stage.show_goal else ''
     emit('update_html_fields', {
         'title': f"Stage {stage_idx}: {stage.title}",
         'subtitle': subtitle,
-        'taskDesc': get_task_name(session['timestep']),
+        'taskDesc': task,
         'body': stage.body,
         'envcaption': stage.envcaption,
         **kwargs,
     })
+    #seconds = stages[session['stage_idx']].seconds
+    #if seconds:
+    #    print('starting timer: update_env_html_fields')
+    #    emit('start_timer', {'seconds': seconds})
 
 
 def start_env_interaction_stage():
@@ -463,15 +469,17 @@ def start_env_interaction_stage():
     template_file = stages[session['stage_idx']].html
     env_params = stages[session['stage_idx']].env_params
 
-    print('about to reset env')
-    reset_environment(env_params)
+    if stage.restart:
+        print('about to reset env')
+        reset_environment(env_params)
 
-    state_image = utils.render_map(session['timestep'])
+    state_image = stage.render_fn(session['timestep'], env_params)
     encoded_image = encode_image(state_image)
 
     emit('update_content', {
         'content': render_template(template_file),
     })
+
     print('loading new index')
     emit('action_taken', {
         'image': encoded_image,
@@ -479,6 +487,15 @@ def start_env_interaction_stage():
     print('loading image')
     update_env_html_fields()
     print('adding html content')
+
+def maybe_start_count_down():
+    stage = stages[session['stage_idx']]
+    seconds = stage.seconds
+    if seconds:
+        count_down_started = stage.count_down_started
+        if not count_down_started:
+            print('starting timer: start_env_stage')
+            emit('start_timer', {'seconds': seconds})
 
 
 def handle_interaction_phase(json):
@@ -516,11 +533,13 @@ def handle_interaction_phase(json):
                 num_success=stage_info.num_success + success,
                 t=stage_info.t+1,
             )
-            label = 'SUCCESS' if success else 'FAILED'
-            color = 'green' if success else 'red'
-            label = f'<span style="color: {color}; font-weight: bold; font-size: 1.5em;">{label}!</span>'
+            label = ''
+            if stages[session['stage_idx']].show_progress:
+                label = 'SUCCESS' if success else 'FAILED'
+                color = 'green' if success else 'red'
+                label = f'<span style="color: {color}; font-weight: bold; font-size: 1.5em;">{label}!</span> '
             update_env_html_fields(
-                taskDesc=f"{label} restarting. press any key to continue.",
+                taskDesc=f"{label}restarting. press any key to continue.",
             )
             print('updated stage_info at end')
         else:
@@ -559,7 +578,8 @@ def handle_interaction_phase(json):
         # ------------
         else:
             reset_environment(env_params)
-            state_image = utils.render_map(session['timestep'])
+            stage = stages[session['stage_idx']]
+            state_image = stage.render_fn(session['timestep'], stage.env_params)
             encoded_image = encode_image(state_image)
             update_env_html_fields(
                 taskDesc=get_task_name(session['timestep']),
@@ -582,7 +602,7 @@ def start_env_1shot_phase():
 
     keys = keys[permutation]
     session['choices'] = keys
-    state_image = utils.objects_with_number(keys)
+    state_image = web_utils.objects_with_number(keys)
     encoded_image = encode_image(state_image)
 
     emit('update_content', {
@@ -592,16 +612,12 @@ def start_env_1shot_phase():
         'image': encoded_image,
     })
 
-    seconds = stages[session['stage_idx']].seconds
-    if seconds:
-        emit('start_timer', {'seconds': seconds})
     kwargs = {}
     if DEBUG:
         goal_room_idx = int(session['timestep'].state.goal_room_idx)
         kwargs['envcaption'] = f'correct key: {permutation[goal_room_idx]}'
 
     update_env_html_fields(**kwargs)
-
 
 def handle_1shot_phase(json):
     key = json['key']
@@ -663,14 +679,78 @@ def handle_1shot_phase(json):
     stage_list.append(new_row)
     advance_to_next_stage()
 
+
+def handle_pause_phase(json):
+    key = json['key']
+    ###################
+    # evaluate whether successful
+    ###################
+
+    if not key.isnumeric():
+        print(f"{key} is not numeric")
+        return
+    choice_idx = int(key) - 1
+    choices = session['choices']
+    if not choice_idx < len(choices):
+        print(f'{choice_idx}>{len(choices)}')
+        return
+
+    # what is the goal key? aliased with goal room.
+    goal_room_idx = int(session['timestep'].state.goal_room_idx)
+    chosen_room = int(session['permutation'][choice_idx])
+    success = int(goal_room_idx == chosen_room)
+    print("Success:", success)
+    ###################
+    # store data and move to next stage
+    ###################
+    stage_idx = session['stage_idx']
+    rng = session['rng']
+    # -------------
+    # interactions
+    # -------------
+    user_seed = session['user_seed']
+    timestep = session['timestep'].replace(observation=None)
+    timestep = serialize(timestep)
+    new_row = {
+        "stage_idx": int(stage_idx),
+        "image_seen_time": str(json['imageSeenTime']),
+        "key_press_time": str(json['keydownTime']),
+        "key": str(json['key']),
+        "action": int(json['key']),
+        "timestep": timestep,
+        "rng": list(rng_from_jax(rng)),
+        'unique_id': int(user_seed),
+    }
+    interaction_list.append(new_row)
+
+    # ---------------
+    # stages
+    # ---------------
+    stage = stages[stage_idx]
+    stage = stage.replace(render_fn=None)
+    stage = serialize(stage)
+    new_row = {
+        "stage_idx": stage_idx,
+        'stage': stage,
+        't': 1,
+        'ep_idx': 1,
+        'num_success': success,
+        'unique_id': int(user_seed),
+    }
+    stage_list.append(new_row)
+    advance_to_next_stage()
+
 def start_env_stage():
     stage = stages[session['stage_idx']]
     if stage.type == 'interaction':
         start_env_interaction_stage()
     elif stage.type == '1shot':
         start_env_1shot_phase()
+    elif stage.type == 'pause':
+        start_env_interaction_stage()
+    maybe_start_count_down()
 
-def end_1shot_timer():
+def end_timer_no_interaction():
     ###################
     # store data and move to next stage
     ###################
@@ -724,6 +804,7 @@ def shift_stage(direction: str):
         raise NotImplementedError
 
     template_file = stages[session['stage_idx']].html
+    print("="*50)
     if 'env' in template_file:
         start_env_stage()
     else:
@@ -733,7 +814,7 @@ def shift_stage(direction: str):
         update_html_fields()
         if 'done' in template_file:
             save_interactions_on_session_end()
-
+    maybe_start_count_down()
 
 def advance_to_next_stage():
     # update stage idx
@@ -743,10 +824,8 @@ def advance_to_next_stage():
     # next template file
     template_file = stages[session['stage_idx']].html
 
-    # Emit the 'stage_advanced' event to the client
-    emit('stop_timer')
-
     # update content
+    print("="*50)
     if 'env' in template_file:
         start_env_stage()
     else:
@@ -769,7 +848,7 @@ app.secret_key = 'some secret'
 # Adjust the time as needed
 app.permanent_session_lifetime = timedelta(days=30)
 
-app.json.default = utils.encode_json
+app.json.default = web_utils.encode_json
 socketio = SocketIO(app)
 
 # Route for the index page
@@ -822,10 +901,11 @@ def handle_request_update():
 
     # NOTE: we want to store this in session because will be changing
     stage_infos = [
-        utils.StageInfo(stage) if 'env' in stage.html else None for stage in stages]
+        web_utils.StageInfo(stage) if 'env' in stage.html else None for stage in stages]
     session['stage_infos'] = stage_infos
 
     # Check if the stage index is set and then emit the update_html_fields event.
+    print("="*50)
     if 'stage_idx' in session:
         update_html_fields()
         template_file = stages[session['stage_idx']].html
@@ -853,6 +933,8 @@ def handle_key_press(json):
         handle_interaction_phase(json)
     elif stage.type == '1shot':
         handle_1shot_phase(json)
+    elif stage.type == 'pause':
+        pass  # do no nothing. just ignore keys
     elif stage.type == 'default':
         key = json['key']
         if key in ('ArrowLeft', 'ArrowRight'):
@@ -861,15 +943,20 @@ def handle_key_press(json):
                 'ArrowRight': 'right',
             }[key]
             shift_stage(direction)
+        else:
+            return
 
 
 @socketio.on('timer_finished')
 def on_timer_finish():
     stage = stages[session['stage_idx']]
     print(f'{stage.title}: timer finished')
-    if stage.type == '1shot':
-        end_1shot_timer()
+    emit('stop_timer')
+    if stage.type in ('1shot', 'pause'):
+        print("end_timer_no_interaction")
+        end_timer_no_interaction()
     else:
+        print("advance_to_next_stage")
         advance_to_next_stage()
 
 # Run the Flask app

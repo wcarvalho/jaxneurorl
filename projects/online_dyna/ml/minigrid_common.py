@@ -1,18 +1,11 @@
 from __future__ import annotations
 
-import functools
 import jax
 import jax.numpy as jnp
-from typing_extensions import TypeAlias
 from flax import struct
 import jax.numpy as jnp
 
-from xminigrid.types import AgentState, GridState, IntOrArray
-from xminigrid.core.constants import DIRECTIONS, TILES_REGISTRY, Colors, Tiles, NUM_TILES, NUM_COLORS
-from xminigrid.core.grid import check_can_put, check_pickable, check_walkable, equal
-
-from xminigrid.core.constants import Tiles
-from xminigrid.wrappers import Wrapper
+from xminigrid.core.constants import NUM_TILES, NUM_COLORS
 
 NUM_DIRECTIONS = 4
 
@@ -87,19 +80,22 @@ def make_obj(
     return obj
 
 
-class AutoResetWrapper(Wrapper):
+#class AutoResetWrapper:
 
-    def __auto_reset(self, key, params, timestep):
-        key, key_ = jax.random.split(key)
-        return self._env.reset(key_, params)
+#    def __init__(self, env: Environment[EnvParamsT, EnvCarryT]):
+#        self._env = env
 
-    def step(self,
-             key: jax.random.KeyArray,
-             prior_timestep,
-             action,
-             params):
-        return jax.lax.cond(
-            prior_timestep.last(),
-            lambda: self.__auto_reset(key, params, prior_timestep),
-            lambda: self._env.step(key, prior_timestep, action, params),
-        )
+#    def __auto_reset(self, key, params, timestep):
+#        key, key_ = jax.random.split(key)
+#        return self._env.reset(key_, params)
+
+#    def step(self,
+#             key: jax.random.KeyArray,
+#             prior_timestep,
+#             action,
+#             params):
+#        return jax.lax.cond(
+#            prior_timestep.last(),
+#            lambda: self.__auto_reset(key, params, prior_timestep),
+#            lambda: self._env.step(key, prior_timestep, action, params),
+#        )

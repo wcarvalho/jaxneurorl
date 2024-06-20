@@ -1,4 +1,16 @@
 document.addEventListener('DOMContentLoaded', function () {
+  document.addEventListener('keydown', function (event) {
+    switch (event.key) {
+      case "ArrowUp":
+      case "ArrowDown":
+      case "ArrowLeft":
+      case "ArrowRight":
+        event.preventDefault();
+        break;
+      default:
+        break;
+    }
+  });
   var socket = io();
 
   // Object to store event times
@@ -158,6 +170,7 @@ document.addEventListener('DOMContentLoaded', function () {
   socket.on('start_timer', function (data) {
     var timerDuration = data.seconds; // Set the timer duration in seconds
     var timerElement = document.getElementById('timer');
+    console.log('timer started')
 
     // Display the initial timer value
     timerElement.textContent = 'Time remaining: ' + timerDuration + ' seconds';
@@ -166,6 +179,7 @@ document.addEventListener('DOMContentLoaded', function () {
     var timerInterval = setInterval(function () {
       timerDuration--;
       timerElement.textContent = 'Time remaining: ' + timerDuration + ' seconds';
+      console.log('time remaining: ' + timerDuration + ' seconds')
 
       if (timerDuration <= 0) {
         clearInterval(timerInterval);

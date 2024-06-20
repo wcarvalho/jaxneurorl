@@ -1,8 +1,8 @@
 from typing import Optional
 import jax
 import jax.numpy as jnp
-from projects.humansf import keyroom
-from projects.humansf.keyroom import KeyRoom, KeyRoomEnvParams, sample_coordinates
+from projects.online_dyna.ml import keyroom
+from projects.online_dyna.ml.keyroom import KeyRoom, KeyRoomEnvParams, sample_coordinates
 
 from xminigrid.core.constants import Colors, Tiles, DIRECTIONS, TILES_REGISTRY
 from gymnax.environments import spaces

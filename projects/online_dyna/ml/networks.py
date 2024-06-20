@@ -1,12 +1,11 @@
 from typing import Optional
 
+import flax
 import flax.linen as nn
-from flax.linen.initializers import constant, orthogonal
 import jax
 import jax.numpy as jnp
-import math
 
-from projects.humansf.keyroom import Observation
+Observation = flax.struct.PyTreeNode
 
 class Block(nn.Module):
   features: int
