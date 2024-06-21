@@ -20,7 +20,7 @@ app:
   search: ""  # Specify the search term if needed
   wandb: true
   num_gpus: 1
-  num_cpus: 16
+  num_cpus: 12
   config_idx: 1  # which config to load, only used by vanilla slurm
   memory: 120000  # in MB
   time: "0-01:00:00"  # duration format for SLURM

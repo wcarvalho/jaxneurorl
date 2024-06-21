@@ -26,9 +26,9 @@ class ResetParams:
 @struct.dataclass
 class EnvParams:
     reset_params: ResetParams
-    time_limit: int = 100
-    p_test_sample_train: float = .5
-    training: bool = True
+    time_limit: int = jnp.array(100)
+    p_test_sample_train: float = jnp.array(.5)
+    training: bool = jnp.array(True)
 
 
 @struct.dataclass
@@ -103,6 +103,7 @@ class HouseMaze(maze.HouseMaze):
             return loc
 
         rng, rng_ = jax.random.split(rng)
+
         agent_pos = jax.lax.cond(
             jnp.logical_and(reset_params.curriculum, params.training),
             sample_pos_from_curriculum,

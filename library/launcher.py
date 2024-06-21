@@ -1,11 +1,3 @@
-"""
-python library/sweep_slurm.py \
-  --program=projects/humansf/trainer_housemaze.py \
-  --config_path=projects/humansf/configs \
-  --time '0-02:30:00' \
-  --search=dynaq \
-
-"""
 from typing import Optional, Sequence
 
 from absl import logging
@@ -252,7 +244,8 @@ def start_wandb_sweep(
        "app.subprocess=True",
        f"app.PROJECT={final_config['PROJECT']}",
        f"app.base_path={base_path}",
-       f"app.group={group}"
+       f"app.group={group}",
+       f"app.wandb_search=True"
        ] + sweep_config_overrides
   if debug:
     sweep_config['command'].append(
@@ -313,9 +306,13 @@ def start_wandb_sweep(
   sbatch_contents += f"#SBATCH -o {sbatch_base_path}/id=%j.out\n"
   sbatch_contents += f"#SBATCH -e {sbatch_base_path}/id=%j.err\n"
 
-  wandb_api_key = final_config['wandb_api_key']
-  sbatch_contents += f"export WANDB_API_KEY={wandb_api_key}\n"
-  sbatch_contents += sbatch_contents + python_file_command
+  #sbatch_contents += f"which python\n"
+  #sbatch_contents += f"cd /n/home13/wcarvalho/projects/marl\n"
+  #sbatch_contents += f"mamba activate jaxneurorl\n"
+  #wandb_api_key = final_config['wandb_api_key']
+  #sbatch_contents += f"export WANDB_API_KEY={wandb_api_key}\n"
+  sbatch_contents += python_file_command
+
 
   #project = final_config['PROJECT']
   #entity = final_config["entity"]
@@ -327,7 +324,7 @@ def start_wandb_sweep(
   #sbatch_contents += f"wandb agent --count 1 {entity}/{project}/{sweep_id}\n"
   print("-"*20)
   print(sbatch_contents)
-  print("-"*20)
+  print()
   run_file = f"{sbatch_base_path}/run.sh"
   with open(run_file, 'w') as file:
     # Write the string to the file
@@ -336,11 +333,13 @@ def start_wandb_sweep(
   total_jobs = compute_total_combinations(sweep_config)
   max_concurrent = app_config['max_concurrent']
   sbatch_command = f"sbatch --array=1-{total_jobs}%{max_concurrent} {run_file}"
-  pprint(sbatch_command)
-  process = subprocess.Popen(f"chmod +x {run_file}", shell=True)
-  process.wait()
-  process = subprocess.Popen(sbatch_command, shell=True)
-  process.wait()
+  #sbatch_command = f"sbatch {run_file}"
+  print("-"*10, 'run command', "-"*10)
+  print(sbatch_command)
+
+  #process = subprocess.Popen(sbatch_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+
 
 def start_vanilla_sweep(
     hydra_config: dict,
@@ -443,7 +442,7 @@ def start_vanilla_sweep(
   #################################
   # create run.sh file to run with sbatch
   #################################
-  python_file_command = " ".join(python_file_contents)
+  python_file_command = " ".join(python_file_contents) + "\n"
   run_file = f"{sbatch_base_path}/run.sh"
 
   if debug:
@@ -555,7 +554,10 @@ def run_wandb_sweep_run(
     sweep_id = settings['sweep_id']
     logging.info(f'Loaded sweep_id: {sweep_id}')
 
-  wandb.agent(sweep_id, wrapped_run_fn, count=1)
+  wandb.agent('p1dwvclp',
+              project=hydra_config['app']['PROJECT'],
+              function=wrapped_run_fn,
+              count=1)
 
 def run_vanilla_sweep_run(
     run_fn,
@@ -593,7 +595,6 @@ def run_vanilla_sweep_run(
       config=final_config,
       save_path=experiment_config['log_dir']
   )
-
 
 def run_individual(
     run_fn,

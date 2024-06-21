@@ -714,10 +714,12 @@ class DynaAgentEnvModel(nn.Module):
     rnn: vbb.ScannedRNN
     env: environment.Environment
     env_params: environment.EnvParams
+    num_q_layers: int = 1
 
     def setup(self):
 
-        self.q_fn = MLP(hidden_dim=512, num_layers=1, out_dim=self.action_dim)
+        self.q_fn = MLP(hidden_dim=512,
+                        num_layers=self.num_q_layers, out_dim=self.action_dim)
 
     def initialize(self, x: TimeStep):
         """Only used for initialization."""
@@ -856,6 +858,7 @@ def make_agent(
             )
     agent = DynaAgentEnvModel(
         action_dim=env.num_actions(env_params),
+        num_q_layers=config['NUM_Q_LAYERS'],
         observation_encoder=ObsEncoderCls(
             embed_hidden_dim=config["AGENT_HIDDEN_DIM"],
             init=config.get('ENCODER_INIT', 'word_init'),

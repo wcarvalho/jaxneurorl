@@ -1,7 +1,7 @@
 """
 
 TESTING:
-JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue projects/humansf/trainer_housemaze.py \
+HYDRA_FULL_ERROR=1 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue projects/humansf/trainer_housemaze.py \
   app.debug=True \
   app.wandb=False \
   app.search=dynaq
@@ -9,8 +9,9 @@ JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue projects/humansf/trainer_
 RUNNING ON SLURM:
 python projects/humansf/trainer_housemaze.py \
   app.parallel=sbatch \
-  app.time='0-02:30:00' \
-  app.search=dynaq
+  app.time='0-03:00:00' \
+  app.search=dynaq \
+  app.wandb_search=True
 """
 from typing import Any, Callable, Dict, Union, Optional
 
@@ -197,7 +198,15 @@ def run_single(
         num_groups=num_groups,
        file='projects/humansf/housemaze_list_of_groups.npy',
        )
-    test_env_params = env_params.replace(training=False)
+    _, test_env_params = load_env_params(
+        num_groups=num_groups,
+        file='projects/humansf/housemaze_list_of_groups.npy',
+        large_only=True,
+       )
+
+    test_env_params = test_env_params.replace(
+       training=jnp.array(False),
+      )
 
     image_dict = housemaze_utils.load_image_dict(
         'projects/humansf/housemaze/image_data.pkl')
@@ -399,6 +408,7 @@ def run_single(
               step_num=jnp.zeros_like(x.state.step_num),
               task_w=offtask_w,
               task_object=task_object,  # only used for logging
+              is_train_task=jnp.full(x.reward.shape, False),
           )
 
           return x.replace(
@@ -419,7 +429,9 @@ def run_single(
           make_agent=functools.partial(
             offtask_dyna.make_agent,
             ObsEncoderCls=networks.HouzemazeObsEncoder,
-            model_env_params=test_env_params
+            model_env_params=test_env_params.replace(
+               p_test_sample_train=jnp.array(.0),
+            )
             ),
           make_optimizer=offtask_dyna.make_optimizer,
           make_loss_fn_class=functools.partial(
@@ -527,9 +539,24 @@ def sweep(search: str = ''):
         'parameters': {
             #'TOTAL_TIMESTEPS': {'values': [5e6]},
             'DYNA_COEFF': {'values': [1, .1]},
-            'DYNA_ONLINE_COEFF': {'values': [.1, .01, .001]},
-            #'STOP_DYNA_GRAD': {'values': [False]},
-            'SIM_EPSILON_SETTING': {'values': [1, 2]},
+            'DYNA_ONLINE_COEFF': {'values': [.01, .1, 1]},
+            #'NUM_Q_LAYERS': {'values': [2, 1]},
+            'STOP_DYNA_GRAD': {'values': [True, False]},
+        },
+        'overrides': ['alg=dyna_replay_split',
+                      'rlenv=housemaze',
+                      'user=wilka'],
+        'group': 'dynaq-18',
+    }
+  elif search == 'test':
+    sweep_config = {
+       'metric': {
+            'name': 'evaluator_performance/0.0 avg_episode_return',
+            'goal': 'maximize',
+        },
+        'parameters': {
+            #'TOTAL_TIMESTEPS': {'values': [5e6]},
+            'DYNA_COEFF': {'values': [1, .1]},
         },
         'overrides': ['alg=dyna_replay_split',
                       'rlenv=housemaze',
