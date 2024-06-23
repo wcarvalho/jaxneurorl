@@ -103,6 +103,8 @@ document.addEventListener('DOMContentLoaded', function () {
   // Listen for the 'update_html_fields' event from the server to update the page content
   socket.on('update_html_fields', function (data) {
     var title = document.getElementById('title')
+    console.log("========================")
+    console.log('STAGE: ' + data.title)
     if (title){
       document.getElementById('title').innerHTML = data.title
       document.getElementById('subtitle').innerHTML = data.subtitle

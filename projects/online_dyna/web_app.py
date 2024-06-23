@@ -34,7 +34,7 @@ stage_list = []
 interaction_list = []
 
 TILE_SIZE = 32
-DEBUG = int(os.environ.get('DEBUG_APP', 0))
+DEBUG_APP = int(os.environ.get('DEBUG_APP', 0))
 DEBUG_SEED = os.environ.get('DEBUG_SEED', 1)
 
 ############
@@ -47,6 +47,7 @@ group_set, default_env_params = housemaze_utils.load_env_params(
 )
 default_env_params = default_env_params.replace(
     training=False,
+    terminate_with_done=True,
     )
 image_dict = housemaze_utils.load_image_dict(
     'ml/housemaze/image_data.pkl')
@@ -131,14 +132,63 @@ keyparser = KeyParser()
 ############
 default_env_caption = """
 <span style="font-weight: bold; font-size: 1.25em;">Movement</span>:<br>
-up, down, left, right arrows
+up, down, left, right arrows.
+<br><br>
+You can press 'd' to finish an episode.
 """
 
-get_readies = [3, 10]  # small, large
-eval_times = [3, 10]  # small, large
+SHORT_PREP = 10
+SHORT_ACTION = 10
+LONG_PREP = 120
+LONG_ACTION = 60
+
+def make_eval_prep(title, seconds):
+    return web_utils.Stage(
+        'env.html',
+        title=title,
+        subtitle="""
+        Get ready.
+        <br><br>
+        Use 'd' to indicate when you are done with the stage.
+        <br>(not recommended)
+        """,
+        type='pause',
+        env_params=default_env_params.replace(p_test_sample_train=0.),
+        render_fn=render_timestep_no_obj,
+        min_success=1,
+        max_episodes=1,
+        envcaption=default_env_caption,
+        seconds=seconds if DEBUG_APP else 5,
+        show_progress=False,
+        show_goal=True if DEBUG_APP else False,
+    )
+
+
+def make_eval_action(title, seconds):
+    return web_utils.Stage(
+        'env.html',
+        title=title,
+        subtitle="Use 'd' to indicate when you are done with the stage.",
+        type='interaction',
+        env_params=default_env_params.replace(
+            p_test_sample_train=0.,
+            terminate_with_done=True,
+        ),
+        render_fn=render_timestep_no_obj,
+        min_success=1,
+        max_episodes=1,
+        envcaption=default_env_caption,
+        seconds=seconds,
+        show_progress=False,
+        restart=False,
+    )
+
+
 def make_block(
         get_ready_time: int,
         eval_time: int,
+        i: int,
+        n: int,
         min_success: int = 20,
         max_episodes: int = 200):
 
@@ -146,7 +196,7 @@ def make_block(
         block = [
             web_utils.Stage(
                 'explanation.html',
-                title="Training",
+                title=f"Section {i}/{n}",
                 body="Please learn to perform these training tasks."
             ),
             web_utils.Stage(
@@ -155,29 +205,14 @@ def make_block(
                 type='interaction',
                 env_params=default_env_params.replace(p_test_sample_train=1.),
                 render_fn=render_timestep,
-                min_success=1 if DEBUG else min_success,
-                max_episodes=3 if DEBUG else max_episodes,
+                min_success=1 if DEBUG_APP else min_success,
+                max_episodes=3 if DEBUG_APP else max_episodes,
                 envcaption=default_env_caption
                 ),
-            web_utils.Stage(
-                'env.html',
-                title='Evaluation',
-                subtitle="Get ready.",
-                type='interaction',
-                env_params=default_env_params.replace(p_test_sample_train=0.),
-                render_fn=render_timestep_no_obj,
-                show_progress=False,
-                ),
-            web_utils.Stage(
-                'env.html',
-                title='Evaluation',
-                subtitle="Pick the key which will get the object.",
-                type='interaction',
-                env_params=default_env_params.replace(p_test_sample_train=0.),
-                render_fn=render_timestep_no_obj,
-                show_progress=False,
-                seconds=eval_time,
-                ),
+            make_eval_prep(
+                title='Preparation', seconds=get_ready_time),
+            make_eval_action(
+                title='Action', seconds=eval_time),
         ]
         return block
     block = _make_sublock()
@@ -190,73 +225,59 @@ stages = [
     ############################
     # Practice
     ############################
-    #web_utils.Stage(
-    #    'explanation.html',
-    #    title="Practice",
-    #    body="""
-    #    Now, you'll practice getting an object when it's in another room.
-    #    <br><br>
-    #    Please click the right arrow when you are ready.
-    #    """
-    #    ),
-    #web_utils.Stage(
-    #    'env.html',
-    #    title="Practice",
-    #    subtitle="goal object in a different room",
-    #    type='interaction',
-    #    env_params=default_env_params.replace(p_test_sample_train=1.),
-    #    render_fn=render_timestep,
-    #    min_success=1 if DEBUG else 5,
-    #    max_episodes=3 if DEBUG else 5,
-    #    envcaption=default_env_caption
-    #    ),
-    #web_utils.Stage(
-    #    'explanation.html',
-    #    title='Practice 3: 1-shot',
-    #    body="""
-    #        Now, you'll practice doing a 1-shot query.
-    #        <br><br>
-    #        Please click the right arrow when you are ready.
-    #        """,
-    #    ),
     web_utils.Stage(
-        'env.html',
-        title='Practice preparation',
-        subtitle="Get ready.",
-        type='pause',
-        env_params=default_env_params.replace(p_test_sample_train=0.),
-        render_fn=render_timestep_no_obj,
-        min_success=1,
-        max_episodes=1,
-        envcaption=default_env_caption,
-        seconds=2,
-        show_progress=False,
-        show_goal=False,
+        'explanation.html',
+        title="Practice 1",
+        body="""
+        You will practice learning how to interact with the environment.
+        <br><br>
+        You can control the red triangle with the arrow keys on your keyboard.
+        <br><br>
+        Your goal is to move it to the goal object.
+        """
         ),
     web_utils.Stage(
         'env.html',
-        title='Practice evaluation',
-        subtitle="",
+        title="Practice 1",
+        subtitle="""
+        You can control the red triangle with the arrow keys on your keyboard.
+        <br><br>
+        Your goal is to move it to the goal object.
+        """,
         type='interaction',
-        env_params=default_env_params.replace(
-            p_test_sample_train=0.,
-            terminate_with_done=True,
-            ),
-        render_fn=render_timestep_no_obj,
-        min_success=1,
-        max_episodes=1,
-        envcaption=default_env_caption,
-        seconds=10,
-        show_progress=False,
-        restart=False,
+        env_params=default_env_params.replace(p_test_sample_train=1.),
+        render_fn=render_timestep,
+        min_success=1 if DEBUG_APP else 5,
+        max_episodes=3 if DEBUG_APP else 5,
+        envcaption=default_env_caption
         ),
+    web_utils.Stage(
+        'explanation.html',
+        title='Practice 2',
+        body="""
+            Now, you'll practice the evaluation phase.
+            <br> There are 2 stages.
+            In both stages you will see the map, but objects will be invisible.
+            <br><br>
+            <br> Stage 1: preparation. You can do whatever you want to prepare.
+            <br> Stage 2: action. You must obtain the goal object.
+            <br><br>
+            Both stages will have a timer that will add either a small or large amount of time pressure.
+            <br> Use 'd' to indicate when you are done with the stage.
+            """,
+        ),
+    make_eval_prep(
+        title='Eval preparation practice', seconds=2),
+    make_eval_action(
+        title='Eval action practice', seconds=5),
     ############################
     # Block 1:
     # 20 trials
     ############################
     *make_block(
-        get_ready_time=3,
-        eval_time=3,
+        get_ready_time=SHORT_PREP,
+        eval_time=SHORT_ACTION,
+        i=1, n=4,
         min_success=20,
         max_episodes=200,
     ),
@@ -265,8 +286,9 @@ stages = [
     # 20 trials
     ############################
     *make_block(
-        get_ready_time=3,
-        eval_time=10,
+        get_ready_time=SHORT_PREP,
+        eval_time=LONG_ACTION,
+        i=2, n=4,
         min_success=20,
         max_episodes=200,
     ),
@@ -275,14 +297,16 @@ stages = [
     # 20 trials
     ############################
     *make_block(
-        get_ready_time=10,
-        eval_time=3,
+        get_ready_time=LONG_PREP,
+        eval_time=SHORT_ACTION,
+        i=3, n=4,
         min_success=20,
         max_episodes=200,
     ),
     *make_block(
-        get_ready_time=10,
-        eval_time=10,
+        get_ready_time=LONG_PREP,
+        eval_time=LONG_ACTION,
+        i=4, n=4,
         min_success=20,
         max_episodes=200,
     ),
@@ -321,7 +345,12 @@ def encode_image(state_image):
     encoded_image = b64encode(buffer.getvalue()).decode('ascii')
     return 'data:image/jpeg;base64,' + encoded_image
 
-
+def make_title(stage, session, debug):
+    stage_idx = session['stage_idx']
+    if debug:
+        return f"{stage_idx}/{len(stages)}. {stage.title}"
+    else:
+        return f"{stage.title}"
 
 def reset_environment(env_params):
     rng_ = split_rng()
@@ -416,10 +445,10 @@ def save_interactions_on_session_end():
     filename = f'online_dyna/stage_infos_{unique_id}.json'
     save_list_to_gcs(stage_list, filename)
 
-    stage_idx = session['stage_idx']
+
     stage = stages[session['stage_idx']]
     emit('update_html_fields', {
-        'title': f"Stage {stage_idx}: {stage.title}",
+        'title': make_title(stage, session, DEBUG_APP),
         'subtitle': stages[session['stage_idx']].subtitle,
         'body': f"Uploaded {ninteraction} interactions from {nstage} stages. Thank you. You may now close the browser",
     })
@@ -429,7 +458,7 @@ def update_html_fields(**kwargs):
     stage_idx = session['stage_idx']
     stage = stages[stage_idx]
     emit('update_html_fields', {
-        'title': f"Stage {stage_idx}: {stage.title}",
+        'title': make_title(stage, session, DEBUG_APP),
         'subtitle': stage.subtitle,
         'body': stage.body,
         'envcaption': stage.envcaption,
@@ -450,7 +479,7 @@ def update_env_html_fields(**kwargs):
     
     task = get_task_name(session['timestep']) if stage.show_goal else ''
     emit('update_html_fields', {
-        'title': f"Stage {stage_idx}: {stage.title}",
+        'title': make_title(stage, session, DEBUG_APP),
         'subtitle': subtitle,
         'taskDesc': task,
         'body': stage.body,
@@ -497,6 +526,9 @@ def maybe_start_count_down():
             print('starting timer: start_env_stage')
             emit('start_timer', {'seconds': seconds})
 
+        stages[session['stage_idx']] = stage.replace(
+            count_down_started=True
+        )
 
 def handle_interaction_phase(json):
 
@@ -537,7 +569,7 @@ def handle_interaction_phase(json):
             if stages[session['stage_idx']].show_progress:
                 label = 'SUCCESS' if success else 'FAILED'
                 color = 'green' if success else 'red'
-                label = f'<span style="color: {color}; font-weight: bold; font-size: 1.5em;">{label}!</span> '
+                label = f'<span style="color: {color}; font-weight: bold; font-size: 1.5em;">{label}!</span><br>'
             update_env_html_fields(
                 taskDesc=f"{label}restarting. press any key to continue.",
             )
@@ -561,7 +593,7 @@ def handle_interaction_phase(json):
         min_success = stage.min_success
 
         achieved_min_success = num_success >= min_success
-        achieved_max_episodes = ep_idx > max_episodes
+        achieved_max_episodes = ep_idx >= max_episodes
 
         go_to_next_stage = achieved_min_success or achieved_max_episodes
         # ------------
@@ -613,7 +645,7 @@ def start_env_1shot_phase():
     })
 
     kwargs = {}
-    if DEBUG:
+    if DEBUG_APP:
         goal_room_idx = int(session['timestep'].state.goal_room_idx)
         kwargs['envcaption'] = f'correct key: {permutation[goal_room_idx]}'
 
@@ -805,6 +837,7 @@ def shift_stage(direction: str):
 
     template_file = stages[session['stage_idx']].html
     print("="*50)
+    print("STAGE:", stages[session['stage_idx']].title)
     if 'env' in template_file:
         start_env_stage()
     else:
@@ -826,6 +859,7 @@ def advance_to_next_stage():
 
     # update content
     print("="*50)
+    print("STAGE:", stages[session['stage_idx']].title)
     if 'env' in template_file:
         start_env_stage()
     else:
@@ -864,7 +898,7 @@ def index():
     user_seed = int(unique_id)
 
     # reset the environment early + run reset/step to jit computations
-    if DEBUG:
+    if DEBUG_APP:
         rng = jax.random.PRNGKey(DEBUG_SEED)
     else:
         rng = jax.random.PRNGKey(user_seed)
@@ -906,6 +940,7 @@ def handle_request_update():
 
     # Check if the stage index is set and then emit the update_html_fields event.
     print("="*50)
+    print("STAGE:", stages[session['stage_idx']].title)
     if 'stage_idx' in session:
         update_html_fields()
         template_file = stages[session['stage_idx']].html
@@ -934,6 +969,8 @@ def handle_key_press(json):
     elif stage.type == '1shot':
         handle_1shot_phase(json)
     elif stage.type == 'pause':
+        if json['key'] == 'd':
+            advance_to_next_stage()
         pass  # do no nothing. just ignore keys
     elif stage.type == 'default':
         key = json['key']

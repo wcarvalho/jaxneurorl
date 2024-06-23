@@ -20,12 +20,8 @@ Below is a schematic of the general learning algorithm used in this [codebase](a
 2. The networks parameters are initialized. If the algorithm is value-based (e.g. Q-learning), target parameters are also created.
 3. For `n` updates:
    1. A trajectory is collected and added to the buffer.
-<<<<<<< HEAD
       - At each time-step, the environment returns a `Timestep` [object](singleagent/basics.py). This is a datastructure, which contains all necessary output from the environment at that timepoint. It contains the observation and reward that the agent will process. Since this is a functional programming paradigm, it will also contain the environment's state, which is passed as input to the environment at the next time-step.
       - This time-step will be processed by the actor. The actor, passes the timestep through the agent's neural network to generate predictions (e.g. Q-values). These predictions are then used by the actor to select actions (e.g. choosing the action with the highest Q-value).
-=======
-      - At each time-step, the environment returns a `Timestep` [object](agents/basics.py). This is a datastructure, which contains all necessary output from the environment at that timepoint. It contains the observation and reward that the agent will process. Since this is a functional programming paradigm, it will also contain the environment's state, which is passed as input to the environment at the next time-step.
->>>>>>> origin/socialsf
       - A trajectory is just the application of a single environment step `T_traj` times
       - The buffer is a queue (literally) of the last `T_buffer` timesteps (e.g. 1 million time-steps).
    2. The agent then performs `K` learning steps using data in the buffer

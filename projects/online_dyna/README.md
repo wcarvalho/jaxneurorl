@@ -1,6 +1,7 @@
 # AI experiments
 
 ```
+
 ```
 
 # Web App
@@ -18,7 +19,7 @@ Note: for gcloud run, it will be installed via the dockerfile.
 
 ```
 gcloud run deploy ${website-name} --source . --allow-unauthenticated
-gcloud run deploy online-dyna --source . --allow-unauthenticated
+gcloud run deploy human-dyna-2 --source . --allow-unauthenticated
 ```
 
 #### local
