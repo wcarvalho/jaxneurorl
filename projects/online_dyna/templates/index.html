@@ -6,6 +6,7 @@
   <title>Reinforcement Learning Environment</title>
   <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
   <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+
   <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.1/css/all.min.css">
   <style>
@@ -87,7 +88,10 @@
       {% include template_file %}
     </div>
   </main>
-  <script src="{{ url_for('static', filename='index.js') }}"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+  <!--<script src="https://cdn.jsdelivr.net/npm/ndarray@1.0.19/ndarray.min.js"></script>-->
+  <!--<script type='module', src="{{ url_for('static', filename='arrays.js') }}"></script>-->
+  <script type='module', src="{{ url_for('static', filename='index.js') }}"></script>
 </body>
 
 </html>

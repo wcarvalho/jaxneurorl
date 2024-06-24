@@ -8,6 +8,7 @@ from base64 import b64encode
 from datetime import timedelta
 from dotenv import load_dotenv
 from flask import Flask, render_template, session
+from flask import Flask, jsonify
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
 from flax import serialization
@@ -49,12 +50,14 @@ default_env_params = default_env_params.replace(
     training=False,
     terminate_with_done=True,
     )
-image_dict = housemaze_utils.load_image_dict(
+image_data = housemaze_utils.load_image_dict(
     'ml/housemaze/image_data.pkl')
+json_image_data = web_utils.convert_to_serializable(image_data)
+
 task_objects = group_set.reshape(-1)
 task_runner = maze.TaskRunner(
     task_objects=task_objects)
-keys = image_dict['keys']
+keys = image_data['keys']
 
 env = maze.HouseMaze(
     task_runner=task_runner,
@@ -74,13 +77,27 @@ env.step(
     dummy_rng, default_timestep, dummy_action, default_env_params)
 
 
+def get_timestep_output(stage, timestep, env_params, encode_locally: bool = False):
+    stage = stages[session['stage_idx']]
+    if encode_locally:
+        state_image = stage.render_fn(timestep, env_params)
+        processed_image = encode_image(state_image)
+        return None, processed_image
+    else:
+        import jax
+        state = jax.tree_map(np.asarray, timestep.state)
+        state = serialize(state, jsonify=False)
+        state = web_utils.convert_to_serializable(state)
+        return state, None
+
+
 def render_timestep(timestep, env_params, **kwargs):
     del env_params
     image = renderer.create_image_from_grid(
         timestep.state.grid,
         timestep.state.agent_pos,
         timestep.state.agent_dir,
-        image_dict,
+        image_data,
         **kwargs)
     return np.asarray(image)
 
@@ -225,17 +242,17 @@ stages = [
     ############################
     # Practice
     ############################
-    web_utils.Stage(
-        'explanation.html',
-        title="Practice 1",
-        body="""
-        You will practice learning how to interact with the environment.
-        <br><br>
-        You can control the red triangle with the arrow keys on your keyboard.
-        <br><br>
-        Your goal is to move it to the goal object.
-        """
-        ),
+    #web_utils.Stage(
+    #    'explanation.html',
+    #    title="Practice 1",
+    #    body="""
+    #    You will practice learning how to interact with the environment.
+    #    <br><br>
+    #    You can control the red triangle with the arrow keys on your keyboard.
+    #    <br><br>
+    #    Your goal is to move it to the goal object.
+    #    """
+    #    ),
     web_utils.Stage(
         'env.html',
         title="Practice 1",
@@ -370,16 +387,18 @@ def take_action(action_key, env_params):
         else:
             raise RuntimeError("no previous time-step to re-emit and no action taken?")
 
-    stage = stages[session['stage_idx']]
-    state_image = stage.render_fn(timestep, env_params)
+    #stage = stages[session['stage_idx']]
+    #state_image = stage.render_fn(timestep, env_params)
 
     session['timestep'] = timestep
-    return state_image
+    #return state_image
 
-def serialize(pytree):
+def serialize(pytree, jsonify: bool = True):
     pytree = serialization.to_state_dict(pytree)
     pytree = web_utils.array_to_python(pytree)
-    return json.dumps(pytree)
+    if jsonify:
+        return json.dumps(pytree)
+    return pytree
 
 
 def add_stage_to_db(stage_idx, stage_infos, user_seed):
@@ -502,8 +521,14 @@ def start_env_interaction_stage():
         print('about to reset env')
         reset_environment(env_params)
 
-    state_image = stage.render_fn(session['timestep'], env_params)
-    encoded_image = encode_image(state_image)
+    #state_image = stage.render_fn(session['timestep'], env_params)
+    #encoded_image = encode_image(state_image)
+    raw_state, encoded_image = get_timestep_output(
+        stage=stages[session['stage_idx']],
+        timestep=session['timestep'],
+        env_params=stages[session['stage_idx']].env_params,
+        encode_locally=False,
+    )
 
     emit('update_content', {
         'content': render_template(template_file),
@@ -512,6 +537,7 @@ def start_env_interaction_stage():
     print('loading new index')
     emit('action_taken', {
         'image': encoded_image,
+        'state': raw_state,
     })
     print('loading image')
     update_env_html_fields()
@@ -548,11 +574,18 @@ def handle_interaction_phase(json):
         print('add_interaction_to_db')
 
         # take action
-        state_image = take_action(key, env_params)
-        encoded_image = encode_image(state_image)
+        take_action(key, env_params)
+        raw_state, encoded_image = get_timestep_output(
+            stage=stages[session['stage_idx']],
+            timestep=session['timestep'],
+            env_params=stages[session['stage_idx']].env_params,
+            encode_locally=False,
+        )
+        #encoded_image = encode_image(state_image)
 
         emit('action_taken', {
             'image': encoded_image,
+            'state': raw_state,
         })
         print('next state')
 
@@ -610,14 +643,21 @@ def handle_interaction_phase(json):
         # ------------
         else:
             reset_environment(env_params)
-            stage = stages[session['stage_idx']]
-            state_image = stage.render_fn(session['timestep'], stage.env_params)
-            encoded_image = encode_image(state_image)
+            raw_state, encoded_image = get_timestep_output(
+                stage=stages[session['stage_idx']],
+                timestep=session['timestep'],
+                env_params=stages[session['stage_idx']].env_params,
+                encode_locally=False,
+            )
+            #stage = stages[session['stage_idx']]
+            #state_image = stage.render_fn(session['timestep'], stage.env_params)
+            #encoded_image = encode_image(state_image)
             update_env_html_fields(
                 taskDesc=get_task_name(session['timestep']),
             )
             emit('action_taken', {
                 'image': encoded_image,
+                'state': raw_state,
             })
             print('reset env')
 
@@ -642,6 +682,7 @@ def start_env_1shot_phase():
     })
     emit('action_taken', {
         'image': encoded_image,
+        'state': raw_state,
     })
 
     kwargs = {}
@@ -932,7 +973,7 @@ def start_experiment():
 @socketio.on('request_update')
 def handle_request_update():
     """Always called 3rd immediately after `start_experiment`. Need separate function to listen for rendering a new template. We'll now update the html content."""
-
+    emit('load_data', {'image_data': json_image_data})
     # NOTE: we want to store this in session because will be changing
     stage_infos = [
         web_utils.StageInfo(stage) if 'env' in stage.html else None for stage in stages]

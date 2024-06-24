@@ -86,6 +86,16 @@ def is_serializable(obj):
         return False
 
 
+def convert_to_serializable(obj):
+    if isinstance(obj, (jnp.ndarray, np.ndarray)):
+        return obj.tolist()  # Convert JAX array to list
+    elif isinstance(obj, dict):
+        return {k: convert_to_serializable(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [convert_to_serializable(i) for i in obj]
+    else:
+        return obj
+
 
 
 def encode_json(obj):
