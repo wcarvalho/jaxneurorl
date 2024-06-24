@@ -48,7 +48,7 @@ group_set, default_env_params = housemaze_utils.load_env_params(
 )
 default_env_params = default_env_params.replace(
     training=False,
-    terminate_with_done=True,
+    #terminate_with_done=True,
     )
 image_data = housemaze_utils.load_image_dict(
     'ml/housemaze/image_data.pkl')
@@ -170,7 +170,10 @@ def make_eval_prep(title, seconds):
         <br>(not recommended)
         """,
         type='pause',
-        env_params=default_env_params.replace(p_test_sample_train=0.),
+        env_params=default_env_params.replace(
+            p_test_sample_train=0.,
+            terminate_with_done=True,
+            ),
         render_fn=render_timestep_no_obj,
         min_success=1,
         max_episodes=1,
@@ -587,7 +590,8 @@ def handle_interaction_phase(json):
             'image': encoded_image,
             'state': raw_state,
         })
-        print('next state')
+        print('last?', session['timestep'].last())
+        print('reward?', session['timestep'].reward)
 
         # is the NEXT time-step going to be last?
         if session['timestep'].last():
