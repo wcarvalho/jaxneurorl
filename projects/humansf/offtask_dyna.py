@@ -859,14 +859,7 @@ def make_agent(
     agent = DynaAgentEnvModel(
         action_dim=env.num_actions(env_params),
         num_q_layers=config['NUM_Q_LAYERS'],
-        observation_encoder=ObsEncoderCls(
-            embed_hidden_dim=config["AGENT_HIDDEN_DIM"],
-            init=config.get('ENCODER_INIT', 'word_init'),
-            grid_hidden_dim=config.get('GRID_HIDDEN', 256),
-            num_embed_layers=config['NUM_EMBED_LAYERS'],
-            num_grid_layers=config['NUM_GRID_LAYERS'],
-            num_joint_layers=config['NUM_ENCODER_LAYERS'],
-        ),
+        observation_encoder=ObsEncoderCls(),
         rnn=rnn,
         env=env,
         env_params=env_params,

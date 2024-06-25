@@ -1,17 +1,17 @@
 """
 
 TESTING:
-HYDRA_FULL_ERROR=1 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue projects/humansf/trainer_housemaze.py \
+JAX_DISABLE_JIT=1 HYDRA_FULL_ERROR=1 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue projects/humansf/trainer_housemaze.py \
   app.debug=True \
   app.wandb=False \
-  app.search=dynaq
+  app.search=ql
 
 RUNNING ON SLURM:
 python projects/humansf/trainer_housemaze.py \
   app.parallel=sbatch \
   app.time='0-03:00:00' \
+  app.wandb_search=True \
   app.search=dynaq \
-  app.wandb_search=True
 """
 from typing import Any, Callable, Dict, Union, Optional
 
@@ -22,6 +22,7 @@ import jax
 from flax import struct
 import functools
 import jax.numpy as jnp
+import time
 import jax.tree_util as jtu
 
 import hydra
@@ -205,7 +206,7 @@ def run_single(
        )
 
     test_env_params = test_env_params.replace(
-       training=jnp.array(False),
+       training=False,
       )
 
     image_dict = housemaze_utils.load_image_dict(
@@ -231,6 +232,14 @@ def run_single(
     env = housemaze_utils.AutoResetWrapper(env)
 
 
+    HouzemazeObsEncoder = functools.partial(
+        networks.CategoricalHouzemazeObsEncoder,
+        num_categories=500,
+        embed_hidden_dim=config["EMBED_HIDDEN_DIM"],
+        mlp_hidden_dim=config["MLP_HIDDEN_DIM"],
+        num_mlp_layers=config['NUM_MLP_LAYERS'],
+        activation=config['ACTIVATION'],
+       )
     ###################
     ## custom observer
     ###################
@@ -277,7 +286,7 @@ def run_single(
           vbb.make_train,
           make_agent=functools.partial(
              qlearning.make_agent,
-             ObsEncoderCls=networks.HouzemazeObsEncoder,
+             ObsEncoderCls=HouzemazeObsEncoder,
              ),
           make_optimizer=qlearning.make_optimizer,
           make_loss_fn_class=qlearning.make_loss_fn_class,
@@ -325,7 +334,7 @@ def run_single(
           vbb.make_train,
           make_agent=functools.partial(
               alphazero.make_agent,
-              ObsEncoderCls=networks.HouzemazeObsEncoder,
+              ObsEncoderCls=HouzemazeObsEncoder,
               test_env_params=test_env_params),
           make_optimizer=alphazero.make_optimizer,
           make_loss_fn_class=functools.partial(
@@ -428,7 +437,7 @@ def run_single(
           train_extra_replay.make_train,
           make_agent=functools.partial(
             offtask_dyna.make_agent,
-            ObsEncoderCls=networks.HouzemazeObsEncoder,
+            ObsEncoderCls=HouzemazeObsEncoder,
             model_env_params=test_env_params.replace(
                p_test_sample_train=jnp.array(.0),
             )
@@ -470,6 +479,8 @@ def run_single(
     else:
       raise NotImplementedError(alg_name)
 
+  
+    start_time = time.time()
     train_fn = make_train(
       config=config,
       env=env,
@@ -481,6 +492,8 @@ def run_single(
 
     rngs = jax.random.split(rng, config["NUM_SEEDS"])
     outs = jax.block_until_ready(train_vjit(rngs))
+    elapsed_time = time.time() - start_time
+    print("Elapsed time: {:.2f} seconds".format(elapsed_time))
 
     #---------------
     # save model weights
@@ -515,9 +528,15 @@ def sweep(search: str = ''):
             'goal': 'maximize',
         },
         'parameters': {
-            "config_name": {'values': ['ql_housemaze']},
-            'TOTAL_TIMESTEPS': {'values': [30e6]},
-        }
+            'EMBED_HIDDEN_DIM': {'values': [32, 64, 128]},
+            #'MLP_HIDDEN_DIM': {'values': [256, 512]},
+            'NUM_MLP_LAYERS': {'values': [0, 1]},
+            'ACTIVATION': {'values': ['leaky_relu', 'relu', 'tanh']},
+        },
+        'overrides': ['alg=ql',
+                      'rlenv=housemaze',
+                      'user=wilka'],
+        'group': 'ql-size-7',
     }
   elif search == 'alpha':
     sweep_config = {

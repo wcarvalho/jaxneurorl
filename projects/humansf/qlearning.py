@@ -122,15 +122,7 @@ def make_agent(
             )
 
     agent = RnnAgent(
-        observation_encoder=ObsEncoderCls(
-            embed_hidden_dim=config["AGENT_HIDDEN_DIM"],
-            init=config.get('ENCODER_INIT', 'word_init'),
-            grid_hidden_dim=config.get('GRID_HIDDEN', 256),
-            num_embed_layers=config['NUM_EMBED_LAYERS'],
-            num_grid_layers=config['NUM_GRID_LAYERS'],
-            num_joint_layers=config['NUM_ENCODER_LAYERS'],
-            include_extras=config.get('ENC_INCLUDE_EXTRAS', False),
-        ),
+        observation_encoder=ObsEncoderCls(),
         action_dim=env.num_actions(env_params),
         rnn=rnn,
     )

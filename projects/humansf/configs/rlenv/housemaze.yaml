@@ -2,3 +2,8 @@
 "PROJECT": "housemaze"
 "ENV_NAME": "housemaze"
 "TOTAL_TIMESTEPS": 5_000_000
+
+"EMBED_HIDDEN_DIM": 64
+"MLP_HIDDEN_DIM": 256
+"NUM_MLP_LAYERS": 1
+"ACTIVATION": 'relu'

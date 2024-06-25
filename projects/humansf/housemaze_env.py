@@ -66,6 +66,15 @@ def mask_sample(mask, rng):
 
 class HouseMaze(maze.HouseMaze):
 
+    def total_categories(self, params: EnvParams):
+        grid = params.reset_params.map_init.grid
+        H, W = grid.shape[-3:-1]
+        num_object_categories = self.num_categories
+        num_directions = len(maze.DIR_TO_VEC)
+        num_spatial_positions = H * W
+        num_actions = self.num_actions(params) + 1 # including reset action
+        return num_object_categories + num_directions + num_spatial_positions + num_actions
+
     def reset(self, rng: jax.Array, params: EnvParams) -> TimeStep:
         """
         

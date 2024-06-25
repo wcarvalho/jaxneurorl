@@ -163,8 +163,8 @@ def default_process_configs(
   algo_config, env_config = get_agent_env_configs(run_config=run_config)
 
   update_sub(hydra_config, 'app')
-  update_sub(hydra_config, 'rlenv')
   update_sub(hydra_config, 'alg')
+  update_sub(hydra_config, 'rlenv')
   update_sub(hydra_config, 'user')
 
   # update hydra config with algo, env config settings from sweep
@@ -554,8 +554,9 @@ def run_wandb_sweep_run(
     sweep_id = settings['sweep_id']
     logging.info(f'Loaded sweep_id: {sweep_id}')
 
-  wandb.agent('p1dwvclp',
+  wandb.agent(sweep_id,
               project=hydra_config['app']['PROJECT'],
+              entity=hydra_config['user']['entity'],
               function=wrapped_run_fn,
               count=1)
 
