@@ -83,7 +83,7 @@ class HouseMaze(maze.HouseMaze):
         ##################
         # sample level
         ##################
-        nlevels = len(params.reset_params.curriculum)
+        nlevels = len(params.reset_params.train_objects)
         rng, rng_ = jax.random.split(rng)
         reset_params_idx = jax.random.randint(
             rng_, shape=(), minval=0, maxval=nlevels)

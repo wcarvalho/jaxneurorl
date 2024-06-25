@@ -28,6 +28,7 @@ from ml.housemaze import levels
 from ml.housemaze import renderer
 import ml.housemaze_env as maze
 from ml import housemaze_utils
+import mazes
 
 
 load_dotenv()
@@ -41,15 +42,30 @@ DEBUG_SEED = os.environ.get('DEBUG_SEED', 1)
 ############
 # Set up environment
 ############
-group_set, default_env_params = housemaze_utils.load_env_params(
-    num_groups=3,
-    file='ml/housemaze_list_of_groups.npy',
-    large_only=True,
-)
-default_env_params = default_env_params.replace(
-    training=False,
-    #terminate_with_done=True,
-    )
+
+file = 'ml/housemaze_list_of_groups.npy'
+list_of_groups = np.load(file)
+group_set = list_of_groups[0]
+num_groups = 3
+group_set = group_set[:num_groups]
+
+def make_env_params(maze_str: str):
+    return mazes.make_env_params(
+        maze_str=maze_str,
+        group_set=group_set,
+        ).replace(
+            training=False,
+            terminate_with_done=True if DEBUG_APP else False,
+            )
+
+
+practice_env_params = make_env_params(mazes.maze0)
+env1_params = make_env_params(mazes.maze1)
+env2_params = make_env_params(mazes.maze2)
+env3_params = make_env_params(mazes.maze3)
+env4_params = make_env_params(mazes.maze4)
+
+
 image_data = housemaze_utils.load_image_dict(
     'ml/housemaze/image_data.pkl')
 json_image_data = web_utils.convert_to_serializable(image_data)
@@ -72,9 +88,9 @@ env = housemaze_utils.AutoResetWrapper(env)
 # RNG
 dummy_rng = jax.random.PRNGKey(0)
 dummy_action = 0
-default_timestep = env.reset(dummy_rng, default_env_params)
+default_timestep = env.reset(dummy_rng, practice_env_params)
 env.step(
-    dummy_rng, default_timestep, dummy_action, default_env_params)
+    dummy_rng, default_timestep, dummy_action, practice_env_params)
 
 
 def get_timestep_output(stage, timestep, env_params, encode_locally: bool = False):
@@ -88,6 +104,13 @@ def get_timestep_output(stage, timestep, env_params, encode_locally: bool = Fals
         state = jax.tree_map(np.asarray, timestep.state)
         state = serialize(state, jsonify=False)
         state = web_utils.convert_to_serializable(state)
+
+        # Keys to keep
+        keys_to_keep = ['grid', 'agent_pos', 'agent_dir']
+
+        # Filtered dictionary
+        state = {key: state[key] for key in keys_to_keep if key in state}
+
         return state, None
 
 
@@ -159,7 +182,7 @@ SHORT_ACTION = 10
 LONG_PREP = 120
 LONG_ACTION = 60
 
-def make_eval_prep(title, seconds):
+def make_eval_prep(env_params, title, seconds):
     return web_utils.Stage(
         'env.html',
         title=title,
@@ -170,7 +193,7 @@ def make_eval_prep(title, seconds):
         <br>(not recommended)
         """,
         type='pause',
-        env_params=default_env_params.replace(
+        env_params=env_params.replace(
             p_test_sample_train=0.,
             terminate_with_done=True,
             ),
@@ -184,13 +207,13 @@ def make_eval_prep(title, seconds):
     )
 
 
-def make_eval_action(title, seconds):
+def make_eval_action(env_params, title, seconds):
     return web_utils.Stage(
         'env.html',
         title=title,
         subtitle="Use 'd' to indicate when you are done with the stage.",
         type='interaction',
-        env_params=default_env_params.replace(
+        env_params=env_params.replace(
             p_test_sample_train=0.,
             terminate_with_done=True,
         ),
@@ -209,6 +232,7 @@ def make_block(
         eval_time: int,
         i: int,
         n: int,
+        env_params,
         min_success: int = 20,
         max_episodes: int = 200):
 
@@ -223,16 +247,16 @@ def make_block(
                 'env.html',
                 title="Training",
                 type='interaction',
-                env_params=default_env_params.replace(p_test_sample_train=1.),
+                env_params=env_params.replace(p_test_sample_train=1.),
                 render_fn=render_timestep,
                 min_success=1 if DEBUG_APP else min_success,
                 max_episodes=3 if DEBUG_APP else max_episodes,
                 envcaption=default_env_caption
                 ),
             make_eval_prep(
-                title='Preparation', seconds=get_ready_time),
+                env_params=env_params, title='Preparation', seconds=get_ready_time),
             make_eval_action(
-                title='Action', seconds=eval_time),
+                env_params=env_params, title='Action', seconds=eval_time),
         ]
         return block
     block = _make_sublock()
@@ -245,17 +269,17 @@ stages = [
     ############################
     # Practice
     ############################
-    #web_utils.Stage(
-    #    'explanation.html',
-    #    title="Practice 1",
-    #    body="""
-    #    You will practice learning how to interact with the environment.
-    #    <br><br>
-    #    You can control the red triangle with the arrow keys on your keyboard.
-    #    <br><br>
-    #    Your goal is to move it to the goal object.
-    #    """
-    #    ),
+    web_utils.Stage(
+        'explanation.html',
+        title="Practice 1",
+        body="""
+        You will practice learning how to interact with the environment.
+        <br><br>
+        You can control the red triangle with the arrow keys on your keyboard.
+        <br><br>
+        Your goal is to move it to the goal object.
+        """
+        ),
     web_utils.Stage(
         'env.html',
         title="Practice 1",
@@ -265,7 +289,7 @@ stages = [
         Your goal is to move it to the goal object.
         """,
         type='interaction',
-        env_params=default_env_params.replace(p_test_sample_train=1.),
+        env_params=practice_env_params.replace(p_test_sample_train=1.),
         render_fn=render_timestep,
         min_success=1 if DEBUG_APP else 5,
         max_episodes=3 if DEBUG_APP else 5,
@@ -287,9 +311,9 @@ stages = [
             """,
         ),
     make_eval_prep(
-        title='Eval preparation practice', seconds=2),
+        env_params=practice_env_params, title='Eval preparation practice', seconds=2),
     make_eval_action(
-        title='Eval action practice', seconds=5),
+        env_params=practice_env_params, title='Eval action practice', seconds=5),
     ############################
     # Block 1:
     # 20 trials
@@ -298,6 +322,7 @@ stages = [
         get_ready_time=SHORT_PREP,
         eval_time=SHORT_ACTION,
         i=1, n=4,
+        env_params=env1_params,
         min_success=20,
         max_episodes=200,
     ),
@@ -309,6 +334,7 @@ stages = [
         get_ready_time=SHORT_PREP,
         eval_time=LONG_ACTION,
         i=2, n=4,
+        env_params=env2_params,
         min_success=20,
         max_episodes=200,
     ),
@@ -320,6 +346,7 @@ stages = [
         get_ready_time=LONG_PREP,
         eval_time=SHORT_ACTION,
         i=3, n=4,
+        env_params=env3_params,
         min_success=20,
         max_episodes=200,
     ),
@@ -327,6 +354,7 @@ stages = [
         get_ready_time=LONG_PREP,
         eval_time=LONG_ACTION,
         i=4, n=4,
+        env_params=env4_params,
         min_success=20,
         max_episodes=200,
     ),

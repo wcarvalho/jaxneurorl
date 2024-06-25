@@ -174,15 +174,6 @@ function createImageFromGrid(grid, agentPos, agentDir, imageDict, includeObjects
   const [H, W, D] = grid.shape;
   const newH = H + 2, newW = W + 2;
 
-  // Create a new grid with wall index
-  //let newGrid = tf.fill([newH, newW, D], wallIndex);
-  
-  //// Place the original grid in the center of the new grid
-  //const paddedGrid = tf.pad(grid, [[1, 1], [1, 1], [0, 0]], -1);  // Pad with -1
-  //newGrid = newGrid.where(paddedGrid.notEqual(-1), paddedGrid);
-
-  //let newGrid = tf.fill([newH, newW, D], );
-
   // Place the original grid in the center of the new grid
   const newGrid = tf.pad(grid, [[1, 1], [1, 1], [0, 0]], wallIndex);  // Pad with -1
 
@@ -210,20 +201,14 @@ function createImageFromGrid(grid, agentPos, agentDir, imageDict, includeObjects
   agentX += 1;
   agentY += 1;
 
-  // Set the agent tile
   finalImage = tf.tidy(() => {
-    const finalImageBuffer = finalImage.bufferSync();
+    const finalImageArray = finalImage.arraySync();
     const agentTileArray = agentTile.arraySync();
 
-    for (let i = 0; i < imgH; i++) {
-      for (let j = 0; j < imgW; j++) {
-        for (let k = 0; k < C; k++) {
-          finalImageBuffer.set(agentTileArray[i][j][k], agentY, agentX, i, j, k);
-        }
-      }
-    }
+    // Set the agent tile at the specified position
+    finalImageArray[agentY][agentX] = agentTileArray;
 
-    return finalImageBuffer.toTensor();
+    return tf.tensor(finalImageArray);
   });
 
   // Transpose the image
@@ -472,7 +457,7 @@ document.addEventListener('DOMContentLoaded', async function () {
         imgElement.src = data.image;
       } else {
         // Create the final image tensor
-        imageData = getImageData()
+        //imageData = getImageData()
         var grid = tf.tensor(data.state.grid)
         const finalImage = createImageFromGrid(
           grid,

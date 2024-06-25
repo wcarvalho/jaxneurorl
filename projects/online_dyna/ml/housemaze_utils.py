@@ -17,6 +17,30 @@ except ModuleNotFoundError:
 except Exception as e:
     raise e
 
+def make_int_array(x): return jnp.asarray(x, dtype=jnp.int32)
+
+def make_reset_params(
+        map_init,
+        train_objects,
+        test_objects,
+        max_objects: int = 3,
+        **kwargs):
+
+    train_objects_ = np.ones(max_objects)*-1
+    train_objects_[:len(train_objects)] = train_objects
+    test_objects_ = np.ones(max_objects)*-1
+    test_objects_[:len(test_objects)] = test_objects
+    map_init = map_init.replace(
+        grid=make_int_array(map_init.grid),
+        agent_pos=make_int_array(map_init.agent_pos),
+        agent_dir=make_int_array(map_init.agent_dir),
+    )
+    return maze.ResetParams(
+        map_init=map_init,
+        train_objects=make_int_array(train_objects_),
+        test_objects=make_int_array(test_objects_),
+        **kwargs,
+    )
 
 def load_env_params(
       num_groups: int,
@@ -41,29 +65,7 @@ def load_env_params(
     ##################
     # create reset parameters
     ##################
-    make_int_array = lambda x: jnp.asarray(x, dtype=jnp.int32)
-    def make_reset_params(
-        map_init,
-        train_objects,
-        test_objects,
-        **kwargs):
 
-      train_objects_ = np.ones(max_objects)*-1
-      train_objects_[:len(train_objects)] = train_objects
-      test_objects_ = np.ones(max_objects)*-1
-      test_objects_[:len(test_objects)] = test_objects
-      map_init = map_init.replace(
-          grid=make_int_array(map_init.grid),
-          agent_pos=make_int_array(map_init.agent_pos),
-          agent_dir=make_int_array(map_init.agent_dir),
-      )
-      return maze.ResetParams(
-          map_init=map_init,
-          train_objects=make_int_array(train_objects_),
-          test_objects=make_int_array(test_objects_),
-          **kwargs,
-      )
-       
     list_of_reset_params = []
     num_starting_locs = 4
     max_starting_locs = 10
@@ -77,6 +79,7 @@ def load_env_params(
                   pretrain_level, char_to_key=dict(A=group[0], B=group[1]))),
               train_objects=group[:1],
               test_objects=group[1:],
+              max_objects=max_objects,
               starting_locs=make_int_array(
                   np.ones((len(group_set), max_starting_locs, 2))*-1)
           )
@@ -113,6 +116,7 @@ def load_env_params(
             map_init=map_init,
             train_objects=train_objects,
             test_objects=test_objects,
+            max_objects=3,
             starting_locs=make_int_array(all_starting_locs),
             curriculum=jnp.array(True),
         )
