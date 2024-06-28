@@ -306,13 +306,9 @@ def start_wandb_sweep(
   sbatch_contents += f"#SBATCH -o {sbatch_base_path}/id=%j.out\n"
   sbatch_contents += f"#SBATCH -e {sbatch_base_path}/id=%j.err\n"
 
-  #sbatch_contents += f"which python\n"
-  #sbatch_contents += f"cd /n/home13/wcarvalho/projects/marl\n"
-  sbatch_contents += f"\nmodule load Mambaforge/23.11.0-fasrc01\n"
-  sbatch_contents += f"\nmamba activate jaxneurorl\n"
-  #wandb_api_key = final_config['wandb_api_key']
-  #sbatch_contents += f"export WANDB_API_KEY={wandb_api_key}\n"q
-  sbatch_contents += python_file_command
+  sbatch_contents += f"\ncd {root_path}\n"
+  sbatch_contents += f"\nwhich python\n"
+  sbatch_contents += "\n" + python_file_command
 
 
   #project = final_config['PROJECT']
