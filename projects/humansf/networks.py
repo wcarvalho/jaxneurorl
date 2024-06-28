@@ -239,13 +239,19 @@ class CategoricalHouzemazeObsEncoder(nn.Module):
     @nn.compact
     def __call__(self, obs: Observation):
         activation = get_activation_fn(self.activation)
-        flatten = lambda x: x.reshape(x.shape[0], -1)
+        has_batch = obs.image.ndim == 3
+        if has_batch:
+            flatten = lambda x: x.reshape(x.shape[0], -1)
+            expand = lambda x: x[:, None]
+        else:
+            flatten = lambda x: x.reshape(-1)
+            expand = lambda x: x[None]
 
         all_flattened = jnp.concatenate((
             flatten(obs.image),
-            obs.direction[:, None],
-            obs.position[:, None],
-            obs.prev_action[:, None]),
+            expand(obs.direction),
+            expand(obs.position),
+            expand(obs.prev_action)),
             axis=-1
             ).astype(jnp.int32)
         embedding = nn.Embed(

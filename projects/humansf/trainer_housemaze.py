@@ -1,10 +1,11 @@
 """
 
 TESTING:
-JAX_DISABLE_JIT=1 HYDRA_FULL_ERROR=1 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue projects/humansf/trainer_housemaze.py \
+JAX_DISABLE_JIT=1 \
+HYDRA_FULL_ERROR=1 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue projects/humansf/trainer_housemaze.py \
   app.debug=True \
   app.wandb=False \
-  app.search=ql
+  app.search=dynaq
 
 RUNNING ON SLURM:
 python projects/humansf/trainer_housemaze.py \
@@ -419,13 +420,10 @@ def run_single(
               task_object=task_object,  # only used for logging
               is_train_task=jnp.full(x.reward.shape, False),
           )
-
           return x.replace(
               state=new_state,
               observation=jax.vmap(jax.vmap(env.make_observation))(
-                  new_state,
-                  x.observation.prev_action.argmax(-1),
-              ),
+                  new_state, x.observation.prev_action),
               # reset reward, discount, step type
               reward=jnp.zeros_like(x.reward),
               discount=jnp.ones_like(x.discount),
@@ -557,15 +555,15 @@ def sweep(search: str = ''):
         },
         'parameters': {
             #'TOTAL_TIMESTEPS': {'values': [5e6]},
-            'DYNA_COEFF': {'values': [1, .1]},
-            'DYNA_ONLINE_COEFF': {'values': [.01, .1, 1]},
+            'DYNA_COEFF': {'values': [1, .1, .01, .001]},
+            'DYNA_ONLINE_COEFF': {'values': [.01, .1, 1, .001]},
             #'NUM_Q_LAYERS': {'values': [2, 1]},
-            'STOP_DYNA_GRAD': {'values': [True, False]},
+            #'STOP_DYNA_GRAD': {'values': [True, False]},
         },
         'overrides': ['alg=dyna_replay_split',
                       'rlenv=housemaze',
                       'user=wilka'],
-        'group': 'dynaq-18',
+        'group': 'dynaq-19',
     }
   elif search == 'test':
     sweep_config = {

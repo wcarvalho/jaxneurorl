@@ -308,9 +308,10 @@ def start_wandb_sweep(
 
   #sbatch_contents += f"which python\n"
   #sbatch_contents += f"cd /n/home13/wcarvalho/projects/marl\n"
-  #sbatch_contents += f"mamba activate jaxneurorl\n"
+  sbatch_contents += f"\nmodule load Mambaforge/23.11.0-fasrc01\n"
+  sbatch_contents += f"\nmamba activate jaxneurorl\n"
   #wandb_api_key = final_config['wandb_api_key']
-  #sbatch_contents += f"export WANDB_API_KEY={wandb_api_key}\n"
+  #sbatch_contents += f"export WANDB_API_KEY={wandb_api_key}\n"q
   sbatch_contents += python_file_command
 
 
@@ -510,8 +511,8 @@ def run_wandb_sweep_run(
       project=hydra_config['app']['PROJECT'],
       entity=hydra_config['user']['entity'],
       group=hydra_config['app']['group'],
-      save_code=True,
-      mode='offline',
+      #save_code=True,
+      #mode='offline',
       dir=folder
       )
     if not hydra_config['app']['wandb']:
