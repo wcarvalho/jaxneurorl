@@ -10,6 +10,7 @@ import jax
 import jax.numpy as jnp
 import flax
 from flax import struct
+import optax
 import flax.linen as nn
 from gymnax.environments import environment
 
@@ -23,7 +24,7 @@ from agents.basics import TimeStep
 from agents import value_based_basics as vbb
 from agents import qlearning as base_agent
 from projects.humansf import qlearning
-from projects.humansf.networks import KeyroomObsEncoder
+from projects.humansf.networks import KeyroomObsEncoder, MLP
 from projects.humansf import keyroom
 from projects.humansf.visualizer import plot_frames
 
@@ -32,10 +33,10 @@ Params = flax.core.FrozenDict
 Qvalues = jax.Array
 RngKey = jax.Array
 make_actor = base_agent.make_actor
-make_optimizer = base_agent.make_optimizer
-RnnState = jax.Array
 
+RnnState = jax.Array
 SimPolicy = Callable[[Qvalues, RngKey], int]
+
 
 @struct.dataclass
 class AgentState:
@@ -53,6 +54,7 @@ class SimulationOutput:
     actions: jax.Array
     predictions: Predictions
 
+
 def make_float(x): return x.astype(jnp.float32)
 
 def concat_pytrees(tree1, tree2, **kwargs):
@@ -64,6 +66,23 @@ def concat_first_rest(first, rest):
     # rest: [T, N, ...]
     # output: [T+1, N, ...]
     return jax.vmap(concat_pytrees, 1, 1)(add_time(first), rest)
+
+
+
+def make_optimizer(config: dict) -> optax.GradientTransformation:
+  num_updates = config["NUM_UPDATES"] + config["NUM_EXTRA_REPLAY"]
+
+  def linear_schedule(count):
+      frac = 1.0 - (count / num_updates)
+      return config["LR"] * frac
+
+  lr = linear_schedule if config.get("LR_LINEAR_DECAY", False) else config["LR"]
+
+  return optax.chain(
+      optax.clip_by_global_norm(config["MAX_GRAD_NORM"]),
+      optax.adam(learning_rate=lr, eps=config['EPS_ADAM'])
+  )
+
 
 def  simulate_n_trajectories(
         x_t: TimeStep,
@@ -682,28 +701,6 @@ def learner_log_extra(
         data)
 
 
-class Block(nn.Module):#
-  features: int
-
-  @nn.compact
-  def __call__(self, x, _):
-    x = nn.Dense(self.features, use_bias=False)(x)
-    x = jax.nn.relu(x)
-    return x, None
-
-
-class MLP(nn.Module):
-  hidden_dim: int
-  out_dim: Optional[int] = None
-  num_layers: int = 1
-
-  @nn.compact
-  def __call__(self, x):
-    for _ in range(self.num_layers):
-        x, _ = Block(self.hidden_dim)(x, None)
-
-    x = nn.Dense(self.out_dim or self.hidden_dim, use_bias=False)(x)
-    return x
 
 
 class DynaAgentEnvModel(nn.Module):
@@ -715,11 +712,15 @@ class DynaAgentEnvModel(nn.Module):
     env: environment.Environment
     env_params: environment.EnvParams
     num_q_layers: int = 1
+    activation: str = 'relu'
 
     def setup(self):
 
         self.q_fn = MLP(hidden_dim=512,
-                        num_layers=self.num_q_layers, out_dim=self.action_dim)
+                        num_layers=self.num_q_layers,
+                        out_dim=self.action_dim,
+                        activation=self.activation,
+                        )
 
     def initialize(self, x: TimeStep):
         """Only used for initialization."""
@@ -857,6 +858,7 @@ def make_agent(
             unroll_output_state=True,
             )
     agent = DynaAgentEnvModel(
+        activation=config['ACTIVATION'],
         action_dim=env.num_actions(env_params),
         num_q_layers=config['NUM_Q_LAYERS'],
         observation_encoder=ObsEncoderCls(),

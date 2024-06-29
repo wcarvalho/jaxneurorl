@@ -21,6 +21,7 @@ class ResetParams:
     test_objects: jax.Array
     starting_locs: Optional[jax.Array] = None
     curriculum: jax.Array = jnp.array(False)
+    label: jax.Array = jnp.array(0)
 
 
 @struct.dataclass
@@ -47,6 +48,7 @@ class EnvState:
     task_w: jax.Array
     is_train_task: jax.Array
     task_object: jax.Array
+    current_label: jax.Array
     offtask_w: jax.Array
     task_state: Optional[maze.TaskState] = None
 
@@ -173,6 +175,7 @@ class HouseMaze(maze.HouseMaze):
             agent_pos=agent_pos,
             agent_dir=agent_dir,
             map_idx=reset_params_idx,
+            current_label=reset_params.label,
             task_w=task_w,
             task_object=task_object,
             offtask_w=offtask_w,

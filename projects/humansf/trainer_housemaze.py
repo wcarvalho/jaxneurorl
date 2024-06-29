@@ -140,6 +140,7 @@ def load_env_params(
                   pretrain_level, char_to_key=dict(A=group[0], B=group[1]))),
               train_objects=group[:1],
               test_objects=group[1:],
+              label=jnp.array(1),
               starting_locs=make_int_array(
                   np.ones((len(group_set), max_starting_locs, 2))*-1)
           )
@@ -178,6 +179,7 @@ def load_env_params(
             test_objects=test_objects,
             starting_locs=make_int_array(all_starting_locs),
             curriculum=jnp.array(True),
+            label=jnp.array(0),
         )
     )
 
@@ -259,17 +261,19 @@ def run_single(
       state = timestep.state
       return {
           'map_idx': state.map_idx,
+          'current_label': state.current_label,
           'is_train_task': state.is_train_task,
           'category': state.task_object,
        }
 
     def task_from_variables(variables):
-      map_idx = variables['map_idx']
+      current_label = variables['current_label']
       category = keys[variables['category']]
       is_train_task = variables['is_train_task']
       label = '1.train' if is_train_task else '0.TEST'
-      setting = 'S' if map_idx == 0 else 'L'
-
+      setting = {
+         0: 'L',
+         1: 'S'}[int(current_label)]
       return f'{label} - {setting} - {category}'
 
     observer_class = functools.partial(
@@ -368,7 +372,7 @@ def run_single(
         temperatures = temp_dist.sample(
             seed=rng_,
             sample_shape=(num_simulations - 1,))
-        temperatures = jnp.concatenate((temperatures, jnp.zeros(1e-5)))
+        temperatures = jnp.concatenate((temperatures, jnp.array((1e-5,))))
         greedy_idx = int(temperatures.argmin())
 
         def simulation_policy(
@@ -450,7 +454,7 @@ def run_single(
             offtask_dyna.make_loss_fn_class,
             make_init_offtask_timestep=make_init_offtask_timestep,
             simulation_policy=simulation_policy,
-            online_coeff=config.get('DYNA_ONLINE_COEFF', 0.0),
+            online_coeff=config.get('DYNA_ONLINE_COEFF', 1.0),
             dyna_coeff=config.get('DYNA_COEFF', 1.0),
           ),
           make_actor=offtask_dyna.make_actor,
@@ -555,15 +559,17 @@ def sweep(search: str = ''):
         },
         'parameters': {
             #'TOTAL_TIMESTEPS': {'values': [5e6]},
-            'DYNA_COEFF': {'values': [1, .1, .01, .001]},
-            'DYNA_ONLINE_COEFF': {'values': [.01, .1, 1, .001]},
-            #'NUM_Q_LAYERS': {'values': [2, 1]},
-            #'STOP_DYNA_GRAD': {'values': [True, False]},
+            'DYNA_COEFF': {'values': [1., .1]},
+            'DYNA_ONLINE_COEFF': {'values': [.1, .01]},
+            'NUM_EXTRA_SAVE': {'values': [0]},
+            #"SIM_POLICY": {'values': ['gamma', 'epsilon']},
+            "MLP_HIDDEN_DIM": {'values': [512, 1024]},
+            'LR_LINEAR_DECAY': {'values': [True, False]},
         },
         'overrides': ['alg=dyna_replay_split',
                       'rlenv=housemaze',
                       'user=wilka'],
-        'group': 'dynaq-19',
+        'group': 'dynaq-20',
     }
   elif search == 'test':
     sweep_config = {

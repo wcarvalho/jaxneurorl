@@ -516,20 +516,21 @@ def make_train(
             #-----------------
             # optionally save params
             #-----------------
+            num_to_save = config.get("NUM_EXTRA_SAVE", 10)
+            if num_to_save > 0:
+                stride = config["NUM_EXTRA_REPLAY"] // num_to_save
+                save_timepoints = jnp.arange(
+                    0,
+                    config["NUM_EXTRA_REPLAY"],
+                    max(stride, 1)) + n_updates_pre_replay
 
-            stride = config["NUM_EXTRA_REPLAY"] // config.get("NUM_EXTRA_SAVE", 10)
-            save_timepoints = jnp.arange(
-                0,
-                config["NUM_EXTRA_REPLAY"],
-                max(stride, 1)) + n_updates_pre_replay
+                save_timepoints = save_timepoints[1:]
+                should_save = (train_state.n_updates == save_timepoints).any()
 
-            save_timepoints = save_timepoints[1:]
-            should_save = (train_state.n_updates == save_timepoints).any()
-
-            jax.lax.cond(
-                should_save,
-                lambda: save_params_fn(runner_state.train_state.params, train_state.n_updates),
-                lambda: None)
+                jax.lax.cond(
+                    should_save,
+                    lambda: save_params_fn(runner_state.train_state.params, train_state.n_updates),
+                    lambda: None)
 
             return runner_state, {}
 

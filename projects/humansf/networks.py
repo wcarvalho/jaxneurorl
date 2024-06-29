@@ -262,7 +262,9 @@ class CategoricalHouzemazeObsEncoder(nn.Module):
 
         if self.include_task:
             task_w = nn.Dense(
-                128)(obs.task_w.astype(jnp.float32))  # [continuous]
+                128,
+                use_bias=False,
+                )(obs.task_w.astype(jnp.float32))  # [continuous]
             outputs = (embedding, task_w)
             outputs = jnp.concatenate(outputs, axis=-1)
         else:

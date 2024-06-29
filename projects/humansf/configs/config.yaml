@@ -24,7 +24,7 @@ app:
   config_idx: 1  # which config to load, only used by vanilla slurm
   memory: 120000  # in MB
   time: "0-01:00:00"  # duration format for SLURM
-  max_concurrent: 16
+  max_concurrent: 12
   account: "kempner_fellows"  # specify if there's a default account
   partition: "kempner"  # default SLURM partition
   settings_config: ""  # to be set by parallel.py
