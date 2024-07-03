@@ -70,7 +70,7 @@ def concat_first_rest(first, rest):
 
 
 def make_optimizer(config: dict) -> optax.GradientTransformation:
-  num_updates = config["NUM_UPDATES"] + config["NUM_EXTRA_REPLAY"]
+  num_updates = int(config["NUM_UPDATES"] + config["NUM_EXTRA_REPLAY"])
 
   def linear_schedule(count):
       frac = 1.0 - (count / num_updates)
@@ -716,11 +716,13 @@ class DynaAgentEnvModel(nn.Module):
 
     def setup(self):
 
-        self.q_fn = MLP(hidden_dim=512,
-                        num_layers=self.num_q_layers,
-                        out_dim=self.action_dim,
-                        activation=self.activation,
-                        )
+        self.q_fn = MLP(
+            hidden_dim=512,
+            num_layers=self.num_q_layers + 1,
+            out_dim=self.action_dim,
+            activation=self.activation,
+            activate_final=False,
+            )
 
     def initialize(self, x: TimeStep):
         """Only used for initialization."""

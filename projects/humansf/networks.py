@@ -234,12 +234,14 @@ class CategoricalHouzemazeObsEncoder(nn.Module):
     embed_hidden_dim: int = 64
     mlp_hidden_dim: int = 256
     num_mlp_layers: int = 0
+    num_embed_layers: int = 0
     activation: str = 'relu'
 
     @nn.compact
     def __call__(self, obs: Observation):
         activation = get_activation_fn(self.activation)
         has_batch = obs.image.ndim == 3
+        assert obs.image.ndim in (2, 3), 'either [B, H, W] or [H, W]'
         if has_batch:
             flatten = lambda x: x.reshape(x.shape[0], -1)
             expand = lambda x: x[:, None]
@@ -249,8 +251,8 @@ class CategoricalHouzemazeObsEncoder(nn.Module):
 
         all_flattened = jnp.concatenate((
             flatten(obs.image),
+            obs.position,
             expand(obs.direction),
-            expand(obs.position),
             expand(obs.prev_action)),
             axis=-1
             ).astype(jnp.int32)
@@ -260,16 +262,22 @@ class CategoricalHouzemazeObsEncoder(nn.Module):
             )(all_flattened)
         embedding = flatten(embedding)
 
+        embedding = MLP(
+            self.mlp_hidden_dim,
+            self.num_embed_layers,
+            activation=self.activation)(embedding)
+
         if self.include_task:
+            kernel_init = nn.initializers.variance_scaling(
+                1.0, 'fan_in', 'normal', out_axis=0)
             task_w = nn.Dense(
-                128,
-                use_bias=False,
-                )(obs.task_w.astype(jnp.float32))  # [continuous]
+                128, kernel_init=kernel_init,
+                )(obs.task_w.astype(jnp.float32))
             outputs = (embedding, task_w)
             outputs = jnp.concatenate(outputs, axis=-1)
         else:
             outputs = embedding
-        outputs = activation(outputs)
+
         outputs = MLP(
             self.mlp_hidden_dim,
             self.num_mlp_layers,

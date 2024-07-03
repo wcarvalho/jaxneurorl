@@ -230,7 +230,7 @@ def run_single(
     keys = image_dict['keys']
     env = maze.HouseMaze(
         task_runner=task_runner,
-        num_categories=len(keys),
+        num_categories=200,
     )
     env = housemaze_utils.AutoResetWrapper(env)
 
@@ -240,6 +240,7 @@ def run_single(
         num_categories=500,
         embed_hidden_dim=config["EMBED_HIDDEN_DIM"],
         mlp_hidden_dim=config["MLP_HIDDEN_DIM"],
+        num_embed_layers=config["NUM_EMBED_LAYERS"],
         num_mlp_layers=config['NUM_MLP_LAYERS'],
         activation=config['ACTIVATION'],
        )
@@ -361,12 +362,12 @@ def run_single(
     elif alg_name == 'dynaq':
       import distrax
       from projects.humansf import train_extra_replay
-      sim_policy = config.get('SIM_POLICY', 'gamma')
-      num_simulations = config.get('NUM_SIMULATIONS', 15)
+      sim_policy = config['SIM_POLICY']
+      num_simulations = config['NUM_SIMULATIONS']
       if sim_policy == 'gamma':
         temp_dist = distrax.Gamma(
-          concentration=config.get("TEMP_CONCENTRATION", 1.),
-          rate=config.get("TEMP_RATE", 1.))
+          concentration=config["TEMP_CONCENTRATION"],
+          rate=config["TEMP_RATE"])
 
         rng, rng_ = jax.random.split(rng)
         temperatures = temp_dist.sample(
@@ -385,19 +386,19 @@ def run_single(
               logits=logits).sample(seed=sim_rng)
 
       elif sim_policy == 'epsilon':
-        epsilon_setting = config.get('SIM_EPSILON_SETTING', 1)
+        epsilon_setting = config['SIM_EPSILON_SETTING']
         if epsilon_setting == 1:
           vals = np.logspace(
-                    start=config.get('EPSILON_MIN', 1),
-                    stop=config.get('EPSILON_MAX', 3),
-                    num=config.get('NUM_EPSILONS', 256),
-                    base=config.get('EPSILON_BASE', .1))
+                    num=256,
+                    start=1,
+                    stop=3,
+                    base=.1)
         elif epsilon_setting == 2:
            vals = np.logspace(
-                    num=config.get('NUM_EPSILONS', 256),
-                    start=config.get('EPSILON_MIN', .05),
-                    stop=config.get('EPSILON_MAX', .9),
-                    base=config.get('EPSILON_BASE', .1))
+                    num=256,
+                    start=.05,
+                    stop=.9,
+                    base=.1)
         epsilons = jax.random.choice(
             rng, vals, shape=(num_simulations - 1,))
         epsilons = jnp.concatenate((jnp.zeros(1), epsilons))
@@ -447,15 +448,15 @@ def run_single(
           make_optimizer=offtask_dyna.make_optimizer,
           make_loss_fn_class=functools.partial(
             offtask_dyna.make_loss_fn_class,
-            online_coeff=config.get('ONLINE_COEFF', 1.0),
+            online_coeff=config['ONLINE_COEFF'],
             dyna_coeff=0.0,
             ),
           make_replay_loss_fn_class=functools.partial(
             offtask_dyna.make_loss_fn_class,
             make_init_offtask_timestep=make_init_offtask_timestep,
             simulation_policy=simulation_policy,
-            online_coeff=config.get('DYNA_ONLINE_COEFF', 1.0),
-            dyna_coeff=config.get('DYNA_COEFF', 1.0),
+            online_coeff=config['DYNA_ONLINE_COEFF'],
+            dyna_coeff=config['DYNA_COEFF'],
           ),
           make_actor=offtask_dyna.make_actor,
           make_logger=functools.partial(
@@ -559,17 +560,20 @@ def sweep(search: str = ''):
         },
         'parameters': {
             #'TOTAL_TIMESTEPS': {'values': [5e6]},
-            'DYNA_COEFF': {'values': [1., .1]},
-            'DYNA_ONLINE_COEFF': {'values': [.1, .01]},
+            'ACTIVATION': {'values': ['leaky_relu', 'relu', 'tanh']},
+            'DYNA_ONLINE_COEFF': {'values': [1., .1, .01]},
             'NUM_EXTRA_SAVE': {'values': [0]},
-            #"SIM_POLICY": {'values': ['gamma', 'epsilon']},
-            "MLP_HIDDEN_DIM": {'values': [512, 1024]},
-            'LR_LINEAR_DECAY': {'values': [True, False]},
+            "NUM_EMBED_LAYERS": {'values': [0]},
+            "NUM_MLP_LAYERS": {'values': [0]},
+            "AGENT_RNN_DIM": {'values': [128, 256]},
+            "NUM_Q_LAYERS": {'values': [1, 2, 3]},
+            #"NUM_EXTRA_REPLAY": {'values': [50_000]},
+            #'LR_LINEAR_DECAY': {'values': [False, True]},
         },
         'overrides': ['alg=dyna_replay_split',
                       'rlenv=housemaze',
                       'user=wilka'],
-        'group': 'dynaq-20',
+        'group': 'dynaq-29',
     }
   elif search == 'test':
     sweep_config = {

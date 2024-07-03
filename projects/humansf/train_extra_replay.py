@@ -371,10 +371,8 @@ def make_train(
             # ------------------------
             gradient_log_period = config.get("GRADIENT_LOG_PERIOD", 500)
             if gradient_log_period:
-                log_period = max(1, int(gradient_log_period))
                 is_log_time = jnp.logical_and(
                     is_learn_time, train_state.n_updates % log_period == 0)
-
                 jax.lax.cond(
                     is_log_time,
                     lambda: logger.gradient_logger(train_state, grads),
@@ -476,17 +474,18 @@ def make_train(
             # ------------------------
             # log gradient information
             # ------------------------
-            log_period = max(1, int(config.get("GRADIENT_LOG_PERIOD", 500)))
-            is_log_time = train_state.n_updates % log_period == 0
-            jax.lax.cond(
-                is_log_time,
-                lambda: logger.gradient_logger(train_state, grads),
-                lambda: None,
-            )
+            gradient_log_period = config.get("GRADIENT_LOG_PERIOD", 500)
+            if gradient_log_period:
+                is_log_time = train_state.n_updates % log_period == 0
+                jax.lax.cond(
+                    is_log_time,
+                    lambda: logger.gradient_logger(train_state, grads),
+                    lambda: None,
+                )
 
             # log performance information
             # ------------------------
-            log_period = max(1, int(config["LEARNER_LOG_PERIOD"]))
+            log_period = max(50, int(config["LEARNER_LOG_PERIOD"]))
             is_log_time = train_state.n_updates % log_period == 0
             jax.lax.cond(
                 is_log_time,
