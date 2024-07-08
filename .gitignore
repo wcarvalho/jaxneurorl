@@ -1,3 +1,4 @@
+*.safetensors
 *slurm*
 analysis_media
 testing

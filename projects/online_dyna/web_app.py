@@ -6,6 +6,8 @@ from typing import NamedTuple
 
 from base64 import b64encode
 from datetime import timedelta
+from flask import redirect, url_for
+
 from dotenv import load_dotenv
 from flask import Flask, render_template, session
 from flask import Flask, jsonify
@@ -45,32 +47,30 @@ DEBUG_SEED = os.environ.get('DEBUG_SEED', 1)
 
 file = 'ml/housemaze_list_of_groups.npy'
 list_of_groups = np.load(file)
-group_set = list_of_groups[0]
-num_groups = 3
-group_set = group_set[:num_groups]
 
-def make_env_params(maze_str: str):
+def make_env_params(maze_str: str, group_set):
     return mazes.make_env_params(
         maze_str=maze_str,
         group_set=group_set,
         ).replace(
             training=False,
-            terminate_with_done=True if DEBUG_APP else False,
+            terminate_with_done=2,
             )
 
 
-practice_env_params = make_env_params(mazes.maze0)
-env1_params = make_env_params(mazes.maze1)
-env2_params = make_env_params(mazes.maze2)
-env3_params = make_env_params(mazes.maze3)
-env4_params = make_env_params(mazes.maze4)
+practice_env_params = make_env_params(mazes.maze0, list_of_groups[0])
+env1_params = make_env_params(mazes.maze1, list_of_groups[1])
+env2_params = make_env_params(mazes.maze2, list_of_groups[2])
+env3_params = make_env_params(mazes.maze3, list_of_groups[3])
+env4_params = make_env_params(mazes.maze4, list_of_groups[4])
 
 
 image_data = housemaze_utils.load_image_dict(
     'ml/housemaze/image_data.pkl')
 json_image_data = web_utils.convert_to_serializable(image_data)
 
-task_objects = group_set.reshape(-1)
+task_objects = list_of_groups[:5].reshape(-1)
+task_objects = jnp.unique(task_objects)
 task_runner = maze.TaskRunner(
     task_objects=task_objects)
 keys = image_data['keys']
@@ -170,11 +170,16 @@ keyparser = KeyParser()
 ############
 # Set up stages
 ############
-default_env_caption = """
+default_env_caption_done = """
 <span style="font-weight: bold; font-size: 1.25em;">Movement</span>:<br>
 up, down, left, right arrows.
 <br><br>
 You can press 'd' to finish an episode.
+"""
+
+default_env_caption = """
+<span style="font-weight: bold; font-size: 1.25em;">Movement</span>:<br>
+up, down, left, right arrows.
 """
 
 SHORT_PREP = 10
@@ -195,12 +200,12 @@ def make_eval_prep(env_params, title, seconds):
         type='pause',
         env_params=env_params.replace(
             p_test_sample_train=0.,
-            terminate_with_done=True,
+            terminate_with_done=1,
             ),
         render_fn=render_timestep_no_obj,
         min_success=1,
         max_episodes=1,
-        envcaption=default_env_caption,
+        envcaption=default_env_caption_done,
         seconds=seconds if DEBUG_APP else 5,
         show_progress=False,
         show_goal=True if DEBUG_APP else False,
@@ -215,12 +220,12 @@ def make_eval_action(env_params, title, seconds):
         type='interaction',
         env_params=env_params.replace(
             p_test_sample_train=0.,
-            terminate_with_done=True,
+            terminate_with_done=1,
         ),
         render_fn=render_timestep_no_obj,
         min_success=1,
         max_episodes=1,
-        envcaption=default_env_caption,
+        envcaption=default_env_caption_done,
         seconds=seconds,
         show_progress=False,
         restart=False,
@@ -509,11 +514,13 @@ def update_html_fields(**kwargs):
     stage = stages[stage_idx]
     emit('update_html_fields', {
         'title': make_title(stage, session, DEBUG_APP),
+        'stage_idx': session['stage_idx'],
         'subtitle': stage.subtitle,
         'body': stage.body,
         'envcaption': stage.envcaption,
         **kwargs,
     })
+    emit('get_info', {'info': f"update_html_fields | stage idx: {stage_idx}"})
 
 
 def update_env_html_fields(**kwargs):
@@ -530,12 +537,14 @@ def update_env_html_fields(**kwargs):
     task = get_task_name(session['timestep']) if stage.show_goal else ''
     emit('update_html_fields', {
         'title': make_title(stage, session, DEBUG_APP),
+        'stage_idx': session['stage_idx'],
         'subtitle': subtitle,
         'taskDesc': task,
         'body': stage.body,
         'envcaption': stage.envcaption,
         **kwargs,
     })
+    emit('get_info', {'info': f"update_env_html_fields | stage idx: {stage_idx}"})
     #seconds = stages[session['stage_idx']].seconds
     #if seconds:
     #    print('starting timer: update_env_html_fields')
@@ -558,11 +567,12 @@ def start_env_interaction_stage():
         stage=stages[session['stage_idx']],
         timestep=session['timestep'],
         env_params=stages[session['stage_idx']].env_params,
-        encode_locally=False,
+        encode_locally=True,
     )
 
     emit('update_content', {
         'content': render_template(template_file),
+        'stage_idx': session['stage_idx'],
     })
 
     print('loading new index')
@@ -610,7 +620,7 @@ def handle_interaction_phase(json):
             stage=stages[session['stage_idx']],
             timestep=session['timestep'],
             env_params=stages[session['stage_idx']].env_params,
-            encode_locally=False,
+            encode_locally=True,
         )
         #encoded_image = encode_image(state_image)
 
@@ -679,7 +689,7 @@ def handle_interaction_phase(json):
                 stage=stages[session['stage_idx']],
                 timestep=session['timestep'],
                 env_params=stages[session['stage_idx']].env_params,
-                encode_locally=False,
+                encode_locally=True,
             )
             #stage = stages[session['stage_idx']]
             #state_image = stage.render_fn(session['timestep'], stage.env_params)
@@ -711,10 +721,11 @@ def start_env_1shot_phase():
 
     emit('update_content', {
         'content': render_template(template_file),
+        'stage_idx': session['stage_idx'],
     })
     emit('action_taken', {
         'image': encoded_image,
-        'state': raw_state,
+        #'state': raw_state,
     })
 
     kwargs = {}
@@ -909,8 +920,14 @@ def shift_stage(direction: str):
         raise NotImplementedError
 
     template_file = stages[session['stage_idx']].html
+
     print("="*50)
-    print("STAGE:", stages[session['stage_idx']].title)
+    print(f"shift_stage| STAGE: {session['stage_idx']}",
+          stages[session['stage_idx']].title)
+    message = f"shift_stage| stage idx : {session['stage_idx']}"
+    print(message)
+    emit('get_info', {'info': message})
+
     if 'env' in template_file:
         start_env_stage()
     else:
@@ -932,12 +949,13 @@ def advance_to_next_stage():
 
     # update content
     print("="*50)
-    print("STAGE:", stages[session['stage_idx']].title)
+    print(f"STAGE: {session['stage_idx']}", stages[session['stage_idx']].title)
     if 'env' in template_file:
         start_env_stage()
     else:
         emit('update_content', {
             'content': render_template(template_file),
+            'stage_idx': session['stage_idx'],
         })
         update_html_fields()
         if 'done' in template_file:
@@ -962,9 +980,12 @@ socketio = SocketIO(app)
 @app.route('/')
 def index():
     """Always Called 1st"""
-    session.permanent = True
+    session.permanent = False
+    print('-'*50)
+    print('index')
     if 'user_seed' not in session:
-        pass
+        print('new user')
+        print('-'*50)
         # Generate a unique user ID if not present
         # unique_id = uuid.uuid4()
     unique_id = random.getrandbits(32)
@@ -982,43 +1003,75 @@ def index():
     session['rng'] = rng
     session['stage_idx'] = 0
 
-    return render_template('index.html', template_file='consent.html')
+    return render_template(
+        'index.html',
+        template_file=stages[session['stage_idx']].html)
+    #else:
+    #    print('user loaded')
+    #    print('-'*50)
+    #    return redirect(url_for('start_experiment'))
 
 
-@app.route('/experiment', methods=['POST'])
-def start_experiment():
-    """Always called 2nd after checkbox is checked to start experiment."""
-    if session['stage_idx'] == 0:
-        session['stage_idx'] = 1
-        return render_template(
-            'index.html', template_file=stages[1].html)
-    elif session['stage_idx'] == 1:
-        return render_template(
-            'index.html', template_file=stages[1].html)
-    elif session['stage_idx'] > 1:
-        stage_list.clear()
-        interaction_list.clear()
-        print('cleared interaction')
-        return render_template('index.html', template_file=stages[1].html)
 
+@socketio.on('start_connection')
+def start_connection(json = None):
+    """This function is called when the connection is started.
 
-@socketio.on('request_update')
-def handle_request_update():
-    """Always called 3rd immediately after `start_experiment`. Need separate function to listen for rendering a new template. We'll now update the html content."""
-    emit('load_data', {'image_data': json_image_data})
-    # NOTE: we want to store this in session because will be changing
+    """
+
+    print("="*50)
+    #if json is not None:
+    #    try:
+    #        session['stage_idx'] = json['stage_idx']
+    #        print(f"loaded stage idx {session['stage_idx']} from json")
+    #    except:
+    #        raise RuntimeError
+    #else:
+    #    print("loaded from button?")
     stage_infos = [
         web_utils.StageInfo(stage) if 'env' in stage.html else None for stage in stages]
     session['stage_infos'] = stage_infos
 
+    message = f"start_connection| stage idx : {session['stage_idx']}"
+    print(message)
+    emit('get_info', {'info': message})
+
+    #if session['stage_idx'] == 0:
+    #    # consent, ignore?
+    #    pass
+    #elif session['stage_idx'] == 1:
+    # NOTE: we want to store this in session because will be changing
     # Check if the stage index is set and then emit the update_html_fields event.
-    print("="*50)
-    print("STAGE:", stages[session['stage_idx']].title)
+    print(f"STAGE: {session['stage_idx']}",
+            stages[session['stage_idx']].title)
     if 'stage_idx' in session:
         update_html_fields()
         template_file = stages[session['stage_idx']].html
         if 'env' in template_file:
             start_env_stage()
+
+    emit('load_data', {'image_data': json_image_data})
+
+
+
+@app.route('/experiment', methods=['GET', 'POST'])
+def start_experiment():
+    """Always called 2nd after checkbox is checked to start experiment."""
+    print("="*50)
+    message = f"start_experiment| stage idx : {session['stage_idx']}"
+    print(message)
+    if session['stage_idx'] == 0:
+        session['stage_idx'] += 1
+        return render_template(
+            'index.html', template_file=stages[session['stage_idx']].html)
+    elif session['stage_idx'] == 1:
+        return render_template(
+            'index.html', template_file=stages[session['stage_idx']].html)
+    elif session['stage_idx'] > 1:
+        return render_template('index.html', template_file=stages[session['stage_idx']].html)
+
+
+
 
 @socketio.on('record_click')
 def handle_record_click(json):
@@ -1071,4 +1124,5 @@ def on_timer_finish():
 
 # Run the Flask app
 if __name__ == '__main__':
-    socketio.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)), debug=True)
+    socketio.run(app, host="0.0.0.0",
+                 port=int(os.environ.get("PORT", 8082)), debug=True)

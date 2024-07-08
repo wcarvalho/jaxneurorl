@@ -1,3 +1,31 @@
+//function startExperiment(event) {
+//  //event.preventDefault(); // Prevent the default form submission
+
+//  console.log('starting exp')
+//  enterFullscreen().then(() => {
+//    // This code will run after successfully entering fullscreen
+//    document.getElementById('startButton').form.submit(); // Submit the form programmatically
+//  }).catch((err) => {
+//    console.error('Failed to enter fullscreen:', err);
+//    document.getElementById('startButton').form.submit(); // Submit anyway if fullscreen fails
+//  });
+//}
+
+//function enterFullscreen() {
+//  var elem = document.documentElement;
+//  console.log('enterFullscreen')
+//  if (elem.requestFullscreen) {
+//    return elem.requestFullscreen();
+//  } else if (elem.mozRequestFullScreen) { /* Firefox */
+//    return elem.mozRequestFullScreen();
+//  } else if (elem.webkitRequestFullscreen) { /* Chrome, Safari & Opera */
+//    return elem.webkitRequestFullscreen();
+//  } else if (elem.msRequestFullscreen) { /* IE/Edge */
+//    return elem.msRequestFullscreen();
+//  }
+//  return Promise.reject('Fullscreen not supported');
+//}
+
 async function loadTensorFlow() {
   const tf = await import('https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js');
   return tf;
@@ -287,7 +315,12 @@ async function tensorToBase64(tensor) {
 
 document.addEventListener('DOMContentLoaded', async function () {
   //const tf = await loadTensorFlow();
-
+  //document.addEventListener('fullscreenchange', function () {
+  //  if (!document.fullscreenElement && document.getElementById('content')) {
+  //    // The user has exited fullscreen mode during the experiment
+  //    alert("For the best experience, please keep the browser in fullscreen mode. Press F11 to re-enter fullscreen.");
+  //  }
+  //});
   document.addEventListener('keydown', function (event) {
     switch (event.key) {
       case "ArrowUp":
@@ -302,6 +335,7 @@ document.addEventListener('DOMContentLoaded', async function () {
   });
   // Create a global variable to store the image data
   var imageData = null;
+  var stage_idx = 0
 
   var socket = io();
 
@@ -376,7 +410,9 @@ document.addEventListener('DOMContentLoaded', async function () {
   /////////////////////////
   // Request dynamic content updates once the WebSocket connection is established
   socket.on('connect', function () {
-    socket.emit('request_update');  // Request the dynamic content updates as soon as the connection is established
+    socket.emit('start_connection', {
+      stage_idx: stage_idx,
+    });  // Request the dynamic content updates as soon as the connection is established
   });
 
   /////////////////////////
@@ -393,13 +429,17 @@ document.addEventListener('DOMContentLoaded', async function () {
   function getImageData() {
     return imageData;
   }
-
+  socket.on('get_info', function (data) {
+    console.log(data.info);
+  });
   /////////////////////////
   // Change content in main html
   /////////////////////////
   // Listen for the 'update_content' event from the server to update the page content
   socket.on('update_content', function (data) {
     document.getElementById('content').innerHTML = data.content;
+    stage_idx = data.stage_idx
+    console.log('stage idx loaded: ' + stage_idx)
   });
 
   /////////////////////////
@@ -410,6 +450,7 @@ document.addEventListener('DOMContentLoaded', async function () {
     var title = document.getElementById('title')
     console.log("========================")
     console.log('STAGE: ' + data.title)
+    stage_idx = data.stage_idx
     if (title){
       document.getElementById('title').innerHTML = data.title
       document.getElementById('subtitle').innerHTML = data.subtitle
@@ -424,6 +465,8 @@ document.addEventListener('DOMContentLoaded', async function () {
       envcaption.innerHTML = data.envcaption
     }
     reinitializeArrowListeners();
+
+    console.log('initialized html for stage: ' + stage_idx)
   });
 
   /////////////////////////

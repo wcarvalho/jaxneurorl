@@ -215,10 +215,15 @@ class HouseMaze(maze.HouseMaze):
             step_num=timestep.state.step_num + 1,
         )
 
-        if params.terminate_with_done:
-            terminated = action == self.action_enum().done
+        terminated_done = action == self.action_enum().done
+        # any object picked up
+        terminated_features = (task_state.features > 0).any()
+        if params.terminate_with_done == 1:
+            terminated = terminated_done
+        elif params.terminate_with_done == 2:
+            terminated = terminated_features + terminated_done
         else:
-            terminated = (task_state.features > 0).any()  # any object picked up
+            terminated = terminated_features
         task_w = timestep.state.task_w.astype(jnp.float32)
         features = task_state.features.astype(jnp.float32)
         reward = (task_w*features).sum(-1)
