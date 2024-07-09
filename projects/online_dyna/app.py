@@ -30,11 +30,6 @@ from experiment_1 import web_env
 
 class DataManager(webrl.DataManager):
 
-    def __init__(self):
-        self.episode_data = []
-        self.all_episode_data = []
-        self.stage_data = []
-
     def update_stage_data(
             self,
             stage,
@@ -89,7 +84,7 @@ class DataManager(webrl.DataManager):
             **kwargs
         }
 
-        self.episode_data.append(new_row)
+        self.in_episode_data.append(new_row)
 
 
 
@@ -104,7 +99,7 @@ app.permanent_session_lifetime = timedelta(days=30)
 socketio = SocketIO(app)
 
 
-index_file = 'index.html',
+index_file = 'index.html'
 session_manager = SessionManager(
     index_file=index_file,
     debug=DEBUG_APP
@@ -112,7 +107,11 @@ session_manager = SessionManager(
 
 data_manager = DataManager()
 
+stages = experiment_1.stages
+
 stage_manager = StageManager(
+    app=app,
+    stages=stages,
     data_manager=data_manager,
     web_env=web_env,
     index_file=index_file,
@@ -140,7 +139,6 @@ def message(fn_name: str):
        pass
 
 
-stages = experiment_1.stages
 
 @app.route('/')
 def index():
@@ -148,51 +146,44 @@ def index():
     message('index')
     SessionManager.set('index_called', True)
     return session_manager.initialize(
-        load_user=False,
+        load_user=True,
         initial_template='consent.html',
         experiment_fn_name='experiment',
         )
 
 
 @app.route('/experiment', methods=['GET', 'POST'])
-def experiment():
+def experiment(load: bool = False):
     message('experiment')
     #session_manager.experiment_called = True
     SessionManager.set('experiment_called', True)
     if DEBUG_APP:
         rng = jax.random.PRNGKey(DEBUG_SEED)
     else:
-        rng = jax.random.PRNGKey(session_manager['user_seed'])
+        rng = jax.random.PRNGKey(SessionManager.get('user_seed'))
 
-    exp_state = stage_manager.init_state(
-        session_manager=session_manager,
-        stages=stages,
-        rng=jax_utils.serialize_rng(rng))
+    exp_state = stage_manager.init_state(rng=rng)
 
     stage_manager.set_state(exp_state)
     return stage_manager.render_stage()
 
+
 # Register SocketIO events
 def register_events():
+
   @socketio.on('start_connection')
   def start_connection(json: dict = None):
-    experiment_called = SessionManager.get('experiment_called', False)
-    message(f'start_connection, experiment_called = {experiment_called}')
-    print(json)
-    """_summary_
-    options:
-    - index_called = True, experiment_called = False (index):
-      - skip
-    - index_called = True, experiment_called = True (experiment):
-      - call
-    - index_called = False, experiment_called = True (experiment):
-      - reconnect, call
-    """
-    #index_called = SessionManager.get('index_called', False)
-    if experiment_called:
+    experiment_initialized = SessionManager.get('experiment_called', False)
+    message(f'start_connection, experiment_called = {experiment_initialized}')
+    print("input json:", json)
+    if experiment_initialized:
       image_data = jax_utils.convert_to_serializable(
          experiment_1.image_data)
       emit('load_data', {'image_data': image_data})
+      loaded = stage_manager.maybe_load_state()
+      if loaded:
+        stage_manager.render_stage_template()
+
       stage_manager.update_html_content()
 
 
