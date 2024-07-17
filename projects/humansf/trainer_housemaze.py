@@ -47,9 +47,8 @@ from projects.humansf import qlearning
 from projects.humansf import offtask_dyna
 from projects.humansf import networks
 from projects.humansf import observers as humansf_observers
-from projects.humansf.housemaze import levels
-from projects.humansf.housemaze import renderer
 from projects.humansf import housemaze_env as maze
+from projects.humansf import housemaze_experiments
 
 from projects.humansf.housemaze import utils as housemaze_utils
 from agents import value_based_basics as vbb
@@ -81,113 +80,6 @@ def make_logger(
     )
 
 
-def load_env_params(
-      num_groups: int,
-      max_objects: int = 3,
-      file: str = 'list_of_groups.npy',
-      large_only: bool = False,
-    ):
-    # load groups
-    if os.path.exists(file):
-      list_of_groups = np.load(file)
-    else:
-      raise RuntimeError(f"Missing file specifying groups for maze: {file}")
-
-    group_set = list_of_groups[0]
-    assert num_groups <= 3
-    group_set = group_set[:num_groups]
-
-    # load levels
-    pretrain_level = levels.two_objects
-    train_level = levels.three_pairs_maze1
-
-    ##################
-    # create reset parameters
-    ##################
-    make_int_array = lambda x: jnp.asarray(x, dtype=jnp.int32)
-    def make_reset_params(
-        map_init,
-        train_objects,
-        test_objects,
-        **kwargs):
-
-      train_objects_ = np.ones(max_objects)*-1
-      train_objects_[:len(train_objects)] = train_objects
-      test_objects_ = np.ones(max_objects)*-1
-      test_objects_[:len(test_objects)] = test_objects
-      map_init = map_init.replace(
-          grid=make_int_array(map_init.grid),
-          agent_pos=make_int_array(map_init.agent_pos),
-          agent_dir=make_int_array(map_init.agent_dir),
-      )
-      return maze.ResetParams(
-          map_init=map_init,
-          train_objects=make_int_array(train_objects_),
-          test_objects=make_int_array(test_objects_),
-          **kwargs,
-      )
-       
-    list_of_reset_params = []
-    num_starting_locs = 4
-    max_starting_locs = 10
-    # -------------
-    # pretraining levels
-    # -------------
-    for group in group_set:
-      list_of_reset_params.append(
-          make_reset_params(
-              map_init=maze.MapInit(*housemaze_utils.from_str(
-                  pretrain_level, char_to_key=dict(A=group[0], B=group[1]))),
-              train_objects=group[:1],
-              test_objects=group[1:],
-              label=jnp.array(1),
-              starting_locs=make_int_array(
-                  np.ones((len(group_set), max_starting_locs, 2))*-1)
-          )
-      )
-
-    # -------------
-    # MAIN training level
-    # -------------
-    train_objects = group_set[:, 0]
-    test_objects = group_set[:, 1]
-    map_init = maze.MapInit(*housemaze_utils.from_str(
-        train_level,
-        char_to_key=dict(
-            A=group_set[0, 0],
-            B=group_set[0, 1],
-            C=group_set[1, 0],
-            D=group_set[1, 1],
-            E=group_set[2, 0],
-            F=group_set[2, 1],
-        )))
-
-    all_starting_locs = np.ones((len(group_set), max_starting_locs, 2))*-1
-    for idx, goal in enumerate(train_objects):
-        path = housemaze_utils.find_optimal_path(
-            map_init.grid, map_init.agent_pos, np.array([goal]))
-        width = len(path)//num_starting_locs
-        starting_locs = np.array([path[i] for i in range(0, len(path), width)])
-        all_starting_locs[idx, :len(starting_locs)] = starting_locs
-
-    if large_only:
-       list_of_reset_params = []
-    list_of_reset_params.append(
-        make_reset_params(
-            map_init=map_init,
-            train_objects=train_objects,
-            test_objects=test_objects,
-            starting_locs=make_int_array(all_starting_locs),
-            curriculum=jnp.array(True),
-            label=jnp.array(0),
-        )
-    )
-
-    return group_set, maze.EnvParams(
-        reset_params=jtu.tree_map(
-            lambda *v: jnp.stack(v), *list_of_reset_params),
-    )
-
 def run_single(
         config: dict,
         save_path: str = None):
@@ -197,20 +89,14 @@ def run_single(
     ###################
     # load data
     ###################
-    num_groups = config['rlenv']['ENV_KWARGS'].pop('NUM_GROUPS', 3)
-    group_set, env_params = load_env_params(
-        num_groups=num_groups,
-       file='projects/humansf/housemaze_list_of_groups.npy',
-       )
-    _, test_env_params = load_env_params(
-        num_groups=num_groups,
-        file='projects/humansf/housemaze_list_of_groups.npy',
-        large_only=True,
-       )
+    exp = config.get('exp')
+    try:
+      exp_fn = getattr(housemaze_experiments, exp, None)
+    except Exception as e:
+      raise RuntimeError(exp)
 
-    test_env_params = test_env_params.replace(
-       training=False,
-      )
+    env_params, test_env_params = exp_fn(config)
+
 
     image_dict = housemaze_utils.load_image_dict(
         'projects/humansf/housemaze/image_data.pkl')
@@ -359,7 +245,117 @@ def run_single(
             action_names=action_names,
             ),
       )
+
     elif alg_name == 'dynaq':
+      import distrax
+      sim_policy = config['SIM_POLICY']
+      num_simulations = config['NUM_SIMULATIONS']
+      if sim_policy == 'gamma':
+        temp_dist = distrax.Gamma(
+          concentration=config["TEMP_CONCENTRATION"],
+          rate=config["TEMP_RATE"])
+
+        rng, rng_ = jax.random.split(rng)
+        temperatures = temp_dist.sample(
+            seed=rng_,
+            sample_shape=(num_simulations - 1,))
+        temperatures = jnp.concatenate((temperatures, jnp.array((1e-5,))))
+        greedy_idx = int(temperatures.argmin())
+
+        def simulation_policy(
+            preds: struct.PyTreeNode,
+            sim_rng: jax.Array):
+          q_values = preds.q_vals
+          assert q_values.shape[0] == temperatures.shape[0]
+          logits = q_values / jnp.expand_dims(temperatures, -1)
+          return distrax.Categorical(
+              logits=logits).sample(seed=sim_rng)
+
+      elif sim_policy == 'epsilon':
+        epsilon_setting = config['SIM_EPSILON_SETTING']
+        if epsilon_setting == 1:
+          vals = np.logspace(
+                    num=256,
+                    start=1,
+                    stop=3,
+                    base=.1)
+        elif epsilon_setting == 2:
+           vals = np.logspace(
+                    num=256,
+                    start=.05,
+                    stop=.9,
+                    base=.1)
+        epsilons = jax.random.choice(
+            rng, vals, shape=(num_simulations - 1,))
+        epsilons = jnp.concatenate((jnp.zeros(1), epsilons))
+        greedy_idx = int(epsilons.argmin())
+
+        def simulation_policy(
+            preds: struct.PyTreeNode,
+            sim_rng: jax.Array):
+            q_values = preds.q_vals
+            assert q_values.shape[0] == epsilons.shape[0]
+            sim_rng = jax.random.split(sim_rng, q_values.shape[0])
+            return jax.vmap(qlearning.epsilon_greedy_act, in_axes=(0, 0, 0))(
+               q_values, epsilons, sim_rng)
+
+      else:
+        raise NotImplementedError
+
+      def make_init_offtask_timestep(x: maze.TimeStep, offtask_w: jax.Array):
+          task_object = (task_objects*offtask_w).sum(-1)
+          task_object = task_object.astype(jnp.int32)
+          new_state = x.state.replace(
+              step_num=jnp.zeros_like(x.state.step_num),
+              task_w=offtask_w,
+              task_object=task_object,  # only used for logging
+              is_train_task=jnp.full(x.reward.shape, False),
+          )
+          return x.replace(
+              state=new_state,
+              observation=jax.vmap(jax.vmap(env.make_observation))(
+                  new_state, x.observation.prev_action),
+              # reset reward, discount, step type
+              reward=jnp.zeros_like(x.reward),
+              discount=jnp.ones_like(x.discount),
+              step_type=jnp.ones_like(x.step_type),
+          )
+
+
+      make_train = functools.partial(
+          vbb.make_train,
+          make_agent=functools.partial(
+            offtask_dyna.make_agent,
+            ObsEncoderCls=HouzemazeObsEncoder,
+            model_env_params=test_env_params.replace(
+               p_test_sample_train=jnp.array(.0),
+            )
+            ),
+          make_optimizer=offtask_dyna.make_optimizer,
+          make_loss_fn_class=functools.partial(
+            offtask_dyna.make_loss_fn_class,
+            online_coeff=config['ONLINE_COEFF'],
+            dyna_coeff=0.0,
+            ),
+          make_actor=offtask_dyna.make_actor,
+          make_logger=functools.partial(
+            make_logger,
+            render_fn=housemaze_render_fn,
+            extract_task_info=extract_task_info,
+            get_task_name=task_from_variables,
+            action_names=action_names,
+            learner_log_extra=functools.partial(
+              offtask_dyna.learner_log_extra,
+              config=config,
+              action_names=action_names,
+              extract_task_info=extract_task_info,
+              get_task_name=task_from_variables,
+              render_fn=housemaze_render_fn,
+              sim_idx=greedy_idx,
+              )),
+      )
+
+    elif alg_name == 'dynaq_replay':
       import distrax
       from projects.humansf import train_extra_replay
       sim_policy = config['SIM_POLICY']
