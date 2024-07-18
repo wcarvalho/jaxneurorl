@@ -1,24 +1,21 @@
 
 import jax.numpy as jnp
+import jax.tree_util as jtu
 import numpy as np
 import os.path
 
-from jaxhousemaze import levels
-from jaxhousemaze import renderer
-
-from projects.humansf import housemaze_env as maze
+from housemaze import levels
+from housemaze.human_dyna import utils as housemaze_utils
+from housemaze.human_dyna import env as maze
 
 def load_env_params(
       num_groups: int,
       max_objects: int = 3,
-      file: str = 'list_of_groups.npy',
+      file: str = None,
       large_only: bool = False,
     ):
     # load groups
-    if os.path.exists(file):
-      list_of_groups = np.load(file)
-    else:
-      raise RuntimeError(f"Missing file specifying groups for maze: {file}")
+    list_of_groups = housemaze_utils.load_groups(file)
 
     group_set = list_of_groups[0]
     assert num_groups <= 3
@@ -120,11 +117,9 @@ def exp1(config):
     num_groups = config['rlenv']['ENV_KWARGS'].pop('NUM_GROUPS', 3)
     group_set, env_params = load_env_params(
         num_groups=num_groups,
-        file='projects/humansf/housemaze_list_of_groups.npy',
        )
     _, test_env_params = load_env_params(
         num_groups=num_groups,
-        file='projects/humansf/housemaze_list_of_groups.npy',
         large_only=True,
        )
 
@@ -132,17 +127,17 @@ def exp1(config):
        training=False,
       )
     
-    return env_params, test_env_params
+    task_objects = group_set.reshape(-1)
+
+    return env_params, test_env_params, task_objects
 
 def exp2(config):
     num_groups = config['rlenv']['ENV_KWARGS'].pop('NUM_GROUPS', 3)
     group_set, env_params = load_env_params(
         num_groups=num_groups,
-        file='projects/humansf/housemaze_list_of_groups.npy',
        )
     _, test_env_params = load_env_params(
         num_groups=num_groups,
-        file='projects/humansf/housemaze_list_of_groups.npy',
         large_only=True,
        )
 

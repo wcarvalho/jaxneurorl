@@ -24,7 +24,7 @@ from flax import struct
 import functools
 import jax.numpy as jnp
 import time
-import jax.tree_util as jtu
+
 
 import hydra
 from omegaconf import DictConfig
@@ -38,6 +38,7 @@ import numpy as np
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']='false'
 
 
+from agents import value_based_basics as vbb
 from library import launcher
 from library import utils
 from library import loggers
@@ -47,12 +48,12 @@ from projects.humansf import qlearning
 from projects.humansf import offtask_dyna
 from projects.humansf import networks
 from projects.humansf import observers as humansf_observers
-from projects.humansf import housemaze_env as maze
+
+from housemaze import renderer
+from housemaze import utils as housemaze_utils
+from housemaze.human_dyna import env as maze
+
 from projects.humansf import housemaze_experiments
-
-from projects.humansf.housemaze import utils as housemaze_utils
-from agents import value_based_basics as vbb
-
 
 
 def make_logger(
@@ -89,17 +90,15 @@ def run_single(
     ###################
     # load data
     ###################
-    exp = config.get('exp')
+    exp = config['rlenv']['ENV_KWARGS'].pop('exp')
     try:
       exp_fn = getattr(housemaze_experiments, exp, None)
     except Exception as e:
       raise RuntimeError(exp)
 
-    env_params, test_env_params = exp_fn(config)
+    env_params, test_env_params, task_objects = exp_fn(config)
 
-
-    image_dict = housemaze_utils.load_image_dict(
-        'projects/humansf/housemaze/image_data.pkl')
+    image_dict = housemaze_utils.load_image_dict()
     # Reshape the images to separate the blocks
     images = image_dict['images']
     reshaped = images.reshape(len(images), 8, 4, 8, 4, 3)
@@ -110,9 +109,7 @@ def run_single(
     ###################
     # load env
     ###################
-    task_objects = group_set.reshape(-1)
-    task_runner = maze.TaskRunner(
-        task_objects=task_objects)
+    task_runner = maze.TaskRunner(task_objects=task_objects)
     keys = image_dict['keys']
     env = maze.HouseMaze(
         task_runner=task_runner,
@@ -563,7 +560,7 @@ def sweep(search: str = ''):
             "NUM_MLP_LAYERS": {'values': [0]},
             "AGENT_RNN_DIM": {'values': [128, 256]},
             "NUM_Q_LAYERS": {'values': [1, 2, 3]},
-            #"NUM_EXTRA_REPLAY": {'values': [50_000]},
+            "env.exp": {'values': ['exp1']},
             #'LR_LINEAR_DECAY': {'values': [False, True]},
         },
         'overrides': ['alg=dyna_replay_split',

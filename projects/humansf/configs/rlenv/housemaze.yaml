@@ -9,3 +9,5 @@
 "NUM_MLP_LAYERS": 0
 "AGENT_RNN_DIM": 256
 "ACTIVATION": 'leaky_relu'
+
+'exp': 'exp1'
