@@ -6,7 +6,7 @@ import jax
 from typing import Optional, Callable
 
 
-import ml.housemaze_env as maze
+from housemaze.human_dyna import env as maze
 
 ############
 # Structures for storing data

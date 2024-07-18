@@ -1,6 +1,5 @@
 
 import os
-import env
 import webrl
 
 from typing import NamedTuple
@@ -10,9 +9,10 @@ import jax.numpy as jnp
 
 from webrl import jax_utils
 
-import ml.housemaze_env as maze
-from ml import housemaze_utils
-import mazes
+from housemaze.human_dyna import env as maze
+from housemaze.human_dyna import utils
+from housemaze.human_dyna import mazes
+
 
 from dotenv import load_dotenv
 
@@ -24,8 +24,7 @@ DEBUG_SEED = os.environ.get('DEBUG_SEED', 1)
 # Set up environment
 ############
 
-file = 'ml/housemaze_list_of_groups.npy'
-list_of_groups = np.load(file)
+list_of_groups = utils.load_groups()
 
 
 def make_env_params(maze_str: str, group_set):
@@ -45,8 +44,7 @@ env3_params = make_env_params(mazes.maze3, list_of_groups[3])
 env4_params = make_env_params(mazes.maze4, list_of_groups[4])
 
 
-image_data = housemaze_utils.load_image_dict(
-    'ml/housemaze/image_data.pkl')
+image_data = utils.load_image_dict()
 json_image_data = jax_utils.convert_to_serializable(image_data)
 
 task_objects = list_of_groups[:5].reshape(-1)
@@ -60,7 +58,7 @@ jax_env = maze.HouseMaze(
     num_categories=len(keys),
     use_done=True,
 )
-jax_env = housemaze_utils.AutoResetWrapper(jax_env)
+jax_env = utils.AutoResetWrapper(jax_env)
 
 
 class KeyParser(NamedTuple):

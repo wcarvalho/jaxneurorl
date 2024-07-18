@@ -26,11 +26,11 @@ from PIL import Image
 
 from functools import partial
 import web_utils
-from ml.housemaze import levels
-from ml.housemaze import renderer
-import ml.housemaze_env as maze
-from ml import housemaze_utils
-import mazes
+from housemaze import levels
+from housemaze import renderer
+from housemaze.human_dyna import env as maze
+from housemaze.human_dyna import utils as housemaze_utils
+from housemaze.human_dyna import mazes
 
 
 load_dotenv()
