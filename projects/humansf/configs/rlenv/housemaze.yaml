@@ -10,4 +10,4 @@
 "AGENT_RNN_DIM": 256
 "ACTIVATION": 'leaky_relu'
 
-'exp': 'exp1'
+'exp': 'maze1_all'
