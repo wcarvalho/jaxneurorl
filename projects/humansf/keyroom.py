@@ -867,7 +867,7 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
     @partial(jax.jit, static_argnums=(0,))
     def reset(
        self, 
-       key: jax.random.KeyArray,
+       key: jax.random.PRNGKey,
        params: EnvParamsT) -> TimeStep[EnvCarryT]:
         state = self._generate_problem(params, key)
 
@@ -952,7 +952,7 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
         )
 
     def take_action(self,
-             key: jax.random.KeyArray,
+             key: jax.random.PRNGKey,
              timestep: TimeStep[EnvCarryT],
              action: IntOrArray,
              params: EnvParamsT,
@@ -971,7 +971,7 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
 
     @partial(jax.jit, static_argnums=(0,))
     def step(self,
-             key: jax.random.KeyArray,
+             key: jax.random.PRNGKey,
              timestep: TimeStep[EnvCarryT],
              action: IntOrArray,
              params: EnvParamsT,

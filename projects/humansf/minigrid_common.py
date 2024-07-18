@@ -97,7 +97,7 @@ def make_obj(
 #        return self._env.reset(key_, params)
 
 #    def step(self,
-#             key: jax.random.KeyArray,
+#             key: jax.random.PRNGKey,
 #             prior_timestep,
 #             action,
 #             params):

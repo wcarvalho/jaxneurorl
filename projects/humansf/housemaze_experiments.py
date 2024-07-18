@@ -171,11 +171,13 @@ def maze3_open(config):
         group_set=group_set,
         char2key=char2key,
         maze_str=mazes.maze3,
+        label=jnp.array(0),
     )
     main_open_params = mazes.get_maze_reset_params(
         group_set=group_set,
         char2key=char2key,
         maze_str=mazes.maze3_open,
+        label=jnp.array(2),
     )
 
     train_params = pretrain_params + main_params

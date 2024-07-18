@@ -242,7 +242,7 @@ class RnnAgent(nn.Module):
         """Initializes the RNN state."""
         return self.rnn.initialize_carry(*args, **kwargs)
 
-    def __call__(self, rnn_state, x: TimeStep, rng: jax.random.KeyArray):
+    def __call__(self, rnn_state, x: TimeStep, rng: jax.random.PRNGKey):
         x = extract_timestep_input(x)
 
         embedding = self.observation_encoder(x.obs)
@@ -256,7 +256,7 @@ class RnnAgent(nn.Module):
 
         return Predictions(q_vals, rnn_out), new_rnn_state
 
-    def unroll(self, rnn_state, xs: TimeStep, rng: jax.random.KeyArray):
+    def unroll(self, rnn_state, xs: TimeStep, rng: jax.random.PRNGKey):
         # rnn_state: [B]
         # xs: [T, B]
         xs = extract_timestep_input(xs)
@@ -318,7 +318,7 @@ def make_rnn_agent(
         env: environment.Environment,
         env_params: environment.EnvParams,
         example_timestep: TimeStep,
-        rng: jax.random.KeyArray) -> Tuple[nn.Module, Params, vbb.AgentResetFn]:
+        rng: jax.random.PRNGKey) -> Tuple[nn.Module, Params, vbb.AgentResetFn]:
 
     agent = RnnAgent(
         action_dim=env.action_space(env_params).n,
@@ -347,7 +347,7 @@ def make_mlp_agent(
         env: environment.Environment,
         env_params: environment.EnvParams,
         example_timestep: TimeStep,
-        rng: jax.random.KeyArray) -> Tuple[nn.Module, Params, vbb.AgentResetFn]:
+        rng: jax.random.PRNGKey) -> Tuple[nn.Module, Params, vbb.AgentResetFn]:
 
     agent = RnnAgent(
         action_dim=env.action_space(env_params).n,
@@ -386,7 +386,7 @@ def make_loss_fn_class(config) -> vbb.RecurrentLossFn:
      R2D2LossFn,
      discount=config['GAMMA'])
 
-def make_actor(config: dict, agent: Agent, rng: jax.random.KeyArray) -> vbb.Actor:
+def make_actor(config: dict, agent: Agent, rng: jax.random.PRNGKey) -> vbb.Actor:
     fixed_epsilon = config.get('FIXED_EPSILON', 1)
     assert fixed_epsilon in (0, 1, 2)
     if fixed_epsilon:
@@ -419,7 +419,7 @@ def make_actor(config: dict, agent: Agent, rng: jax.random.KeyArray) -> vbb.Acto
         train_state: vbb.TrainState,
         agent_state: jax.Array,
         timestep: TimeStep,
-        rng: jax.random.KeyArray):
+        rng: jax.random.PRNGKey):
         preds, agent_state = agent.apply(
             train_state.params, agent_state, timestep, rng)
 
@@ -432,7 +432,7 @@ def make_actor(config: dict, agent: Agent, rng: jax.random.KeyArray) -> vbb.Acto
         train_state: vbb.TrainState,
         agent_state: jax.Array,
         timestep: TimeStep,
-        rng: jax.random.KeyArray):
+        rng: jax.random.PRNGKey):
         preds, agent_state = agent.apply(
             train_state.params, agent_state, timestep, rng)
 

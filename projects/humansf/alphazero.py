@@ -43,7 +43,7 @@ def make_agent(
         env: environment.Environment,
         env_params: environment.EnvParams,
         example_timestep: TimeStep,
-        rng: jax.random.KeyArray,
+        rng: jax.random.PRNGKey,
         test_env_params: environment.EnvParams,
         ObsEncoderCls: nn.Module = KeyroomObsEncoder,
         ) -> Tuple[nn.Module, Params, vbb.AgentResetFn]:

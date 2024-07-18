@@ -12,7 +12,7 @@ python projects/humansf/trainer_housemaze.py \
   app.parallel=sbatch \
   app.time='0-03:00:00' \
   app.wandb_search=True \
-  app.search=dynaq \
+  app.search=dynaq_shared
 """
 from typing import Any, Callable, Dict, Union, Optional
 
@@ -157,7 +157,9 @@ def run_single(
       label = '1.train' if is_train_task else '0.TEST'
       setting = {
          0: 'L',
-         1: 'S'}[int(current_label)]
+         1: 'S',
+         2: 'L-open',
+         }[int(current_label)]
       return f'{label} - {setting} - {category}'
 
     observer_class = functools.partial(
@@ -243,7 +245,7 @@ def run_single(
             ),
       )
 
-    elif alg_name == 'dynaq':
+    elif alg_name == 'dynaq_shared':
       import distrax
       sim_policy = config['SIM_POLICY']
       num_simulations = config['NUM_SIMULATIONS']
@@ -317,8 +319,6 @@ def run_single(
               discount=jnp.ones_like(x.discount),
               step_type=jnp.ones_like(x.step_type),
           )
-
-
       make_train = functools.partial(
           vbb.make_train,
           make_agent=functools.partial(
@@ -328,12 +328,14 @@ def run_single(
                p_test_sample_train=jnp.array(.0),
             )
             ),
-          make_optimizer=offtask_dyna.make_optimizer,
           make_loss_fn_class=functools.partial(
             offtask_dyna.make_loss_fn_class,
+            make_init_offtask_timestep=make_init_offtask_timestep,
+            simulation_policy=simulation_policy,
             online_coeff=config['ONLINE_COEFF'],
-            dyna_coeff=0.0,
+            dyna_coeff=config.get('DYNA_COEFF', 1.0),
             ),
+          make_optimizer=qlearning.make_optimizer,
           make_actor=offtask_dyna.make_actor,
           make_logger=functools.partial(
             make_logger,
@@ -524,15 +526,16 @@ def sweep(search: str = ''):
             'goal': 'maximize',
         },
         'parameters': {
-            'EMBED_HIDDEN_DIM': {'values': [32, 64, 128]},
-            #'MLP_HIDDEN_DIM': {'values': [256, 512]},
-            'NUM_MLP_LAYERS': {'values': [0, 1]},
-            'ACTIVATION': {'values': ['leaky_relu', 'relu', 'tanh']},
+            "env.exp": {'values': [
+              'maze3_open',
+              'maze1_all',
+            ]},
+
         },
         'overrides': ['alg=ql',
                       'rlenv=housemaze',
                       'user=wilka'],
-        'group': 'ql-size-7',
+        'group': 'ql-8',
     }
   elif search == 'alpha':
     sweep_config = {
@@ -545,7 +548,30 @@ def sweep(search: str = ''):
             'TOTAL_TIMESTEPS': {'values': [5e6]},
         }
     }
-  elif search == 'dynaq':
+  elif search == 'dynaq_shared':
+    sweep_config = {
+       'metric': {
+            'name': 'evaluator_performance/0.0 avg_episode_return',
+            'goal': 'maximize',
+        },
+        'parameters': {
+            #'TOTAL_TIMESTEPS': {'values': [5e6]},
+            #'ACTIVATION': {'values': ['leaky_relu', 'relu', 'tanh']},
+            'DYNA_COEFF': {'values': [1., .1, .01]},
+            "BUFFER_BATCH_SIZE": {'values': [32, 64, 128]},
+            "SIM_EPSILON_SETTING": {'values': [1, 2]},
+            "env.exp": {'values': [
+              'maze3_open',
+              'maze1_all',
+            ]},
+            'ALG': {'values': ['dynaq_shared']},
+        },
+        'overrides': ['alg=dyna',
+                      'rlenv=housemaze',
+                      'user=wilka'],
+        'group': 'dynaq_shared-1',
+    }
+  elif search == 'dynaq_replay':
     sweep_config = {
        'metric': {
             'name': 'evaluator_performance/0.0 avg_episode_return',

@@ -272,7 +272,7 @@ class AlphaZeroAgent(nn.Module):
         """Initializes the RNN state."""
         return self.rnn.initialize_carry(*args, **kwargs)
 
-    def __call__(self, rnn_state, x: TimeStep, rng: jax.random.KeyArray) -> Tuple[Predictions, RnnState]:
+    def __call__(self, rnn_state, x: TimeStep, rng: jax.random.PRNGKey) -> Tuple[Predictions, RnnState]:
 
         embedding = self.observation_encoder(x.observation)
 
@@ -292,7 +292,7 @@ class AlphaZeroAgent(nn.Module):
 
         return predictions, new_rnn_state
 
-    def unroll(self, rnn_state, xs: TimeStep, rng: jax.random.KeyArray) -> Tuple[Predictions, RnnState]:
+    def unroll(self, rnn_state, xs: TimeStep, rng: jax.random.PRNGKey) -> Tuple[Predictions, RnnState]:
         # rnn_state: [B]
         # xs: [T, B]
 
@@ -318,7 +318,7 @@ class AlphaZeroAgent(nn.Module):
           self,
           state: AgentState,
           action: jnp.ndarray,
-          rng: jax.random.KeyArray,
+          rng: jax.random.PRNGKey,
           evaluation: bool = False,
       ) -> Tuple[Predictions, RnnState]:
         """This applies the model to each element in the state, action vectors.
@@ -347,7 +347,7 @@ def make_agent(
         env: environment.Environment,
         env_params: environment.EnvParams,
         example_timestep: TimeStep,
-        rng: jax.random.KeyArray,
+        rng: jax.random.PRNGKey,
         test_env_params: Optional[environment.EnvParams] = None,
         ) -> Tuple[nn.Module, Params, vbb.AgentResetFn]:
 
@@ -408,7 +408,7 @@ def make_loss_fn_class(
 def make_actor(
       config: dict,
       agent: nn.Module,
-      rng: jax.random.KeyArray,
+      rng: jax.random.PRNGKey,
       discretizer: utils.Discretizer,
       mcts_policy: mctx.gumbel_muzero_policy,
       eval_mcts_policy: Optional[mctx.gumbel_muzero_policy] = None,
@@ -420,7 +420,7 @@ def make_actor(
             train_state: vbb.TrainState,
             agent_state: jax.Array,
             timestep: TimeStep,
-            rng: jax.random.KeyArray,
+            rng: jax.random.PRNGKey,
             evaluation: bool = False,
             ):
         """

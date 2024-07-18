@@ -81,7 +81,7 @@ def make_train(
            env.step, in_axes=(0, 0, 0, None))(
            jax.random.split(rng, config["NUM_ENVS"]), env_state, action, env_params)
 
-    def train(rng: jax.random.KeyArray):
+    def train(rng: jax.random.PRNGKey):
         logger = make_logger(config, env, train_env_params)
 
         ##############################

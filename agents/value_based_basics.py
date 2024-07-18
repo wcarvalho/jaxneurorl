@@ -70,7 +70,7 @@ from library import loggers
 Config = Dict
 Action = flax.struct.PyTreeNode
 Agent = nn.Module
-PRNGKey = jax.random.KeyArray
+PRNGKey = jax.random.PRNGKey
 Params = flax.core.FrozenDict
 AgentState = flax.struct.PyTreeNode
 Predictions = flax.struct.PyTreeNode
@@ -100,7 +100,7 @@ class RunnerState(NamedTuple):
     train_state: TrainState
     timestep: TimeStep
     agent_state: jax.Array
-    rng: jax.random.KeyArray
+    rng: jax.random.PRNGKey
     observer_state: Optional[flax.struct.PyTreeNode] = None
     buffer_state: Optional[fbx.trajectory_buffer.TrajectoryBufferState] = None
 
@@ -379,7 +379,7 @@ class DummyRNN(nn.Module):
 
 AgentResetFn = Callable[[Params, TimeStep], AgentState]
 EnvResetFn = Callable[[PRNGKey, EnvParams], TimeStep]
-MakeAgentFn = Callable[[Config, Env, EnvParams, TimeStep, jax.random.KeyArray],
+MakeAgentFn = Callable[[Config, Env, EnvParams, TimeStep, jax.random.PRNGKey],
                        Tuple[nn.Module, Params, AgentResetFn]]
 MakeOptimizerFn = Callable[[Config], optax.GradientTransformation]
 MakeLossFnClass = Callable[[Config], RecurrentLossFn]
@@ -466,7 +466,7 @@ def collect_trajectory(
 
 def learn_step(
         train_state: CustomTrainState,
-        rng: jax.random.KeyArray,
+        rng: jax.random.PRNGKey,
         buffer,
         buffer_state,
         loss_fn,
@@ -642,7 +642,7 @@ def make_train(
            env.step, in_axes=(0, 0, 0, None))(
            jax.random.split(rng, config["NUM_ENVS"]), env_state, action, env_params)
 
-    def train(rng: jax.random.KeyArray):
+    def train(rng: jax.random.PRNGKey):
         logger = make_logger(config, env, train_env_params)
 
         ##############################

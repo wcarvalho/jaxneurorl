@@ -738,7 +738,7 @@ class DynaAgentEnvModel(nn.Module):
         """Initializes the RNN state."""
         return self.rnn.initialize_carry(*args, **kwargs)
 
-    def __call__(self, rnn_state, x: TimeStep, rng: jax.random.KeyArray) -> Tuple[Predictions, RnnState]:
+    def __call__(self, rnn_state, x: TimeStep, rng: jax.random.PRNGKey) -> Tuple[Predictions, RnnState]:
 
         embedding = self.observation_encoder(x.observation)
 
@@ -756,7 +756,7 @@ class DynaAgentEnvModel(nn.Module):
 
         return predictions, new_rnn_state
 
-    def unroll(self, rnn_state, xs: TimeStep, rng: jax.random.KeyArray) -> Tuple[Predictions, RnnState]:
+    def unroll(self, rnn_state, xs: TimeStep, rng: jax.random.PRNGKey) -> Tuple[Predictions, RnnState]:
         # rnn_state: [B]
         # xs: [T, B]
 
@@ -782,7 +782,7 @@ class DynaAgentEnvModel(nn.Module):
           self,
           state: AgentState,
           action: jnp.ndarray,
-          rng: jax.random.KeyArray,
+          rng: jax.random.PRNGKey,
       ) -> Tuple[Predictions, RnnState]:
         """This applies the model to each element in the state, action vectors.
         Args:
@@ -809,7 +809,7 @@ class DynaAgentEnvModel(nn.Module):
         self,
         state: AgentState,
         actions: jnp.ndarray,
-        rng: jax.random.KeyArray,
+        rng: jax.random.PRNGKey,
     ) -> Tuple[Predictions, RnnState]:
         """This applies the model recursively to the state using the sequence of actions.
         Args:
@@ -844,7 +844,7 @@ def make_agent(
         env: environment.Environment,
         env_params: environment.EnvParams,
         example_timestep: TimeStep,
-        rng: jax.random.KeyArray,
+        rng: jax.random.PRNGKey,
         model_env_params: environment.EnvParams,
         ObsEncoderCls: nn.Module = KeyroomObsEncoder,
         ) -> Tuple[nn.Module, Params, vbb.AgentResetFn]:
