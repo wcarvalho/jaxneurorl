@@ -549,9 +549,9 @@ def sweep(search: str = ''):
         'parameters': {
             #'TOTAL_TIMESTEPS': {'values': [5e6]},
             #'ACTIVATION': {'values': ['leaky_relu', 'relu', 'tanh']},
-            'DYNA_COEFF': {'values': [1., .1]},
-            "BUFFER_BATCH_SIZE": {'values': [32, 64, 128, 256]},
-            "SIM_EPSILON_SETTING": {'values': [1, 2]},
+            'NUM_EMBED_LAYERS': {'values': [0, 1]},
+            "AGENT_RNN_DIM": {'values': [128, 256]},
+            "TOTAL_TIMESTEPS": {'values': [30_000_000]},
             "env.exp": {'values': [
               'maze3_open',
               #'maze1_all',
@@ -561,7 +561,7 @@ def sweep(search: str = ''):
         'overrides': ['alg=dyna',
                       'rlenv=housemaze',
                       'user=wilka'],
-        'group': 'dynaq_shared-4',
+        'group': 'dynaq_shared-5',
     }
   elif search == 'alpha':
     sweep_config = {
