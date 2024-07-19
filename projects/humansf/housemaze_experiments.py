@@ -195,3 +195,39 @@ def maze3_open(config):
     ).replace(training=False)
 
     return train_params, test_params, task_objects
+
+
+def maze3_randomize(config):
+    """Maze 3: testing if open space is skipped. should be."""
+    num_groups = config['rlenv']['ENV_KWARGS'].pop('NUM_GROUPS', 1)
+    char2key, group_set, task_objects = get_group_set(num_groups)
+
+    pretrain_params = mazes.get_pretraining_reset_params(
+        group_set=group_set,
+    )
+    main_params = mazes.get_maze_reset_params(
+        group_set=group_set,
+        char2key=char2key,
+        maze_str=mazes.maze3,
+    )
+    main_open_params = mazes.get_maze_reset_params(
+        group_set=group_set,
+        char2key=char2key,
+        maze_str=mazes.maze3_open,
+    )
+
+    train_params = pretrain_params + main_params
+    train_params = maze.EnvParams(
+        randomize_agent=True,
+        reset_params=jtu.tree_map(
+            lambda *v: jnp.stack(v), *train_params),
+    )
+
+    test_params = main_params + main_open_params
+    test_params = maze.EnvParams(
+        training=False,
+        reset_params=jtu.tree_map(
+            lambda *v: jnp.stack(v), *test_params),
+    )
+
+    return train_params, test_params, task_objects

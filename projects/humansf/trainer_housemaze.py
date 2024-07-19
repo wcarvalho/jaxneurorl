@@ -589,7 +589,11 @@ def sweep(search: str = ''):
             "NUM_MLP_LAYERS": {'values': [0]},
             "AGENT_RNN_DIM": {'values': [128, 256]},
             "NUM_Q_LAYERS": {'values': [1, 2, 3]},
-            "env.exp": {'values': ['maze3_open', 'maze1_all']},
+            "env.exp": {'values': [
+              #'maze3_randomize',
+              'maze3_open',
+              'maze1_all',
+            ]},
             #'LR_LINEAR_DECAY': {'values': [False, True]},
         },
         'overrides': ['alg=dyna_replay_split',
