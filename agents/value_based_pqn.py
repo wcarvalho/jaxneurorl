@@ -589,7 +589,8 @@ class MLP(nn.Module):
     x = nn.Dense(self.out_dim or self.hidden_dim, use_bias=False)(x)
 
     if self.activate_final:
-       x = activation_fn(x)
+        x = normalize(x)
+        x = activation_fn(x)
 
     return x
 
@@ -609,18 +610,9 @@ class RnnAgent(nn.Module):
         _type_: _description_
     """
 
-    action_dim: int
     observation_encoder: nn.Module
     rnn: ScannedRNN
-    norm_qfn: str = 'none'
-
-    def setup(self):
-
-        self.q_fn = MLP(
-            hidden_dim=512,
-            num_layers=1,
-            norm_type=self.norm_qfn,
-            out_dim=self.action_dim)
+    q_fn: nn.Module
 
     def initialize(self, x: TimeStep):
         """Only used for initialization."""
@@ -931,16 +923,21 @@ def make_agent(
         )
     if ObsEncoderCls is None:
         ObsEncoderCls = lambda: MLP(
-            hidden_dim=256,
-            num_layers=3,
-            norm_type='layer_norm',
+            hidden_dim=config.get("MLP_HIDDEN_DIM", 256),
+            num_layers=config.get("NUM_MLP_LAYERS", 3),
+            norm_type=config.get("NORM_TYPE", 'layer_norm'),
             )
 
     agent = RnnAgent(
         observation_encoder=ObsEncoderCls(),
-        action_dim=env.num_actions(env_params),
         rnn=rnn,
-        norm_qfn=config.get("NORM_QFN", 'none')
+        q_fn=MLP(
+            hidden_dim=512,
+            num_layers=config['NUM_Q_LAYERS'],
+            norm_type=config.get("NORM_QFN", 'layer_norm'),
+            out_dim=env.num_actions(env_params),
+            activate_final=False,
+        )
     )
 
     rng, _rng = jax.random.split(rng)

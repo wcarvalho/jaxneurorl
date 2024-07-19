@@ -240,6 +240,7 @@ class CategoricalHouzemazeObsEncoder(nn.Module):
             )(all_flattened)
         embedding = flatten(embedding)
         embedding = norm(embedding)
+
         embedding = MLP(
             self.mlp_hidden_dim,
             self.num_embed_layers,

@@ -578,14 +578,18 @@ def sweep(search: str = ''):
             ]},
             "EPS_ADAM": {'values': [1e-8, 1e-5]},
             "FIXED_EPSILON": {'values': [0, 2]},
+            "LR": {'values': [1e-3, 0.0003]},
+            #"NUM_MLP_LAYERS": {'values': [0, 1, 2]},
+            #"NUM_Q_LAYERS": {'values': [0, 1, 2]},
             "NORM_TYPE": {'values': ['layer_norm', 'none']},
             "NORM_QFN": {'values': ['layer_norm', 'none']},
             "LR_LINEAR_DECAY": {'values': [True, False]},
+            "TOTAL_TIMESTEPS": {'values': [100_000_000]},
         },
         'overrides': ['alg=pqn',
                       'rlenv=housemaze',
                       'user=wilka'],
-        'group': 'pqn-2',
+        'group': 'pqn-6',
     }
   elif search == 'dynaq_shared':
     sweep_config = {
@@ -598,7 +602,7 @@ def sweep(search: str = ''):
             #'ACTIVATION': {'values': ['leaky_relu', 'relu', 'tanh']},
             'NUM_EMBED_LAYERS': {'values': [0, 1]},
             "AGENT_RNN_DIM": {'values': [128, 256]},
-            "TOTAL_TIMESTEPS": {'values': [30_000_000]},
+            "TOTAL_TIMESTEPS": {'values': [100_000_000]},
             "env.exp": {'values': [
               'maze3_open',
               #'maze1_all',
