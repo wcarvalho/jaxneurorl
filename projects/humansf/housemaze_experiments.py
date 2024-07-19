@@ -145,6 +145,7 @@ def maze1_all(config):
         group_set=group_set,
         char2key=char2key,
         maze_str=mazes.maze1,
+        curriculum=True,
     )
     train_params = maze.EnvParams(
         reset_params=jtu.tree_map(
@@ -172,6 +173,7 @@ def maze3_open(config):
         char2key=char2key,
         maze_str=mazes.maze3,
         label=jnp.array(0),
+        curriculum=True,
     )
     main_open_params = mazes.get_maze_reset_params(
         group_set=group_set,

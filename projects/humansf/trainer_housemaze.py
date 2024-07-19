@@ -325,7 +325,7 @@ def run_single(
             offtask_dyna.make_agent,
             ObsEncoderCls=HouzemazeObsEncoder,
             model_env_params=test_env_params.replace(
-               p_test_sample_train=jnp.array(.0),
+               p_test_sample_train=jnp.array(.5),
             )
             ),
           make_loss_fn_class=functools.partial(
@@ -528,14 +528,40 @@ def sweep(search: str = ''):
         'parameters': {
             "env.exp": {'values': [
               'maze3_open',
-              'maze1_all',
+              #'maze1_all',
             ]},
+            "AGENT_RNN_DIM": {'values': [128, 256]},
+            "MLP_HIDDEN_DIM": {'values': [512, 256]},
+            "NUM_Q_LAYERS": {'values': [1, 2]},
 
         },
         'overrides': ['alg=ql',
                       'rlenv=housemaze',
                       'user=wilka'],
-        'group': 'ql-8',
+        'group': 'ql-13',
+    }
+  elif search == 'dynaq_shared':
+    sweep_config = {
+       'metric': {
+            'name': 'evaluator_performance/0.0 avg_episode_return',
+            'goal': 'maximize',
+        },
+        'parameters': {
+            #'TOTAL_TIMESTEPS': {'values': [5e6]},
+            #'ACTIVATION': {'values': ['leaky_relu', 'relu', 'tanh']},
+            'DYNA_COEFF': {'values': [1., .1]},
+            "BUFFER_BATCH_SIZE": {'values': [32, 64, 128, 256]},
+            "SIM_EPSILON_SETTING": {'values': [1, 2]},
+            "env.exp": {'values': [
+              'maze3_open',
+              #'maze1_all',
+            ]},
+            'ALG': {'values': ['dynaq_shared']},
+        },
+        'overrides': ['alg=dyna',
+                      'rlenv=housemaze',
+                      'user=wilka'],
+        'group': 'dynaq_shared-4',
     }
   elif search == 'alpha':
     sweep_config = {
@@ -547,29 +573,6 @@ def sweep(search: str = ''):
             "config_name": {'values': ['alpha_housemaze']},
             'TOTAL_TIMESTEPS': {'values': [5e6]},
         }
-    }
-  elif search == 'dynaq_shared':
-    sweep_config = {
-       'metric': {
-            'name': 'evaluator_performance/0.0 avg_episode_return',
-            'goal': 'maximize',
-        },
-        'parameters': {
-            #'TOTAL_TIMESTEPS': {'values': [5e6]},
-            #'ACTIVATION': {'values': ['leaky_relu', 'relu', 'tanh']},
-            'DYNA_COEFF': {'values': [1., .1, .01]},
-            "BUFFER_BATCH_SIZE": {'values': [32, 64, 128]},
-            "SIM_EPSILON_SETTING": {'values': [1, 2]},
-            "env.exp": {'values': [
-              'maze3_open',
-              'maze1_all',
-            ]},
-            'ALG': {'values': ['dynaq_shared']},
-        },
-        'overrides': ['alg=dyna',
-                      'rlenv=housemaze',
-                      'user=wilka'],
-        'group': 'dynaq_shared-1',
     }
   elif search == 'dynaq_replay':
     sweep_config = {
