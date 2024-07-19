@@ -8,39 +8,7 @@ import math
 
 from projects.humansf.keyroom import Observation
 
-def get_activation_fn(k: str):
-    if k == 'relu': return nn.relu
-    elif k == 'leaky_relu': return nn.leaky_relu
-    elif k == 'tanh': return nn.tanh
-    raise RuntimeError
-
-class Block(nn.Module):
-  features: int
-  activation: str = 'relu'
-
-  @nn.compact
-  def __call__(self, x, _):
-    x = nn.Dense(self.features, use_bias=False)(x)
-    x = get_activation_fn(self.activation)(x)
-    return x, None
-
-class MLP(nn.Module):
-  hidden_dim: int
-  num_layers: int = 1
-  out_dim: Optional[int] = None
-  activation: str = 'relu'
-  activate_final: bool = True
-
-  @nn.compact
-  def __call__(self, x):
-    if self.num_layers == 0: return x
-    for _ in range(self.num_layers-1):
-        x, _ = Block(self.hidden_dim, self.activation)(x, None)
-
-    x = nn.Dense(self.out_dim or self.hidden_dim, use_bias=False)(x)
-    if self.activate_final:
-       x = get_activation_fn(self.activation)(x)
-    return x
+from agents.value_based_pqn import MLP, BatchRenorm, get_activation_fn
 
 class KeyroomObsEncoder(nn.Module):
     """_summary_
@@ -235,11 +203,11 @@ class CategoricalHouzemazeObsEncoder(nn.Module):
     mlp_hidden_dim: int = 256
     num_mlp_layers: int = 0
     num_embed_layers: int = 0
+    norm_type: str = "none"
     activation: str = 'relu'
 
     @nn.compact
-    def __call__(self, obs: Observation):
-        activation = get_activation_fn(self.activation)
+    def __call__(self, obs: Observation, train: bool = False):
         has_batch = obs.image.ndim == 3
         assert obs.image.ndim in (2, 3), 'either [B, H, W] or [H, W]'
         if has_batch:
@@ -248,6 +216,15 @@ class CategoricalHouzemazeObsEncoder(nn.Module):
         else:
             flatten = lambda x: x.reshape(-1)
             expand = lambda x: x[None]
+
+        norm = lambda x: x
+        act = get_activation_fn(self.activation)
+        if self.norm_type == 'layer_norm':
+            norm = lambda x: act(nn.LayerNorm()(x))
+        elif self.norm_type == 'batch_norm':
+            norm = lambda x: act(BatchRenorm(use_running_average=not train)(x))
+        else:
+            raise NotImplementedError(self.norm_type)
 
         all_flattened = jnp.concatenate((
             flatten(obs.image),
@@ -261,10 +238,12 @@ class CategoricalHouzemazeObsEncoder(nn.Module):
             features=self.embed_hidden_dim,
             )(all_flattened)
         embedding = flatten(embedding)
+        embedding = norm(embedding)
 
         embedding = MLP(
             self.mlp_hidden_dim,
             self.num_embed_layers,
+            norm_type=self.norm_type,
             activation=self.activation)(embedding)
 
         if self.include_task:
@@ -273,6 +252,7 @@ class CategoricalHouzemazeObsEncoder(nn.Module):
             task_w = nn.Dense(
                 128, kernel_init=kernel_init,
                 )(obs.task_w.astype(jnp.float32))
+            task_w = norm(task_w)
             outputs = (embedding, task_w)
             outputs = jnp.concatenate(outputs, axis=-1)
         else:
@@ -281,5 +261,7 @@ class CategoricalHouzemazeObsEncoder(nn.Module):
         outputs = MLP(
             self.mlp_hidden_dim,
             self.num_mlp_layers,
+            norm_type=self.norm_type,
             activation=self.activation)(outputs)
+
         return outputs

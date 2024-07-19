@@ -39,6 +39,7 @@ os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']='false'
 
 
 from agents import value_based_basics as vbb
+from agents import value_based_pqn as vpq
 from library import launcher
 from library import utils
 from library import loggers
@@ -126,6 +127,7 @@ def run_single(
         num_embed_layers=config["NUM_EMBED_LAYERS"],
         num_mlp_layers=config['NUM_MLP_LAYERS'],
         activation=config['ACTIVATION'],
+        norm_type=config.get('NORM_TYPE', 'none'),
        )
     ###################
     ## custom observer
@@ -197,6 +199,29 @@ def run_single(
               render_fn=housemaze_render_fn,
               )
             ),
+      )
+    if alg_name == 'pqn':
+      make_train = functools.partial(
+          vpq.make_train,
+          make_agent=functools.partial(
+              vpq.make_agent,
+              ObsEncoderCls=HouzemazeObsEncoder,
+          ),
+          make_logger=functools.partial(
+              make_logger,
+              render_fn=housemaze_render_fn,
+              extract_task_info=extract_task_info,
+              get_task_name=task_from_variables,
+              action_names=action_names,
+              learner_log_extra=functools.partial(
+                  qlearning.learner_log_extra,
+                  config=config,
+                  action_names=action_names,
+                  extract_task_info=extract_task_info,
+                  get_task_name=task_from_variables,
+                  render_fn=housemaze_render_fn,
+              )
+          ),
       )
     elif alg_name == 'alphazero':
       import mctx
@@ -536,6 +561,25 @@ def sweep(search: str = ''):
 
         },
         'overrides': ['alg=ql',
+                      'rlenv=housemaze',
+                      'user=wilka'],
+        'group': 'ql-13',
+    }
+  elif search == 'pqn':
+    sweep_config = {
+        'metric': {
+            'name': 'evaluator_performance/0.0 avg_episode_return',
+            'goal': 'maximize',
+        },
+        'parameters': {
+            "env.exp": {'values': [
+                'maze3_open',
+                # 'maze1_all',
+            ]},
+            "EPS_ADAM": {'values': [1e-8, 1e-5]},
+
+        },
+        'overrides': ['alg=pqn',
                       'rlenv=housemaze',
                       'user=wilka'],
         'group': 'ql-13',
