@@ -217,12 +217,13 @@ class CategoricalHouzemazeObsEncoder(nn.Module):
             flatten = lambda x: x.reshape(-1)
             expand = lambda x: x[None]
 
-        norm = lambda x: x
         act = get_activation_fn(self.activation)
         if self.norm_type == 'layer_norm':
             norm = lambda x: act(nn.LayerNorm()(x))
         elif self.norm_type == 'batch_norm':
             norm = lambda x: act(BatchRenorm(use_running_average=not train)(x))
+        elif self.norm_type == 'none':
+            norm = lambda x: x
         else:
             raise NotImplementedError(self.norm_type)
 
@@ -239,7 +240,6 @@ class CategoricalHouzemazeObsEncoder(nn.Module):
             )(all_flattened)
         embedding = flatten(embedding)
         embedding = norm(embedding)
-
         embedding = MLP(
             self.mlp_hidden_dim,
             self.num_embed_layers,

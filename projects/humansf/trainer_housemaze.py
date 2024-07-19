@@ -200,7 +200,7 @@ def run_single(
               )
             ),
       )
-    if alg_name == 'pqn':
+    elif alg_name == 'pqn':
       make_train = functools.partial(
           vpq.make_train,
           make_agent=functools.partial(
@@ -577,12 +577,15 @@ def sweep(search: str = ''):
                 # 'maze1_all',
             ]},
             "EPS_ADAM": {'values': [1e-8, 1e-5]},
-
+            "FIXED_EPSILON": {'values': [0, 2]},
+            "NORM_TYPE": {'values': ['layer_norm', 'none']},
+            "NORM_QFN": {'values': ['layer_norm', 'none']},
+            "LR_LINEAR_DECAY": {'values': [True, False]},
         },
         'overrides': ['alg=pqn',
                       'rlenv=housemaze',
                       'user=wilka'],
-        'group': 'ql-13',
+        'group': 'pqn-2',
     }
   elif search == 'dynaq_shared':
     sweep_config = {

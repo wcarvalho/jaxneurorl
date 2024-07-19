@@ -1,16 +1,5 @@
 # WANDB PARAMS
-"PROJECT": "housemaze"
-"ENV_NAME": "housemaze"
-"TOTAL_TIMESTEPS": 5_000_000
-"TRAINING_INTERVAL": 5
+PROJECT: "housemaze"
+ENV_NAME: "housemaze"
 
-"EMBED_HIDDEN_DIM": 64
-"NUM_MLP_LAYERS": 0
-"NUM_EMBED_LAYERS": 0
-"MLP_HIDDEN_DIM": 256
-"AGENT_RNN_DIM": 256
-"ACTIVATION": 'leaky_relu'
-"NUM_Q_LAYERS": 2
-
-
-'exp': 'maze1_all'
+exp: 'maze1_all'

@@ -167,7 +167,6 @@ def learner_log_extra(
         q_values_taken = rlax.batched_index(q_values, actions)
         td_errors = d_['td_errors']
         q_loss = d_['q_loss']
-
         # Create a figure with three subplots
         width = .3
         nT = len(rewards)  # e.g. 20 --> 8
@@ -207,7 +206,7 @@ def learner_log_extra(
         # Adjust the spacing between subplots
         #plt.tight_layout()
         # log
-        if wandb.run is not None:
+        if wandb.run is not wandb.sdk.lib.disabled.RunDisabled:
             wandb.log({f"learner_example/q-values": wandb.Image(fig)})
         plt.close(fig)
 
@@ -266,7 +265,7 @@ def learner_log_extra(
             frames=obs_images,
             panel_title_fn=panel_title_fn,
             ncols=6)
-        if wandb.run is not None:
+        if wandb.run is not wandb.sdk.lib.disabled.RunDisabled:
             wandb.log(
                 {f"learner_example/trajecotry": wandb.Image(fig)})
         plt.close(fig)

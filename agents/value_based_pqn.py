@@ -24,12 +24,8 @@ Initialize:
 for some number of updates:
 
     - collect trajectory of length num_steps
-    - update replay buffer with trajectory
-
-    if env_step > learning_state:
-        update learner
-
-    periodically log metrics from evaluation actor + learner:
+    - update learner N times with trajectory
+    - periodically log metrics from evaluation actor + learner:
         (set by LEARNER_LOG_PERIOD)
 
 """
@@ -1031,8 +1027,8 @@ def make_actor(config: dict, agent: Agent, rng: jax.random.PRNGKey) -> Actor:
         explorer = LinearDecayEpsilonGreedy(
             start_e=config["EPSILON_START"],
             end_e=config["EPSILON_FINISH"],
-            duration=config["EPSILON_ANNEAL_TIME"]
-        )
+            duration=(config.get("EPSILON_ANNEAL_TIME") or 
+                config['TOTAL_TIMESTEPS']))
 
     def actor_step(
             train_state: TrainState,
@@ -1372,6 +1368,20 @@ def make_train(
 
         runner_state, _ = jax.lax.scan(
             _train_step, runner_state, None, config["NUM_UPDATES"]
+        )
+        log_performance(
+            config=config,
+            agent_reset_fn=agent_reset_fn,
+            actor_train_step_fn=actor.train_step,
+            actor_eval_step_fn=actor.eval_step,
+            env_reset_fn=vmap_reset,
+            env_step_fn=vmap_step,
+            train_env_params=train_env_params,
+            test_env_params=test_env_params,
+            runner_state=runner_state,
+            observer=eval_observer,
+            observer_state=init_eval_observer_state,
+            logger=logger,
         )
 
         return {"runner_state": runner_state}
