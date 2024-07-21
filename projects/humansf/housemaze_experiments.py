@@ -209,11 +209,13 @@ def maze3_randomize(config):
         group_set=group_set,
         char2key=char2key,
         maze_str=mazes.maze3,
+        randomize_agent=True,
     )
     main_open_params = mazes.get_maze_reset_params(
         group_set=group_set,
         char2key=char2key,
         maze_str=mazes.maze3_open,
+        randomize_agent=True,
     )
 
     train_params = pretrain_params + main_params
@@ -226,6 +228,7 @@ def maze3_randomize(config):
     test_params = main_params + main_open_params
     test_params = maze.EnvParams(
         training=False,
+        randomize_agent=False,
         reset_params=jtu.tree_map(
             lambda *v: jnp.stack(v), *test_params),
     )
