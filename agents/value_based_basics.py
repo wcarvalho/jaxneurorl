@@ -123,9 +123,9 @@ class AcmeBatchData(flax.struct.PyTreeNode):
 
 class CustomTrainState(TrainState):
     target_network_params: flax.core.FrozenDict
-    timesteps: int
-    n_updates: int
-    n_logs: int
+    timesteps: int = 0
+    n_updates: int = 0
+    n_logs: int = 0
 
 ##############################
 # Loss function
@@ -938,6 +938,20 @@ def make_train(
 
         runner_state, _ = jax.lax.scan(
             _train_step, runner_state, None, config["NUM_UPDATES"]
+        )
+        log_performance(
+            config=config,
+            agent_reset_fn=agent_reset_fn,
+            actor_train_step_fn=actor.train_step,
+            actor_eval_step_fn=actor.eval_step,
+            env_reset_fn=vmap_reset,
+            env_step_fn=vmap_step,
+            train_env_params=train_env_params,
+            test_env_params=test_env_params,
+            runner_state=runner_state,
+            observer=eval_observer,
+            observer_state=init_eval_observer_state,
+            logger=logger,
         )
 
         return {"runner_state": runner_state}

@@ -70,13 +70,14 @@ def concat_first_rest(first, rest):
 
 
 def make_optimizer(config: dict) -> optax.GradientTransformation:
-  num_updates = int(config["NUM_UPDATES"] + config["NUM_EXTRA_REPLAY"])
+  num_updates = int(config["NUM_UPDATES"] + config.get("NUM_EXTRA_REPLAY", 0))
 
-  def linear_schedule(count):
-      frac = 1.0 - (count / num_updates)
-      return config["LR"] * frac
+  lr_scheduler = optax.linear_schedule(
+      init_value=config["LR"],
+      end_value=1e-10,
+      transition_steps=num_updates)
 
-  lr = linear_schedule if config.get("LR_LINEAR_DECAY", False) else config["LR"]
+  lr = lr_scheduler if config.get("LR_LINEAR_DECAY", False) else config["LR"]
 
   return optax.chain(
       optax.clip_by_global_norm(config["MAX_GRAD_NORM"]),
