@@ -2,13 +2,13 @@
 
 TESTING:
 JAX_DISABLE_JIT=1 \
-HYDRA_FULL_ERROR=1 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue projects/humansf/trainer_housemaze.py \
+HYDRA_FULL_ERROR=1 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue projects/humansf/housemaze_trainer.py \
   app.debug=True \
   app.wandb=False \
-  app.search=dynaq
+  app.search=dynaq_shared
 
 RUNNING ON SLURM:
-python projects/humansf/trainer_housemaze.py \
+python projects/humansf/housemaze_trainer.py \
   app.parallel=sbatch \
   app.time='0-03:00:00' \
   app.wandb_search=True \
@@ -733,7 +733,8 @@ def sweep(search: str = ''):
             "LR": {'values': [0.0003, 0.0001, 0.00001]},
             "env.exp": {'values': [
               #'maze3_randomize',
-              'maze3_open',
+              #'maze3_open',
+              'maze5_two_paths',
             ]},
             'ALG': {'values': ['dynaq_shared']},
         },

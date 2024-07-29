@@ -44,7 +44,7 @@ NUM_MINIBATCHES: 1
 "MLP_HIDDEN_DIM": 8
 "AGENT_RNN_DIM": 8
 "ACTIVATION": 'leaky_relu'
-"NUM_Q_LAYERS": 1
+"NUM_Q_LAYERS": 0
 
 "ENV_KWARGS":
   time_limit: 4
