@@ -26,7 +26,7 @@ for some number of updates:
     periodically log metrics from evaluation actor + learner:
         (set by LEARNER_LOG_PERIOD)
 
-TODO: 
+TODO:
 - add priorizied replay
 """
 
@@ -70,7 +70,7 @@ from library import loggers
 Config = Dict
 Action = flax.struct.PyTreeNode
 Agent = nn.Module
-PRNGKey = jax.random.KeyArray
+PRNGKey = jax.Array
 Params = flax.core.FrozenDict
 AgentState = flax.struct.PyTreeNode
 Predictions = flax.struct.PyTreeNode
@@ -101,7 +101,7 @@ class RunnerState(NamedTuple):
     observer_state: flax.struct.PyTreeNode
     timestep: TimeStep
     agent_state: jax.Array
-    rng: jax.random.KeyArray
+    rng: jax.Array
     buffer_state: Optional[fbx.trajectory_buffer.TrajectoryBufferState] = None
 
 class AcmeBatchData(flax.struct.PyTreeNode):
@@ -142,7 +142,7 @@ def batch_to_sequence(values: jax.Array) -> jax.Array:
 @struct.dataclass
 class RecurrentLossFn:
   """Recurrent loss function with burn-in structured modelled after R2D2.
-  
+
   https://openreview.net/forum?id=r1lyTjAqYX
   """
 
@@ -377,7 +377,7 @@ class DummyRNN(nn.Module):
 
 AgentResetFn = Callable[[Params, TimeStep], AgentState]
 EnvResetFn = Callable[[PRNGKey, EnvParams], TimeStep]
-MakeAgentFn = Callable[[Config, Env, EnvParams, TimeStep, jax.random.KeyArray],
+MakeAgentFn = Callable[[Config, Env, EnvParams, TimeStep, jax.Array],
                        Tuple[nn.Module, Params, AgentResetFn]]
 MakeOptimizerFn = Callable[[Config], optax.GradientTransformation]
 MakeLossFnClass = Callable[[Config], RecurrentLossFn]
@@ -404,7 +404,7 @@ def collect_trajectory(
 
     def _env_step(rs: RunnerState, unused):
         """_summary_
-        
+
         Buffer is updated with:
         - input agent state: s_{t-1}
         - agent obs input: x_t
@@ -464,7 +464,7 @@ def collect_trajectory(
 
 def learn_step(
         train_state: CustomTrainState,
-        rng: jax.random.KeyArray,
+        rng: jax.Array,
         buffer,
         buffer_state,
         loss_fn,
@@ -566,7 +566,7 @@ def log_performance(
         runner_state.train_state.params,
         init_timestep,
         _rng)
-    
+
     # new runner
     rng, _rng = jax.random.split(rng)
     eval_runner_state = RunnerState(
@@ -637,7 +637,7 @@ def make_train(
            env.step, in_axes=(0, 0, 0, None))(
            jax.random.split(rng, config["NUM_ENVS"]), env_state, action, env_params)
 
-    def train(rng: jax.random.KeyArray):
+    def train(rng: jax.Array):
         logger = make_logger(config, env, train_env_params)
 
         ##############################
@@ -722,7 +722,7 @@ def make_train(
           lambda x: x[0], init_transition)
 
         # [num_envs, max_length, ...]
-        buffer_state = buffer.init(init_transition_example) 
+        buffer_state = buffer.init(init_transition_example)
 
         ##############################
         # INIT Observers
@@ -804,7 +804,7 @@ def make_train(
                 traj_batch
             )
 
-            # update buffer with data of size 
+            # update buffer with data of size
             buffer_state = buffer.add(buffer_state, buffer_traj_batch)
             ##############################
             # 2. Learner update

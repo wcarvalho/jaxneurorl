@@ -59,6 +59,7 @@ gymnax_envs = ['CartPole-v1',
        'Catch-bsuite']
 craftax_envs = ['Craftax-Symbolic-v1']
 
+# Call run_single
 def run_single(
         config: dict,
         save_path: str = None):
@@ -76,8 +77,6 @@ def run_single(
       basic_env = make_craftax_env_from_name(config['ENV_NAME'], auto_reset=True)
       env_params = basic_env.default_params
 
-    import pdb
-    pdb.set_trace()
     env = FlattenObservationWrapper(basic_env)
 
     # converts to using timestep

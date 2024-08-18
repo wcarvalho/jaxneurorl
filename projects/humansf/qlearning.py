@@ -72,7 +72,7 @@ class RnnAgent(nn.Module):
 
         return self(rnn_state, x, rng)
 
-    def __call__(self, rnn_state, x: TimeStep, rng: jax.random.KeyArray):
+    def __call__(self, rnn_state, x: TimeStep, rng: jax.Array):
 
         embedding = self.observation_encoder(x.observation)
 
@@ -84,7 +84,7 @@ class RnnAgent(nn.Module):
 
         return Predictions(q_vals, rnn_out), new_rnn_state
 
-    def unroll(self, rnn_state, xs: TimeStep, rng: jax.random.KeyArray):
+    def unroll(self, rnn_state, xs: TimeStep, rng: jax.Array):
         # rnn_state: [B]
         # xs: [T, B]
 
@@ -107,7 +107,7 @@ def make_agent(
         env: environment.Environment,
         env_params: environment.EnvParams,
         example_timestep: TimeStep,
-        rng: jax.random.KeyArray) -> Tuple[Agent, Params, vbb.AgentResetFn]:
+        rng: jax.Array) -> Tuple[Agent, Params, vbb.AgentResetFn]:
 
     cell_type = config.get('RNN_CELL_TYPE', 'OptimizedLSTMCell')
     if cell_type.lower() == 'none':

@@ -125,3 +125,7 @@ class KeyroomObsEncoder(nn.Module):
            self.num_joint_layers)(outputs)
 
         return outputs
+
+class CraftaxObsEncoder(nn.Module):
+    def __init__(self):
+        pass

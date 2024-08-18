@@ -24,11 +24,25 @@ see guide at: https://jax.readthedocs.io/en/latest/installation.html
 ```
 pip install -U "jax==0.4.20"  "jaxlib==0.4.20"
 ```
+This installs an older JAX version that has been tested to work.
+
+
+**pip install for latest jax:**
+```
+pip install -U "jax[cpu]"
+```
+This installs the latest JAX version and pulls in the dependencies for Jaxlib. Jax install also pulls its own cuda related dependencies so make sure that existing cuda installation is not recognized. The LD_LIBRAR_PATH and PATH environment variables should not contain cuda related paths for existing cuda installations.
 
 **test jax install**
 ```
 TF_CPP_MIN_LOG_LEVEL=0 python -c "import jax; print(f'GPUS: {jax.device_count()}'); jax.random.split(jax.random.PRNGKey(42), 2); print('hello world');"
 ```
+
+**install other requirements**
+```
+pip install -r requirements.txt
+```
+This installs other pacakges that are needed for experiments.
 
 ## Installing other libraries
 

@@ -119,7 +119,7 @@ class TaskRunner(struct.PyTreeNode):
         return jnp.concatenate((grid, padding), axis=-1)
 
     # add dimension with all 1s, since each position here is visible to agent
-    visible_grid = add_visibility_pickup(visible_grid)  
+    visible_grid = add_visibility_pickup(visible_grid)
 
     # acc_in_grid is [num_tasks, num_task_objects]
     acc_in_grid = accomplished_HW(visible_grid, self.task_objects)
@@ -268,15 +268,15 @@ def get_local_agent_position(agent_pos, height, width):
     # Calculate the room size
     room_height = height // 3
     room_width = width // 3
-    
+
     # Calculate the room indices
     room_y = agent_pos[0] // room_height
     room_x = agent_pos[1] // room_width
-    
+
     # Calculate the starting coordinates of the room
     start_x = room_x * room_width
     start_y = room_y * room_height
-    
+
     # Calculate the local position within the room
     local_y = agent_pos[0] - start_y
     local_x = agent_pos[1] - start_x
@@ -352,7 +352,7 @@ def render_room(state: EnvState, render_mode: str = "rgb_array", **kwargs):
     return render(room_grid, localized_agent, **kwargs)
   elif render_mode == "rich_text":
     return text_render(room_grid, localized_agent, **kwargs)
-  else: 
+  else:
      raise NotImplementedError(render_mode)
 
 def prepare_task_variables(maze_config: struct.PyTreeNode):
@@ -792,8 +792,8 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
 
     @partial(jax.jit, static_argnums=(0,))
     def reset(
-       self, 
-       key: jax.random.KeyArray,
+       self,
+       key: jax.Array,
        params: EnvParamsT) -> TimeStep[EnvCarryT]:
         state = self._generate_problem(params, key)
 
@@ -878,7 +878,7 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
         )
 
     def take_action(self,
-             key: jax.random.KeyArray,
+             key: jax.Array,
              timestep: TimeStep[EnvCarryT],
              action: IntOrArray,
              params: EnvParamsT,
@@ -897,7 +897,7 @@ class KeyRoom(Environment[KeyRoomEnvParams, EnvCarry]):
 
     @partial(jax.jit, static_argnums=(0,))
     def step(self,
-             key: jax.random.KeyArray,
+             key: jax.Array,
              timestep: TimeStep[EnvCarryT],
              action: IntOrArray,
              params: EnvParamsT,

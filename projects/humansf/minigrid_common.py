@@ -39,7 +39,7 @@ def position_to_two_hot(local_agent_position, grid_shape):
     # Initialize one-hot vectors
     one_hot_x = jnp.zeros(max_x)
     one_hot_y = jnp.zeros(max_y)
-    
+
     # Set the corresponding positions to 1
     one_hot_x = one_hot_x.at[x].set(1)
     one_hot_y = one_hot_y.at[y].set(1)
@@ -94,7 +94,7 @@ class AutoResetWrapper(Wrapper):
         return self._env.reset(key_, params)
 
     def step(self,
-             key: jax.random.KeyArray,
+             key: jax.Array,
              prior_timestep,
              action,
              params):

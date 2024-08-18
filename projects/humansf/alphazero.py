@@ -63,7 +63,7 @@ def make_agent(
         env: environment.Environment,
         env_params: environment.EnvParams,
         example_timestep: TimeStep,
-        rng: jax.random.KeyArray,
+        rng: jax.Array,
         test_env_params: environment.EnvParams,
         ) -> Tuple[nn.Module, Params, vbb.AgentResetFn]:
 

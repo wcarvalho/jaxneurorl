@@ -72,10 +72,10 @@ def simulate_n_trajectories(
         num_simulations: int = 5,
     ):
     """
-    
+
     return predictions and actions for every time-step including the current one.
 
-    This first applies the model to the current time-step and then simulates T more time-steps. 
+    This first applies the model to the current time-step and then simulates T more time-steps.
     Output is num_steps+1.
 
     Args:
@@ -541,7 +541,7 @@ def learner_log_extra(
         ):
 
     def log_data(
-        key: str, 
+        key: str,
         timesteps: TimeStep,
         actions: np.array,
         td_errors: np.array,
@@ -739,7 +739,7 @@ class DynaAgentEnvModel(nn.Module):
         """Initializes the RNN state."""
         return self.rnn.initialize_carry(*args, **kwargs)
 
-    def __call__(self, rnn_state, x: TimeStep, rng: jax.random.KeyArray) -> Tuple[Predictions, RnnState]:
+    def __call__(self, rnn_state, x: TimeStep, rng: jax.Array) -> Tuple[Predictions, RnnState]:
 
         embedding = self.observation_encoder(x.observation)
 
@@ -757,7 +757,7 @@ class DynaAgentEnvModel(nn.Module):
 
         return predictions, new_rnn_state
 
-    def unroll(self, rnn_state, xs: TimeStep, rng: jax.random.KeyArray) -> Tuple[Predictions, RnnState]:
+    def unroll(self, rnn_state, xs: TimeStep, rng: jax.Array) -> Tuple[Predictions, RnnState]:
         # rnn_state: [B]
         # xs: [T, B]
 
@@ -783,20 +783,20 @@ class DynaAgentEnvModel(nn.Module):
           self,
           state: AgentState,
           action: jnp.ndarray,
-          rng: jax.random.KeyArray,
+          rng: jax.Array,
       ) -> Tuple[Predictions, RnnState]:
         """This applies the model to each element in the state, action vectors.
         Args:
             state (State): states. [B, D]
             action (jnp.ndarray): actions to take on states. [B]
         Returns:
-            Tuple[ModelOutput, State]: muzero outputs and new states for 
+            Tuple[ModelOutput, State]: muzero outputs and new states for
               each state state action pair.
         """
         # take one step forward in the environment
         B = action.shape[0]
         rng, rng_ = jax.random.split(rng)
-        def env_step(s, a, rng_): 
+        def env_step(s, a, rng_):
            return self.env.step(rng_, s.timestep, a, self.env_params)
         next_timestep = jax.vmap(env_step)(
             state, action, jax.random.split(rng_, B))
@@ -810,14 +810,14 @@ class DynaAgentEnvModel(nn.Module):
         self,
         state: AgentState,
         actions: jnp.ndarray,
-        rng: jax.random.KeyArray,
+        rng: jax.Array,
     ) -> Tuple[Predictions, RnnState]:
         """This applies the model recursively to the state using the sequence of actions.
         Args:
             state (State): states. [B, D]
             action (jnp.ndarray): actions to take on states. [T, B]
         Returns:
-            Tuple[ModelOutput, State]: muzero outputs and new states for 
+            Tuple[ModelOutput, State]: muzero outputs and new states for
               each state state action pair.
         """
 
@@ -845,7 +845,7 @@ def make_agent(
         env: environment.Environment,
         env_params: environment.EnvParams,
         example_timestep: TimeStep,
-        rng: jax.random.KeyArray,
+        rng: jax.Array,
         model_env_params: environment.EnvParams,
         ) -> Tuple[nn.Module, Params, vbb.AgentResetFn]:
 

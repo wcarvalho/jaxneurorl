@@ -69,7 +69,7 @@ def model_step(params: Params,
 
 @struct.dataclass
 class AlphaZeroLossFn(vbb.RecurrentLossFn):
-    """Computes AlphaZero loss. 
+    """Computes AlphaZero loss.
     """
     discretizer: utils.Discretizer = None
     lambda_: float = .9
@@ -167,7 +167,7 @@ class AlphaZeroLossFn(vbb.RecurrentLossFn):
         ################
         # metrics
         ################
-        
+
         metrics = {
             "0.0.total_loss": total_loss,
             "0.0.td-error": jnp.abs(td_error),
@@ -272,7 +272,7 @@ class AlphaZeroAgent(nn.Module):
         """Initializes the RNN state."""
         return self.rnn.initialize_carry(*args, **kwargs)
 
-    def __call__(self, rnn_state, x: TimeStep, rng: jax.random.KeyArray) -> Tuple[Predictions, RnnState]:
+    def __call__(self, rnn_state, x: TimeStep, rng: jax.Array) -> Tuple[Predictions, RnnState]:
 
         embedding = self.observation_encoder(x.observation)
 
@@ -292,7 +292,7 @@ class AlphaZeroAgent(nn.Module):
 
         return predictions, new_rnn_state
 
-    def unroll(self, rnn_state, xs: TimeStep, rng: jax.random.KeyArray) -> Tuple[Predictions, RnnState]:
+    def unroll(self, rnn_state, xs: TimeStep, rng: jax.Array) -> Tuple[Predictions, RnnState]:
         # rnn_state: [B]
         # xs: [T, B]
 
@@ -318,7 +318,7 @@ class AlphaZeroAgent(nn.Module):
           self,
           state: AgentState,
           action: jnp.ndarray,
-          rng: jax.random.KeyArray,
+          rng: jax.Array,
           evaluation: bool = False,
       ) -> Tuple[Predictions, RnnState]:
         """This applies the model to each element in the state, action vectors.
@@ -328,7 +328,7 @@ class AlphaZeroAgent(nn.Module):
             action (jnp.ndarray): actions to take on states. [1]
 
         Returns:
-            Tuple[ModelOutput, State]: muzero outputs and new states for 
+            Tuple[ModelOutput, State]: muzero outputs and new states for
               each state state action pair.
         """
         assert action.shape[0] == 1, 'function only accepts batchsize=1 due to inability to vmap over environment. please use vmap to get these dimensions.'
@@ -347,7 +347,7 @@ def make_agent(
         env: environment.Environment,
         env_params: environment.EnvParams,
         example_timestep: TimeStep,
-        rng: jax.random.KeyArray,
+        rng: jax.Array,
         test_env_params: Optional[environment.EnvParams] = None,
         ) -> Tuple[nn.Module, Params, vbb.AgentResetFn]:
 
@@ -408,7 +408,7 @@ def make_loss_fn_class(
 def make_actor(
       config: dict,
       agent: nn.Module,
-      rng: jax.random.KeyArray,
+      rng: jax.Array,
       discretizer: utils.Discretizer,
       mcts_policy: mctx.gumbel_muzero_policy,
       eval_mcts_policy: Optional[mctx.gumbel_muzero_policy] = None,
@@ -420,21 +420,21 @@ def make_actor(
             train_state: vbb.TrainState,
             agent_state: jax.Array,
             timestep: TimeStep,
-            rng: jax.random.KeyArray,
+            rng: jax.Array,
             evaluation: bool = False,
             ):
         """
-        
+
         Note: some weird things. For some reason, I can't vmap
           over the environment when it's being called within MCTS.
-          FIX: vmap over MCTS with each individual call applying the 
-            model (which uses ground-truth env) on a per state-action 
+          FIX: vmap over MCTS with each individual call applying the
+            model (which uses ground-truth env) on a per state-action
             pair basis. In summary:
             Before:
                 - MCTS --> Apply Model --> VMAP(ENV)(state, action)
             Now:
                 - VMAP(MCTS) --> Apply Model --> ENV(state, action)
-            
+
         """
         preds, agent_state = agent.apply(
             train_state.params, agent_state, timestep, rng)

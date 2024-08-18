@@ -5,3 +5,8 @@ tqdm
 rlax
 mctx
 ray[tune]
+hydra-core
+gymnax
+safetensors
+flashbax
+craftax
