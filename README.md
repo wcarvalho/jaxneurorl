@@ -16,7 +16,7 @@ Below is a schematic of the general learning algorithm used in this [codebase](s
 
 1. An environment, optimizer, and neural network are made
    - the environment is typically created in the file that defines training (e.g. [here](singleagent/baselines.py))
-   - the optimizer and neural network are typically algorithm-dependent and in the file defining an agent (e.g. [Q-learning](singleagent/qlearning.py)) 
+   - the optimizer and neural network are typically algorithm-dependent and in the file defining an agent (e.g. [Q-learning](singleagent/qlearning.py))
 2. The networks parameters are initialized. If the algorithm is value-based (e.g. Q-learning), target parameters are also created.
 3. For `n` updates:
    1. A trajectory is collected and added to the buffer.
@@ -27,10 +27,10 @@ Below is a schematic of the general learning algorithm used in this [codebase](s
    2. The agent then performs `K` learning steps using data in the buffer
    3. One can periodically log acting or learning information via wandb with the [logger](library/loggers.py) datastructure.
 
---- 
+---
 ### Defining a new learning algorithm
 The easiest way to define a new learning algorithm is to adapt the `make_train` function [value_based_basics](singleagent/value_based_basics.py).
-`make_train` is a function which creates a `train_function` which is used to train an algorithm. 
+`make_train` is a function which creates a `train_function` which is used to train an algorithm.
 `make_train` accepts as arguments functions for
 
 1. defining the agent's neural network
@@ -39,7 +39,7 @@ The easiest way to define a new learning algorithm is to adapt the `make_train` 
 4. defining the agent's actor class which selects action in response to observations.
 
 The easiest way to create a novel learning algorithm is to define these functions. You can see an example with Q-learning [code](singleagent/qlearning.py#453).
-Note that the common practice in this codebase is to use `functools.partial` to "preload" objects into functions. In this example, we preload the functions that will be used for defining the agent's neural network (`make_rnn_agent`), the agent's optimizer (`make_optimizer`), the agent's loss function (`make_loss_fn_class`), the agent's actor (`make_actor`; here epsilon-greedy), and logger (`make_logger`). You can define your own functions and preload them. 
+Note that the common practice in this codebase is to use `functools.partial` to "preload" objects into functions. In this example, we preload the functions that will be used for defining the agent's neural network (`make_rnn_agent`), the agent's optimizer (`make_optimizer`), the agent's loss function (`make_loss_fn_class`), the agent's actor (`make_actor`; here epsilon-greedy), and logger (`make_logger`). You can define your own functions and preload them.
 
 ```
 import functools
@@ -57,7 +57,36 @@ make_train_preloaded = functools.partial(
 )
 ```
 
+---
+### Setting up a wandb entity
+To enable wandb logging, add a new file to `configs/user` containg the name of the wandb entity associated with your wandb acocunt. To use this entity in logging, copy an existing configuration file from `configs` (e.g., `configs/qlearning`) and replace the user with your user file. Then use this configuration in `baselines.py` or in wandb sweeps.
 
+---
+### Running a test to ensure the setup works correctly
+
+```
+JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue singleagent/baselines.py \
+  --debug=False \
+  --wandb=True \
+  --search=test
+```
+
+This will run a qlearning for the `Catch-bsuite` environment. If the environment is setup correctly, the agent will start training and logging to wandb.
+
+---
+### Running a wandb sweep
+First initialize a wandb sweep on the CLI using a sweep configuration.
+```
+wandb sweep --project jax-neurorl-baselines configs/craftax_sweep_config.yaml
+```
+
+This command will print out a sweep ID. The sweep ID includes the entity name and the project name. Make a note of the sweep ID. Then use the following command to start a wandb sweep agent. To start multiple agents, run the command in new temrinal shells. We can also restrict each sweep over one gpu by specifying the `CUDA_VISIBLE_DEVICES` environment variable.
+
+```
+CUDA_VISIBLE_DEVICES=0 wandb agent <entity>/<project-name>/<sweep_id>
+```
+
+where component within angular braces need to be replaced with project specific names.
 
 
 
