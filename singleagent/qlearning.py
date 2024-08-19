@@ -44,7 +44,7 @@ RNNInput = vbb.RNNInput
 class R2D2LossFn(vbb.RecurrentLossFn):
 
   """Loss function of R2D2.
-  
+
   https://openreview.net/forum?id=r1lyTjAqYX
   """
 
@@ -291,7 +291,7 @@ class LinearDecayEpsilonGreedy:
 
         def explore(q, eps, key):
             key_a, key_e   = jax.random.split(key, 2) # a key for sampling random actions and one for picking
-            greedy_actions = jnp.argmax(q, axis=-1) # get the greedy actions 
+            greedy_actions = jnp.argmax(q, axis=-1) # get the greedy actions
             random_actions = jax.random.randint(key_a, shape=greedy_actions.shape, minval=0, maxval=q.shape[-1]) # sample random actions
             pick_random    = jax.random.uniform(key_e, greedy_actions.shape)<eps # pick which actions should be random
             chosed_actions = jnp.where(pick_random, random_actions, greedy_actions)
@@ -312,7 +312,7 @@ class FixedEpsilonGreedy:
 
         def explore(q, eps, key):
             key_a, key_e   = jax.random.split(key, 2) # a key for sampling random actions and one for picking
-            greedy_actions = jnp.argmax(q, axis=-1) # get the greedy actions 
+            greedy_actions = jnp.argmax(q, axis=-1) # get the greedy actions
             random_actions = jax.random.randint(key_a, shape=greedy_actions.shape, minval=0, maxval=q.shape[-1]) # sample random actions
             pick_random    = jax.random.uniform(key_e, greedy_actions.shape)<eps # pick which actions should be random
             chosed_actions = jnp.where(pick_random, random_actions, greedy_actions)
@@ -332,7 +332,7 @@ def make_rnn_agent(
         action_dim=env.action_space(env_params).n,
         hidden_dim=config["AGENT_HIDDEN_DIM"],
         init_scale=config['AGENT_INIT_SCALE'],
-        rnn=vbb.ScannedRNN(hidden_dim=config["AGENT_HIDDEN_DIM"])
+        rnn=vbb.ScannedRNN(hidden_dim=256) # config["AGENT_HIDDEN_DIM"]
     )
 
     rng, _rng = jax.random.split(rng)
@@ -399,14 +399,14 @@ def make_actor(config: dict, agent: Agent, rng: jax.random.KeyArray) -> vbb.Acto
     assert fixed_epsilon in (0, 1, 2)
     if fixed_epsilon:
         ## BELOW was copied from ACME
-        if fixed_epsilon == 1: 
+        if fixed_epsilon == 1:
             vals = np.logspace(
                     start=config.get('EPSILON_MIN', 1),
                     stop=config.get('EPSILON_MAX', 3),
                     num=config.get('NUM_EPSILONS', 256),
                     base=config.get('EPSILON_BASE', .1))
         else:
-            # BELOW is in range of ~(.9,.1) 
+            # BELOW is in range of ~(.9,.1)
             vals = np.logspace(
                     num=config.get('NUM_EPSILONS', 256),
                     start=config.get('EPSILON_MIN', .05),
