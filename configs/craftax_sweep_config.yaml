@@ -1,0 +1,20 @@
+program: wandb_search.py
+metric:
+  name: reward
+  goal: maximize
+
+method: random
+
+parameters:
+  BUFFER_BATCH_SIZE:
+    values: [32, 64]
+  SAMPLE_LENGTH:
+    values: [40, 80]
+  AGENT_HIDDEN_DIM:
+    values: [1024]
+
+command:
+- ${env}
+- ${interpreter}
+- ${program}
+- ${args_no_hyphens}
