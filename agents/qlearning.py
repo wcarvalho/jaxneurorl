@@ -27,8 +27,8 @@ from gymnax.environments import environment
 
 from library import losses
 from library import loggers
-from singleagent.basics import TimeStep
-from singleagent import value_based_basics as vbb
+from agents.basics import TimeStep
+from agents import value_based_basics as vbb
 
 def extract_timestep_input(timestep: TimeStep):
   return RNNInput(
@@ -242,7 +242,7 @@ class RnnAgent(nn.Module):
         """Initializes the RNN state."""
         return self.rnn.initialize_carry(*args, **kwargs)
 
-    def __call__(self, rnn_state, x: TimeStep, rng: jax.random.KeyArray):
+    def __call__(self, rnn_state, x: TimeStep, rng: jax.random.PRNGKey):
         x = extract_timestep_input(x)
 
         embedding = self.observation_encoder(x.obs)
@@ -256,7 +256,7 @@ class RnnAgent(nn.Module):
 
         return Predictions(q_vals, rnn_out), new_rnn_state
 
-    def unroll(self, rnn_state, xs: TimeStep, rng: jax.random.KeyArray):
+    def unroll(self, rnn_state, xs: TimeStep, rng: jax.random.PRNGKey):
         # rnn_state: [B]
         # xs: [T, B]
         xs = extract_timestep_input(xs)
@@ -271,6 +271,14 @@ class RnnAgent(nn.Module):
         q_vals = self.q_fn(rnn_out)
 
         return Predictions(q_vals, rnn_out), new_rnn_state
+
+def epsilon_greedy_act(q, eps, key):
+    key_a, key_e   = jax.random.split(key, 2) # a key for sampling random actions and one for picking
+    greedy_actions = jnp.argmax(q, axis=-1) # get the greedy actions 
+    random_actions = jax.random.randint(key_a, shape=greedy_actions.shape, minval=0, maxval=q.shape[-1]) # sample random actions
+    pick_random    = jax.random.uniform(key_e, greedy_actions.shape)<eps # pick which actions should be random
+    chosen_actions = jnp.where(pick_random, random_actions, greedy_actions)
+    return chosen_actions
 
 class LinearDecayEpsilonGreedy:
     """Epsilon Greedy action selection"""
@@ -289,17 +297,9 @@ class LinearDecayEpsilonGreedy:
     @partial(jax.jit, static_argnums=0)
     def choose_actions(self, q_vals: jnp.ndarray, t: int, rng: chex.PRNGKey):
 
-        def explore(q, eps, key):
-            key_a, key_e   = jax.random.split(key, 2) # a key for sampling random actions and one for picking
-            greedy_actions = jnp.argmax(q, axis=-1) # get the greedy actions 
-            random_actions = jax.random.randint(key_a, shape=greedy_actions.shape, minval=0, maxval=q.shape[-1]) # sample random actions
-            pick_random    = jax.random.uniform(key_e, greedy_actions.shape)<eps # pick which actions should be random
-            chosed_actions = jnp.where(pick_random, random_actions, greedy_actions)
-            return chosed_actions
-
         eps = self.get_epsilon(t)
         rng = jax.random.split(rng, q_vals.shape[0])
-        return jax.vmap(explore, in_axes=(0, None, 0))(q_vals, eps, rng)
+        return jax.vmap(epsilon_greedy_act, in_axes=(0, None, 0))(q_vals, eps, rng)
 
 class FixedEpsilonGreedy:
     """Epsilon Greedy action selection"""
@@ -310,23 +310,15 @@ class FixedEpsilonGreedy:
     @partial(jax.jit, static_argnums=0)
     def choose_actions(self, q_vals: jnp.ndarray, t: int, rng: chex.PRNGKey):
 
-        def explore(q, eps, key):
-            key_a, key_e   = jax.random.split(key, 2) # a key for sampling random actions and one for picking
-            greedy_actions = jnp.argmax(q, axis=-1) # get the greedy actions 
-            random_actions = jax.random.randint(key_a, shape=greedy_actions.shape, minval=0, maxval=q.shape[-1]) # sample random actions
-            pick_random    = jax.random.uniform(key_e, greedy_actions.shape)<eps # pick which actions should be random
-            chosed_actions = jnp.where(pick_random, random_actions, greedy_actions)
-            return chosed_actions
-
         rng = jax.random.split(rng, q_vals.shape[0])
-        return jax.vmap(explore, in_axes=(0, 0, 0))(q_vals, self.epsilons, rng)
+        return jax.vmap(epsilon_greedy_act, in_axes=(0, 0, 0))(q_vals, self.epsilons, rng)
 
 def make_rnn_agent(
         config: dict,
         env: environment.Environment,
         env_params: environment.EnvParams,
         example_timestep: TimeStep,
-        rng: jax.random.KeyArray) -> Tuple[nn.Module, Params, vbb.AgentResetFn]:
+        rng: jax.random.PRNGKey) -> Tuple[nn.Module, Params, vbb.AgentResetFn]:
 
     agent = RnnAgent(
         action_dim=env.action_space(env_params).n,
@@ -355,7 +347,7 @@ def make_mlp_agent(
         env: environment.Environment,
         env_params: environment.EnvParams,
         example_timestep: TimeStep,
-        rng: jax.random.KeyArray) -> Tuple[nn.Module, Params, vbb.AgentResetFn]:
+        rng: jax.random.PRNGKey) -> Tuple[nn.Module, Params, vbb.AgentResetFn]:
 
     agent = RnnAgent(
         action_dim=env.action_space(env_params).n,
@@ -394,7 +386,7 @@ def make_loss_fn_class(config) -> vbb.RecurrentLossFn:
      R2D2LossFn,
      discount=config['GAMMA'])
 
-def make_actor(config: dict, agent: Agent, rng: jax.random.KeyArray) -> vbb.Actor:
+def make_actor(config: dict, agent: Agent, rng: jax.random.PRNGKey) -> vbb.Actor:
     fixed_epsilon = config.get('FIXED_EPSILON', 1)
     assert fixed_epsilon in (0, 1, 2)
     if fixed_epsilon:
@@ -427,7 +419,7 @@ def make_actor(config: dict, agent: Agent, rng: jax.random.KeyArray) -> vbb.Acto
         train_state: vbb.TrainState,
         agent_state: jax.Array,
         timestep: TimeStep,
-        rng: jax.random.KeyArray):
+        rng: jax.random.PRNGKey):
         preds, agent_state = agent.apply(
             train_state.params, agent_state, timestep, rng)
 
@@ -440,7 +432,7 @@ def make_actor(config: dict, agent: Agent, rng: jax.random.KeyArray) -> vbb.Acto
         train_state: vbb.TrainState,
         agent_state: jax.Array,
         timestep: TimeStep,
-        rng: jax.random.KeyArray):
+        rng: jax.random.PRNGKey):
         preds, agent_state = agent.apply(
             train_state.params, agent_state, timestep, rng)
 

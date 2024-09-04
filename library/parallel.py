@@ -272,8 +272,7 @@ def run(
     sweep_fn,
     folder: str,
     trainer_filename: str,
-    config_path: str,
-    remove_wandb_files: bool = True):
+    config_path: str):
   """The basic logics is as follows:
 
   Simplest: if FLAGS.parallel == 'none', simply runs run_fn
@@ -350,14 +349,6 @@ def run(
     run_fn(
       config=config,
       save_path=experiment_config['log_dir'])
-    if remove_wandb_files:
-      #---------------
-      # clean up wandb dir
-      #---------------
-      wandb_dir = wandb_init.get("dir", './wandb')
-      if os.path.exists(wandb_dir):
-        import shutil
-        shutil.rmtree(wandb_dir)
 
   else:
     raise NotImplementedError
@@ -413,11 +404,11 @@ def load_hydra_config(
     config = OmegaConf.to_container(config)
 
     # some setup to make sure env field is populated
-    config = update_sub(config, sub='env')
+    config = update_sub(config, sub='rlenv')
 
   # update hydra config with env config settings from sweep
   all_env_kwargs.update(sweep_env_config)
-  config['ENV_NAME'] = env_name = config["env"].get("ENV_NAME", 'env')
+  config['ENV_NAME'] = env_name = config["rlenv"].get("ENV_NAME", 'env')
  
   # update hydra config with algo config settings from sweep
   config.update(sweep_algo_config)
@@ -428,7 +419,7 @@ def load_hydra_config(
   except:
     pass
 
-  config['env']['ENV_KWARGS'] = all_env_kwargs
+  config['rlenv']['ENV_KWARGS'] = all_env_kwargs
 
   if verbose:
     print("="*50)
@@ -454,7 +445,7 @@ def load_hydra_config(
     tags=tags+[algo_name.upper(), env_name.upper()],
     config=config,
     save_code=False,
-    dir=os.path.join(save_path, 'wandb'),
+    dir=save_path,
   )
 
   try:

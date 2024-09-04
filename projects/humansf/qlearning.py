@@ -6,7 +6,7 @@ Recurrent Q-learning.
 
 import os
 import jax
-from typing import Tuple
+from typing import Tuple, Callable
 
 
 import flax.linen as nn
@@ -21,13 +21,13 @@ import matplotlib.pyplot as plt
 from xminigrid.rendering.rgb_render import render as rgb_render
 
 
-from projects.humansf.networks import KeyroomObsEncoder
+from projects.humansf.networks import KeyroomObsEncoder, HouzemazeObsEncoder
 from projects.humansf import keyroom
 from projects.humansf.visualizer import plot_frames
 
-from singleagent.basics import TimeStep
-from singleagent import value_based_basics as vbb
-from singleagent import qlearning as base_agent
+from agents.basics import TimeStep
+from agents import value_based_basics as vbb
+from agents import qlearning as base_agent
 
 
 
@@ -40,6 +40,7 @@ Predictions = base_agent.Predictions
 make_optimizer = base_agent.make_optimizer
 make_loss_fn_class = base_agent.make_loss_fn_class
 make_actor = base_agent.make_actor
+epsilon_greedy_act = base_agent.epsilon_greedy_act
 
 class RnnAgent(nn.Module):
     """_summary_
@@ -72,7 +73,7 @@ class RnnAgent(nn.Module):
 
         return self(rnn_state, x, rng)
 
-    def __call__(self, rnn_state, x: TimeStep, rng: jax.random.KeyArray):
+    def __call__(self, rnn_state, x: TimeStep, rng: jax.random.PRNGKey):
 
         embedding = self.observation_encoder(x.observation)
 
@@ -84,7 +85,7 @@ class RnnAgent(nn.Module):
 
         return Predictions(q_vals, rnn_out), new_rnn_state
 
-    def unroll(self, rnn_state, xs: TimeStep, rng: jax.random.KeyArray):
+    def unroll(self, rnn_state, xs: TimeStep, rng: jax.random.PRNGKey):
         # rnn_state: [B]
         # xs: [T, B]
 
@@ -107,25 +108,21 @@ def make_agent(
         env: environment.Environment,
         env_params: environment.EnvParams,
         example_timestep: TimeStep,
-        rng: jax.random.KeyArray) -> Tuple[Agent, Params, vbb.AgentResetFn]:
+        rng: jax.random.PRNGKey,
+        ObsEncoderCls: nn.Module = KeyroomObsEncoder,
+        ) -> Tuple[Agent, Params, vbb.AgentResetFn]:
 
     cell_type = config.get('RNN_CELL_TYPE', 'OptimizedLSTMCell')
     if cell_type.lower() == 'none':
         rnn = vbb.DummyRNN()
     else:
         rnn = vbb.ScannedRNN(
-            hidden_dim=config["AGENT_RNN_DIM"])
+            hidden_dim=config["AGENT_RNN_DIM"],
+            cell_type=cell_type,
+            )
 
     agent = RnnAgent(
-        observation_encoder=KeyroomObsEncoder(
-            embed_hidden_dim=config["AGENT_HIDDEN_DIM"],
-            init=config.get('ENCODER_INIT', 'word_init'),
-            grid_hidden_dim=config.get('GRID_HIDDEN', 256),
-            num_embed_layers=config['NUM_EMBED_LAYERS'],
-            num_grid_layers=config['NUM_GRID_LAYERS'],
-            num_joint_layers=config['NUM_ENCODER_LAYERS'],
-            include_extras=config.get('ENC_INCLUDE_EXTRAS', False),
-        ),
+        observation_encoder=ObsEncoderCls(),
         action_dim=env.num_actions(env_params),
         rnn=rnn,
     )
@@ -148,7 +145,10 @@ def learner_log_extra(
         data: dict,
         config: dict,
         action_names: dict,
-        maze_config: dict,
+        render_fn: Callable,
+        extract_task_info: Callable[[TimeStep],
+                                    flax.struct.PyTreeNode] = lambda t: t,
+        get_task_name: Callable = lambda t: 'Task',
         ):
     def callback(d):
         n_updates = d.pop('n_updates')
@@ -167,7 +167,6 @@ def learner_log_extra(
         q_values_taken = rlax.batched_index(q_values, actions)
         td_errors = d_['td_errors']
         q_loss = d_['q_loss']
-
         # Create a figure with three subplots
         width = .3
         nT = len(rewards)  # e.g. 20 --> 8
@@ -207,7 +206,7 @@ def learner_log_extra(
         # Adjust the spacing between subplots
         #plt.tight_layout()
         # log
-        if wandb.run is not None:
+        if wandb.run is not wandb.sdk.lib.disabled.RunDisabled:
             wandb.log({f"learner_example/q-values": wandb.Image(fig)})
         plt.close(fig)
 
@@ -231,9 +230,7 @@ def learner_log_extra(
             #    index(timesteps.state.agent),
             #    env_params.view_size,
             #    tile_size=8)
-            obs_image = keyroom.render_room(
-                index(d_['data'].timestep.state),
-                tile_size=8)
+            obs_image = render_fn(index(d_['data'].timestep.state))
             #state_images.append(state_image)
             obs_images.append(obs_image)
 
@@ -248,14 +245,15 @@ def learner_log_extra(
                 return f"action: {int(a)}"
         actions_taken = [action_name(a) for a in actions]
 
+        def index(t, idx): return jax.tree_map(lambda x: x[idx], t)
         def panel_title_fn(timesteps, i):
-            room_setting = int(timesteps.state.room_setting[i])
-            task_room = int(timesteps.state.goal_room_idx[i])
-            task_object = int(timesteps.state.task_object_idx[i])
-            setting = 'single' if room_setting == 0 else 'multi'
-            category, color = maze_config['pairs'][task_room][task_object]
-            task_name = f'{setting} - {color} {category}'
-
+            #room_setting = int(timesteps.state.room_setting[i])
+            #task_room = int(timesteps.state.goal_room_idx[i])
+            #task_object = int(timesteps.state.task_object_idx[i])
+            #setting = 'single' if room_setting == 0 else 'multi'
+            #category, color = maze_config['pairs'][task_room][task_object]
+            #task_name = f'{setting} - {color} {category}'
+            task_name = get_task_name(extract_task_info(index(timesteps, i)))
             title = f'{task_name}\n'
             title += f't={i}\n'
             title += f'{actions_taken[i]}\n'
@@ -267,7 +265,7 @@ def learner_log_extra(
             frames=obs_images,
             panel_title_fn=panel_title_fn,
             ncols=6)
-        if wandb.run is not None:
+        if wandb.run is not wandb.sdk.lib.disabled.RunDisabled:
             wandb.log(
                 {f"learner_example/trajecotry": wandb.Image(fig)})
         plt.close(fig)

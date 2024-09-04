@@ -1,6 +1,8 @@
 *slurm*
 analysis_media
 testing
+archive
+.vscode
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

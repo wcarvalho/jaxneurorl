@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 
 from projects.humansf import keyroom
 from projects.humansf.visualizer import plot_frames
-from singleagent.basics import TimeStep
+from agents.basics import TimeStep
 
 Number = Union[int, float, np.float32, jnp.float32]
 
@@ -85,14 +85,11 @@ class TaskObserver(Observer):
       max_episode_length: int = 200,
       max_num_episodes: int = 200,
       extract_task_info: Callable[[TimeStep], struct.PyTreeNode] = None,
-      get_task_name: Callable[[struct.PyTreeNode], str] = None,
       **kwargs,
       ):
 
     assert extract_task_info is not None
-    assert get_task_name is not None
 
-    self.get_task_name = get_task_name
     self.extract_task_info = extract_task_info
 
     self.log_period = log_period
@@ -223,8 +220,10 @@ def experience_logger(
         train_state: TrainState,
         observer_state: BasicObserverState,
         key: str = 'train',
+        render_fn: Callable = None,
         log_details_period: int = 0,
         action_names: Optional[dict] = None,
+        extract_task_info: Callable[[TimeStep], struct.PyTreeNode] = lambda t: t,
         get_task_name: Callable = lambda t: 'Task',
         max_len: int = 40,
         ):
@@ -245,11 +244,11 @@ def experience_logger(
   
         for idx in range(end):
           task_info = jax.tree_map(lambda x: x[0, idx], os.task_info_buffer.experience)
-          task_name = get_task_name(**task_info)
+          task_name = get_task_name(task_info)
 
           if os.finished[idx] > 0:
             metrics[return_key(task_name)].append(os.episode_returns[idx])
-            #metrics[length_key(task_name)].append(os.episode_lengths[idx])
+            metrics[length_key(task_name)].append(os.episode_lengths[idx])
 
         metrics = {k: np.array(v).mean() for k, v in metrics.items()}
         metrics.update({
@@ -272,9 +271,7 @@ def experience_logger(
           obs_images = []
           for idx in range(max_len):
               index = lambda y: jax.tree_map(lambda x: x[idx], y)
-              obs_image = keyroom.render_room(
-                  index(timesteps.state),
-                  tile_size=8)
+              obs_image = render_fn(index(timesteps.state))
               obs_images.append(obs_image)
 
           #################
@@ -291,12 +288,9 @@ def experience_logger(
           #################
           # plot
           #################
+          index = lambda t, idx: jax.tree_map(lambda x: x[idx], t)
           def panel_title_fn(timesteps, i):
-            task_name = get_task_name(
-                room_setting=int(timesteps.state.room_setting[i]),
-                goal_room_idx=int(timesteps.state.goal_room_idx[i]),
-                task_object_idx=int(timesteps.state.task_object_idx[i]),
-            )
+            task_name = get_task_name(extract_task_info(index(timesteps, i)))
             title = f'{task_name}'
 
             step_type = int(timesteps.step_type[i])
@@ -314,8 +308,11 @@ def experience_logger(
               frames=obs_images,
               panel_title_fn=panel_title_fn,
               ncols=6)
+
           if wandb.run is not None:
               wandb.log({f"{key}_example/trajectory": wandb.Image(fig)})
           plt.close(fig)
 
     jax.debug.callback(callback, train_state, observer_state)
+
+

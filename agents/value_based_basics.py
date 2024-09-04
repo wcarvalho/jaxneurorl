@@ -56,7 +56,7 @@ import flax
 import rlax
 from gymnax.environments import environment
 
-from singleagent.basics import TimeStep
+from agents.basics import TimeStep
 
 
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']='false'
@@ -70,7 +70,7 @@ from library import loggers
 Config = Dict
 Action = flax.struct.PyTreeNode
 Agent = nn.Module
-PRNGKey = jax.random.KeyArray
+PRNGKey = jax.random.PRNGKey
 Params = flax.core.FrozenDict
 AgentState = flax.struct.PyTreeNode
 Predictions = flax.struct.PyTreeNode
@@ -98,10 +98,10 @@ class Transition(NamedTuple):
 
 class RunnerState(NamedTuple):
     train_state: TrainState
-    observer_state: flax.struct.PyTreeNode
     timestep: TimeStep
     agent_state: jax.Array
-    rng: jax.random.KeyArray
+    rng: jax.random.PRNGKey
+    observer_state: Optional[flax.struct.PyTreeNode] = None
     buffer_state: Optional[fbx.trajectory_buffer.TrajectoryBufferState] = None
 
 class AcmeBatchData(flax.struct.PyTreeNode):
@@ -123,9 +123,9 @@ class AcmeBatchData(flax.struct.PyTreeNode):
 
 class CustomTrainState(TrainState):
     target_network_params: flax.core.FrozenDict
-    timesteps: int
-    n_updates: int
-    n_logs: int
+    timesteps: int = 0
+    n_updates: int = 0
+    n_logs: int = 0
 
 ##############################
 # Loss function
@@ -279,7 +279,6 @@ class RlRnnCell(nn.Module):
         if "lstm" in self.cell_type.lower():
             return state[1]
         elif 'gru' in self.cell_type.lower():
-            import ipdb; ipdb.set_trace()
             return state
         else:
            raise NotImplementedError(self.cell_type)
@@ -364,6 +363,9 @@ class DummyRNN(nn.Module):
            return state, (xs.obs, xs.obs)
        return state, xs.obs
 
+    def output_from_state(self, state):
+        return state
+
     def initialize_carry(
         self, rng: PRNGKey, batch_dims: Tuple[int, ...]
     ) -> Tuple[jax.Array, jax.Array]:
@@ -377,7 +379,7 @@ class DummyRNN(nn.Module):
 
 AgentResetFn = Callable[[Params, TimeStep], AgentState]
 EnvResetFn = Callable[[PRNGKey, EnvParams], TimeStep]
-MakeAgentFn = Callable[[Config, Env, EnvParams, TimeStep, jax.random.KeyArray],
+MakeAgentFn = Callable[[Config, Env, EnvParams, TimeStep, jax.random.PRNGKey],
                        Tuple[nn.Module, Params, AgentResetFn]]
 MakeOptimizerFn = Callable[[Config], optax.GradientTransformation]
 MakeLossFnClass = Callable[[Config], RecurrentLossFn]
@@ -464,7 +466,7 @@ def collect_trajectory(
 
 def learn_step(
         train_state: CustomTrainState,
-        rng: jax.random.KeyArray,
+        rng: jax.random.PRNGKey,
         buffer,
         buffer_state,
         loss_fn,
@@ -512,86 +514,90 @@ def log_performance(
     # TESTING PERFORMANCE
     ########################
     # reset environment
-    rng = runner_state.rng
-    rng, _rng = jax.random.split(rng)
-    init_timestep = env_reset_fn(_rng, test_env_params)
+    eval_log_period_eval = config.get("EVAL_LOG_PERIOD", 10)
+    if eval_log_period_eval > 0:
+        rng = runner_state.rng
+        rng, _rng = jax.random.split(rng)
+        init_timestep = env_reset_fn(_rng, test_env_params)
 
-    # reset agent state
-    rng, _rng = jax.random.split(rng)
-    init_agent_state = agent_reset_fn(
-        runner_state.train_state.params,
-        init_timestep,
-        _rng)
+        # reset agent state
+        rng, _rng = jax.random.split(rng)
+        init_agent_state = agent_reset_fn(
+            runner_state.train_state.params,
+            init_timestep,
+            _rng)
 
-    # new runner
-    rng, _rng = jax.random.split(rng)
-    eval_runner_state = RunnerState(
-        train_state=runner_state.train_state,
-        observer_state=observer.observe_first(
-            first_timestep=init_timestep,
-            observer_state=observer_state),
-        timestep=init_timestep,
-        agent_state=init_agent_state,
-        rng=_rng)
+        # new runner
+        rng, _rng = jax.random.split(rng)
+        eval_runner_state = RunnerState(
+            train_state=runner_state.train_state,
+            observer_state=observer.observe_first(
+                first_timestep=init_timestep,
+                observer_state=observer_state),
+            timestep=init_timestep,
+            agent_state=init_agent_state,
+            rng=_rng)
 
-    final_eval_runner_state, _ = collect_trajectory(
-        runner_state=eval_runner_state,
-        num_steps=config["EVAL_STEPS"]*config["EVAL_EPISODES"],
-        actor_step_fn=actor_eval_step_fn,
-        env_step_fn=env_step_fn,
-        env_params=test_env_params,
-        observer=observer,
+        final_eval_runner_state, _ = collect_trajectory(
+            runner_state=eval_runner_state,
+            num_steps=config["EVAL_STEPS"]*config["EVAL_EPISODES"],
+            actor_step_fn=actor_eval_step_fn,
+            env_step_fn=env_step_fn,
+            env_params=test_env_params,
+            observer=observer,
+            )
+        logger.experience_logger(
+            runner_state.train_state,
+            final_eval_runner_state.observer_state,
+            'evaluator_performance',
+            # log trajectory details for evaluator at this period
+            # counter = number of times logger
+            # e.g., every 10th-log log details
+            log_details_period=eval_log_period_eval,
         )
-    logger.experience_logger(
-        runner_state.train_state,
-        final_eval_runner_state.observer_state,
-        'evaluator_performance',
-        # log trajectory details for evaluator at this period
-        # counter = number of times logger
-        # e.g., every 10th-log log details
-        log_details_period=config.get("EVAL_LOG_PERIOD", 10),
-    )
 
     ########################
     # TRAINING PERFORMANCE
     ########################
     # reset environment
-    rng = runner_state.rng
-    rng, _rng = jax.random.split(rng)
-    init_timestep = env_reset_fn(_rng, train_env_params)
+    eval_log_period_actor = config.get("EVAL_LOG_PERIOD_ACTOR", 20)
+    if eval_log_period_actor > 0:
+        rng = runner_state.rng
+        rng, _rng = jax.random.split(rng)
+        init_timestep = env_reset_fn(_rng, train_env_params)
 
-    # reset agent state
-    rng, _rng = jax.random.split(rng)
-    init_agent_state = agent_reset_fn(
-        runner_state.train_state.params,
-        init_timestep,
-        _rng)
-    
-    # new runner
-    rng, _rng = jax.random.split(rng)
-    eval_runner_state = RunnerState(
-        train_state=runner_state.train_state,
-        observer_state=observer.observe_first(
-            first_timestep=init_timestep,
-            observer_state=observer_state),
-        timestep=init_timestep,
-        agent_state=init_agent_state,
-        rng=_rng)
+        # reset agent state
+        rng, _rng = jax.random.split(rng)
+        init_agent_state = agent_reset_fn(
+            runner_state.train_state.params,
+            init_timestep,
+            _rng)
+        
+        # new runner
+        rng, _rng = jax.random.split(rng)
+        eval_runner_state = RunnerState(
+            train_state=runner_state.train_state,
+            observer_state=observer.observe_first(
+                first_timestep=init_timestep,
+                observer_state=observer_state),
+            timestep=init_timestep,
+            agent_state=init_agent_state,
+            rng=_rng)
 
-    final_eval_runner_state, _ = collect_trajectory(
-        runner_state=eval_runner_state,
-        num_steps=config["EVAL_STEPS"]*config["EVAL_EPISODES"],
-        actor_step_fn=actor_train_step_fn,
-        env_step_fn=env_step_fn,
-        env_params=train_env_params,
-        observer=observer,
+        final_eval_runner_state, _ = collect_trajectory(
+            runner_state=eval_runner_state,
+            num_steps=config["EVAL_STEPS"]*config["EVAL_EPISODES"],
+            actor_step_fn=actor_train_step_fn,
+            env_step_fn=env_step_fn,
+            env_params=train_env_params,
+            observer=observer,
+            )
+        logger.experience_logger(
+            runner_state.train_state,
+            final_eval_runner_state.observer_state,
+            'actor_performance',
+            log_details_period=config.get("EVAL_LOG_PERIOD_ACTOR", 20),
         )
-    logger.experience_logger(
-        runner_state.train_state,
-        final_eval_runner_state.observer_state,
-        'actor_performance',
-        log_details_period=config.get("EVAL_LOG_PERIOD_ACTOR", 20),
-    )
 
 def make_train(
         config: dict,
@@ -623,9 +629,8 @@ def make_train(
     """
 
     config["NUM_UPDATES"] = int(
-        config["TOTAL_TIMESTEPS"] // config["NUM_ENVS"]
+        config["TOTAL_TIMESTEPS"] // config["NUM_ENVS"] // config["TRAINING_INTERVAL"]
     )
-
     test_env_params = test_env_params or copy.deepcopy(train_env_params)
 
     def vmap_reset(rng, env_params):
@@ -637,7 +642,7 @@ def make_train(
            env.step, in_axes=(0, 0, 0, None))(
            jax.random.split(rng, config["NUM_ENVS"]), env_state, action, env_params)
 
-    def train(rng: jax.random.KeyArray):
+    def train(rng: jax.random.PRNGKey):
         logger = make_logger(config, env, train_env_params)
 
         ##############################
@@ -693,12 +698,18 @@ def make_train(
         # INIT BUFFER
         ##############################
         period = config.get("SAMPLING_PERIOD", 1)
+        total_batch_size = config.get("TOTAL_BATCH_SIZE")
+        sample_batch_size = config['BUFFER_BATCH_SIZE']
+        sample_sequence_length = config.get('SAMPLE_LENGTH')
+        if sample_sequence_length is None:
+            sample_sequence_length = total_batch_size//sample_batch_size
+
         buffer = fbx.make_trajectory_buffer(
             max_length_time_axis=config['BUFFER_SIZE']//config['NUM_ENVS'],
-            min_length_time_axis=config['SAMPLE_LENGTH'],
+            min_length_time_axis=sample_sequence_length,
             add_batch_size=config['NUM_ENVS'],
             sample_batch_size=config['BUFFER_BATCH_SIZE'],
-            sample_sequence_length=config['SAMPLE_LENGTH'],
+            sample_sequence_length=sample_sequence_length,
             period=period,
         )
         buffer = buffer.replace(
@@ -890,15 +901,17 @@ def make_train(
             # ------------------------
             # log gradient information
             # ------------------------
-            log_period = max(1, int(config.get("GRADIENT_LOG_PERIOD", 500)))
-            is_log_time = jnp.logical_and(
-                is_learn_time, train_state.n_updates % log_period == 0)
+            gradient_log_period = config.get("GRADIENT_LOG_PERIOD", 500)
+            if gradient_log_period:
+                log_period = max(1, int(gradient_log_period))
+                is_log_time = jnp.logical_and(
+                    is_learn_time, train_state.n_updates % log_period == 0)
 
-            jax.lax.cond(
-                is_log_time,
-                lambda: logger.gradient_logger(train_state, grads),
-                lambda: None,
-            )
+                jax.lax.cond(
+                    is_log_time,
+                    lambda: logger.gradient_logger(train_state, grads),
+                    lambda: None,
+                )
 
             ##############################
             # 4. Creat next runner state
@@ -925,6 +938,20 @@ def make_train(
 
         runner_state, _ = jax.lax.scan(
             _train_step, runner_state, None, config["NUM_UPDATES"]
+        )
+        log_performance(
+            config=config,
+            agent_reset_fn=agent_reset_fn,
+            actor_train_step_fn=actor.train_step,
+            actor_eval_step_fn=actor.eval_step,
+            env_reset_fn=vmap_reset,
+            env_step_fn=vmap_step,
+            train_env_params=train_env_params,
+            test_env_params=test_env_params,
+            runner_state=runner_state,
+            observer=eval_observer,
+            observer_state=init_eval_observer_state,
+            logger=logger,
         )
 
         return {"runner_state": runner_state}

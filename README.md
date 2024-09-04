@@ -5,18 +5,18 @@
 
 # Single-agent algorithms (all recurrent)
 
-1. [Q-learning](https://openreview.net/forum?id=r1lyTjAqYX) ([code](singleagent/qlearning.py)). This is a Q-learning based agent.
-2. [AlphaZero](https://arxiv.org/abs/1712.01815) ([code](singleagent/alphazero.py)). This is a model-based agent that does planning with a ground-truth world model via monte-carlo tree search.
+1. [Q-learning](https://openreview.net/forum?id=r1lyTjAqYX) ([code](agents/qlearning.py)). This is a Q-learning based agent.
+2. [AlphaZero](https://arxiv.org/abs/1712.01815) ([code](agents/alphazero.py)). This is a model-based agent that does planning with a ground-truth world model via monte-carlo tree search.
 
 
 ## Overview of algorithms
-Below is a schematic of the general learning algorithm used in this [codebase](singleagent/value_based_basics.py).
+Below is a schematic of the general learning algorithm used in this [codebase](agents/value_based_basics.py).
 <img src="images/overview.png" alt="FARM" style="zoom:40%;" />
 **Caption:** The learning algorithm works as follows:
 
 1. An environment, optimizer, and neural network are made
-   - the environment is typically created in the file that defines training (e.g. [here](singleagent/baselines.py))
-   - the optimizer and neural network are typically algorithm-dependent and in the file defining an agent (e.g. [Q-learning](singleagent/qlearning.py)) 
+   - the environment is typically created in the file that defines training (e.g. [here](agents/baselines.py))
+   - the optimizer and neural network are typically algorithm-dependent and in the file defining an agent (e.g. [Q-learning](agents/qlearning.py)) 
 2. The networks parameters are initialized. If the algorithm is value-based (e.g. Q-learning), target parameters are also created.
 3. For `n` updates:
    1. A trajectory is collected and added to the buffer.
@@ -29,7 +29,7 @@ Below is a schematic of the general learning algorithm used in this [codebase](s
 
 --- 
 ### Defining a new learning algorithm
-The easiest way to define a new learning algorithm is to adapt the `make_train` function [value_based_basics](singleagent/value_based_basics.py).
+The easiest way to define a new learning algorithm is to adapt the `make_train` function [value_based_basics](agents/value_based_basics.py).
 `make_train` is a function which creates a `train_function` which is used to train an algorithm. 
 `make_train` accepts as arguments functions for
 
@@ -38,12 +38,12 @@ The easiest way to define a new learning algorithm is to adapt the `make_train` 
 3. defining the agent's loss function
 4. defining the agent's actor class which selects action in response to observations.
 
-The easiest way to create a novel learning algorithm is to define these functions. You can see an example with Q-learning [code](singleagent/qlearning.py#453).
+The easiest way to create a novel learning algorithm is to define these functions. You can see an example with Q-learning [code](agents/qlearning.py#453).
 Note that the common practice in this codebase is to use `functools.partial` to "preload" objects into functions. In this example, we preload the functions that will be used for defining the agent's neural network (`make_rnn_agent`), the agent's optimizer (`make_optimizer`), the agent's loss function (`make_loss_fn_class`), the agent's actor (`make_actor`; here epsilon-greedy), and logger (`make_logger`). You can define your own functions and preload them. 
 
 ```
 import functools
-from singleagent import value_based_basics as vbb
+from agents import value_based_basics as vbb
 
 # more imports and definitions
 

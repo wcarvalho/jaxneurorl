@@ -9,8 +9,8 @@ from functools import partial
 from gymnax.environments import environment
 from gymnax.wrappers.purerl import GymnaxWrapper
 
-from singleagent.basics import TimeStep
-from singleagent.basics import StepType
+from agents.basics import TimeStep
+from agents.basics import StepType
 
 
 class TimestepWrapper(GymnaxWrapper):

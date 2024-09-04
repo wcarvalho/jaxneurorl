@@ -45,6 +45,6 @@ hydra/job_logging: disabled
 
 defaults:
 - _self_
-- env: overcooked.yaml
+- rlenv: overcooked.yaml
 - user: wilka.yaml
 - debug: default.yaml
