@@ -54,7 +54,7 @@ from housemaze import renderer
 from housemaze import utils as housemaze_utils
 from housemaze.human_dyna import env as maze
 
-from projects.humansf import housemaze_experiments
+from housemaze.human_dyna import experiments as housemaze_experiments
 
 
 def make_logger(
