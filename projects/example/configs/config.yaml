@@ -5,8 +5,8 @@ hydra/job_logging: disabled
 defaults:
 - _self_
 - alg: pqn.yaml
-- rlenv: housemaze.yaml
-- user: example.yaml
+- rlenv: cartpole.yaml
+- user: wilka.yaml
 - debug: short.yaml
 
 

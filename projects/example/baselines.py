@@ -1,31 +1,29 @@
 """
 
 TESTING:
-JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue agents/baselines.py \
-  --debug=False \
-  --wandb=False \
-  --search=alpha
+JAX_DISABLE_JIT=1 \
+HYDRA_FULL_ERROR=1 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue projects/example/baselines.py \
+  app.debug=True \
+  app.wandb=False \
+  app.search=qlearning
 
-JAX_DISABLE_JIT=1 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue agents/baselines.py \
-  --debug=True \
-  --wandb=False \
-  --search=alpha
-
-TESTING SLURM LAUNCH:
-python agents/baselines.py \
-  --parallel=sbatch \
-  --debug_parallel=True \
-  --search=alpha
+RUNNING LOCAL WANNDB SWEEP:
+python projects/example/baselines.py \
+  app.parallel=wandb \
+  app.search=qlearning
 
 RUNNING ON SLURM:
-python agents/baselines.py \
-  --parallel=sbatch \
-  --time '0-00:30:00' \
-  --search=alpha
+python projects/example/baselines.py \
+  app.parallel=sbatch \
+  app.time='0-03:00:00' \
+  app.wandb_search=True \
+  app.search=qlearning
+
 """
 
-from absl import flags
-from absl import app
+import hydra
+from omegaconf import DictConfig
+
 
 import os
 import jax
@@ -110,7 +108,7 @@ def sweep(search: str = ''):
             'goal': 'maximize',
         },
         'parameters': {
-            "ENV_NAME": {'values:' ['Catch-bsuite']},
+            "ENV_NAME": {'values': ['Catch-bsuite']},
         },
         'overrides': ['alg=qlearning',
                       'rlenv=cartpole',
@@ -124,9 +122,7 @@ def sweep(search: str = ''):
             'goal': 'maximize',
         },
         'parameters': {
-            "env.exp": {'values': [
-                'maze3_open',
-            ]},
+            "ENV_NAME": {'values': ['Catch-bsuite']},
             "BATCH_SIZE": {'values': [512*128, 256*128, 128*128]},
             "NORM_TYPE": {'values': ['layer_norm', 'none']},
             "NORM_QFN": {'values': ['layer_norm', 'none']},
@@ -142,7 +138,7 @@ def sweep(search: str = ''):
             'goal': 'maximize',
         },
         'parameters': {
-            "ENV_NAME": {'values:' ['Catch-bsuite']},
+            "ENV_NAME": {'values': ['Catch-bsuite']},
         },
         'overrides': ['alg=alphazero',
                       'rlenv=cartpole',
@@ -154,16 +150,24 @@ def sweep(search: str = ''):
 
   return sweep_config
 
-if __name__ == '__main__':
-  from jaxneurorl.utils import make_parser
-  parser = make_parser()
-  args = parser.parse_args()
+
+@hydra.main(
+    version_base=None,
+    config_path='configs',
+    config_name="config")
+def main(config: DictConfig):
+  #current_file_path = os.path.abspath(__file__)
+  #current_directory = os.path.dirname(current_file_path)
   launcher.run(
-      args,
+      config,
       trainer_filename=__file__,
-      config_path='configs',
+      config_path='projects/example/configs',
       run_fn=run_single,
       sweep_fn=sweep,
       folder=os.environ.get(
           'RL_RESULTS_DIR', '/tmp/rl_results_dir')
   )
+
+
+if __name__ == '__main__':
+  main()

@@ -34,14 +34,3 @@
 "LR_LINEAR_DECAY": FALSE
 "EPS_ADAM": 0.00001
 "GAMMA": 0.99
-
-hydra/output_subdir: null
-hydra/hydra_logging: disabled
-hydra/job_logging: disabled
-
-
-defaults:
-- _self_
-- user: wilka.yaml
-- debug: default.yaml
-- rlenv: cartpole.yaml

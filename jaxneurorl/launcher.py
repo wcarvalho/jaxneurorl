@@ -576,7 +576,15 @@ def start_wandb_sweep(
       pickle.dump(dict(sweep_id=sweep_id), fp)
       logging.info(f'Saved: {settings_config_file}')
 
-  import ipdb; ipdb.set_trace()
+  import jax
+  devices = jax.devices()
+  # launch a process for each GPU
+  if devices:
+    for idx in devices:
+      subprocess.Popen(
+          f'CUDA_VISIBLE_DEVICES={idx} wandb agent {sweep_id}', shell=True)
+  else:
+    subprocess.Popen(f'wandb agent {sweep_id}', shell=True)
 
 def individual_wandb_run(
     run_fn,
