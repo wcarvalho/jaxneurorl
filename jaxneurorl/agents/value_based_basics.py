@@ -56,13 +56,13 @@ import flax
 import rlax
 from gymnax.environments import environment
 
-from agents.basics import TimeStep
+from jaxneurorl.agents.basics import TimeStep
 
 
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']='false'
 
-from library import observers
-from library import loggers
+from jaxneurorl import observers
+from jaxneurorl import loggers
 
 ##############################
 # Data types

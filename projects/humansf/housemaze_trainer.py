@@ -9,7 +9,7 @@ HYDRA_FULL_ERROR=1 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue projec
 
 RUNNING ON SLURM:
 python projects/humansf/housemaze_trainer.py \
-  app.parallel=sbatch \
+  app.parallel=wandb \
   app.time='0-03:00:00' \
   app.wandb_search=True \
   app.search=dynaq_shared
@@ -38,11 +38,11 @@ import numpy as np
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']='false'
 
 
-from agents import value_based_basics as vbb
-from agents import value_based_pqn as vpq
-from library import launcher
-from library import utils
-from library import loggers
+from jaxneurorl.agents import value_based_basics as vbb
+from jaxneurorl.agents import value_based_pqn as vpq
+from jaxneurorl import launcher
+from jaxneurorl import utils
+from jaxneurorl import loggers
 
 from projects.humansf import alphazero
 from projects.humansf import qlearning

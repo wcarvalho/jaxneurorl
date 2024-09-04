@@ -8,7 +8,7 @@ import math
 
 from projects.humansf.keyroom import Observation
 
-from agents.value_based_pqn import MLP, BatchRenorm, get_activation_fn
+from jaxneurorl.agents.value_based_pqn import MLP, BatchRenorm, get_activation_fn
 
 class KeyroomObsEncoder(nn.Module):
     """_summary_

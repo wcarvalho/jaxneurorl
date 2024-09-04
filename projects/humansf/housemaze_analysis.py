@@ -5,7 +5,7 @@ import jax
 import jax.numpy as jnp
 from collections import deque
 
-from agents import value_based_basics as vbb
+from jaxneurorl.agents import value_based_basics as vbb
 from housemaze.human_dyna import env as maze
 from housemaze import renderer
 from projects.humansf import visualizer
