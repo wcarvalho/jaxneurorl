@@ -1,7 +1,3 @@
-hydra/output_subdir: null
-hydra/hydra_logging: disabled
-hydra/job_logging: disabled
-
 defaults:
 - _self_
 - alg: pqn.yaml
@@ -9,6 +5,13 @@ defaults:
 - user: wilka.yaml
 - debug: short.yaml
 
+hydra:
+  run:
+    dir: .
+  output_subdir: null
+  sweep:
+    dir: .
+    subdir: .
 
 app:
   parallel: "none"  # none, sbatch, or ray
