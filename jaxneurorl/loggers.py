@@ -11,7 +11,7 @@ import tree
 import wandb
 import optax
 
-from library.observers import BasicObserverState
+from jaxneurorl.observers import BasicObserverState
 
 def default_gradient_logger(
     train_state: TrainState,

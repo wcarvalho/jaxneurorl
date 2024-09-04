@@ -1,31 +1,29 @@
 """
 
 TESTING:
-JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue agents/baselines.py \
-  --debug=False \
-  --wandb=False \
-  --search=alpha
+JAX_DISABLE_JIT=1 \
+HYDRA_FULL_ERROR=1 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue projects/example/baselines.py \
+  app.debug=True \
+  app.wandb=False \
+  app.search=qlearning
 
-JAX_DISABLE_JIT=1 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue agents/baselines.py \
-  --debug=True \
-  --wandb=False \
-  --search=alpha
-
-TESTING SLURM LAUNCH:
-python agents/baselines.py \
-  --parallel=sbatch \
-  --debug_parallel=True \
-  --search=alpha
+RUNNING LOCAL WANNDB SWEEP:
+python projects/example/baselines.py \
+  app.parallel=wandb \
+  app.search=qlearning
 
 RUNNING ON SLURM:
-python agents/baselines.py \
-  --parallel=sbatch \
-  --time '0-00:30:00' \
-  --search=alpha
+python projects/example/baselines.py \
+  app.parallel=sbatch \
+  app.time='0-03:00:00' \
+  app.wandb_search=True \
+  app.search=qlearning
+
 """
 
-from absl import flags
-from absl import app
+import hydra
+from omegaconf import DictConfig
+
 
 import os
 import jax
@@ -40,15 +38,15 @@ from flax.traverse_util import flatten_dict
 
 import gymnax
 from gymnax.wrappers.purerl import FlattenObservationWrapper, LogWrapper
-from library.wrappers import TimestepWrapper
+from jaxneurorl.wrappers import TimestepWrapper
 
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']='false'
 
-from library import launcher
-from agents import value_based_basics as vbb
+from jaxneurorl import launcher
+from jaxneurorl.agents import value_based_basics as vbb
 
-from agents import alphazero
-from agents import qlearning
+from jaxneurorl.agents import alphazero
+from jaxneurorl.agents import qlearning
 
 def run_single(
         config: dict,
@@ -103,51 +101,73 @@ def run_single(
 
 def sweep(search: str = ''):
   search = search or 'baselines'
-  if search == 'test':
-    space = [
-        {
-            "group": {'values:' ['baselines-Catch-12']},
-            "alg": {'values:' ['qlearning']},
-            "config_name": {'values:' ['qlearning']},
-            "ENV_NAME": {'values:' ['Catch-bsuite']},
+  if search == 'qlearning':
+    sweep_config = {
+        'metric': {
+            'name': 'evaluator_performance/0.0 avg_episode_return',
+            'goal': 'maximize',
         },
-    ]
+        'parameters': {
+            "ENV_NAME": {'values': ['Catch-bsuite']},
+        },
+        'overrides': ['alg=qlearning',
+                      'rlenv=cartpole',
+                      'user=wilka'],
+        'group': 'qlearning-1',
+    }
+  elif search == 'pqn':
+    sweep_config = {
+        'metric': {
+            'name': 'evaluator_performance/0.0 avg_episode_return',
+            'goal': 'maximize',
+        },
+        'parameters': {
+            "ENV_NAME": {'values': ['Catch-bsuite']},
+            "BATCH_SIZE": {'values': [512*128, 256*128, 128*128]},
+            "NORM_TYPE": {'values': ['layer_norm', 'none']},
+            "NORM_QFN": {'values': ['layer_norm', 'none']},
+            "TOTAL_TIMESTEPS": {'values': [100_000_000]},
+        },
+        'overrides': ['alg=pqn', 'rlenv=cartpole', 'user=wilka'],
+        'group': 'pqn-1',
+    }
   elif search == 'alpha':
-    space = [
-        {
-            "group": {'values:' ['alphazero-CartPole-4']},
-            "alg": {'values:' ['alphazero']},
-            "config_name": {'values:' ['alphazero']},
-            "ENV_NAME": {'values:' ['CartPole-v1',]},
+    sweep_config = {
+        'metric': {
+            'name': 'evaluator_performance/0.0 avg_episode_return',
+            'goal': 'maximize',
         },
-        {
-            "group": {'values:' ['alphazero-Breakout-7']},
-            "alg": {'values:' ['alphazero']},
-            "config_name": {'values:' ['alphazero']},
-            "ENV_NAME": {'values:' ['Breakout-MinAtar',]},
+        'parameters': {
+            "ENV_NAME": {'values': ['Catch-bsuite']},
         },
-        {
-            "group": {'values:' ['alphazero-Catch-6']},
-            "alg": {'values:' ['alphazero']},
-            "config_name": {'values:' ['alphazero']},
-            "ENV_NAME": {'values:' ['Catch-bsuite']},
-        },
-    ]
+        'overrides': ['alg=alphazero',
+                      'rlenv=cartpole',
+                      'user=wilka'],
+        'group': 'alpha-1',
+    }
   else:
     raise NotImplementedError(search)
 
-  return space
+  return sweep_config
 
-if __name__ == '__main__':
-  from library.utils import make_parser
-  parser = make_parser()
-  args = parser.parse_args()
+
+@hydra.main(
+    version_base=None,
+    config_path='configs',
+    config_name="config")
+def main(config: DictConfig):
+  #current_file_path = os.path.abspath(__file__)
+  #current_directory = os.path.dirname(current_file_path)
   launcher.run(
-      args,
+      config,
       trainer_filename=__file__,
-      config_path='configs',
+      config_path='projects/example/configs',
       run_fn=run_single,
       sweep_fn=sweep,
       folder=os.environ.get(
           'RL_RESULTS_DIR', '/tmp/rl_results_dir')
   )
+
+
+if __name__ == '__main__':
+  main()

@@ -5,35 +5,16 @@ import jax.tree_util as jtu
 import numpy as np
 import os.path
 
-from housemaze import levels
-from housemaze.human_dyna import utils as housemaze_utils
 from housemaze.human_dyna import env as maze
 from housemaze.human_dyna import mazes
 
-def get_group_set(num_groups):
-    list_of_groups = housemaze_utils.load_groups()
-    full_group_set = list_of_groups[0]
-
-    chars = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H']
-    char2key = dict()
-    for idx, char in enumerate(chars):
-        i, j = idx // 2, idx % 2
-        if i > len(full_group_set):
-            break
-        char2key[char] = full_group_set[i, j]
-
-    assert num_groups <= 3
-    task_group_set = full_group_set[:num_groups]
-    task_objects = task_group_set.reshape(-1)
-
-    return char2key, task_group_set, task_objects
 
 
 def maze1_all(config):
     """Maze 1: testing offtaskness for all 3 spaces."""
     env_kwargs = config.get('rlenv', {}).get('ENV_KWARGS', {})
     num_groups = env_kwargs.pop('NUM_GROUPS', 3)
-    char2key, group_set, task_objects = get_group_set(num_groups)
+    char2key, group_set, task_objects = mazes.get_group_set(num_groups)
 
     pretrain_params = mazes.get_pretraining_reset_params(
         groups=group_set,
@@ -62,7 +43,7 @@ def maze3_open(config):
     """Maze 3: testing if open space is skipped. should be."""
     env_kwargs = config.get('rlenv', {}).get('ENV_KWARGS', {})
     num_groups = env_kwargs.pop('NUM_GROUPS', 1)
-    char2key, group_set, task_objects = get_group_set(num_groups)
+    char2key, group_set, task_objects = mazes.get_group_set(num_groups)
 
     pretrain_params = mazes.get_pretraining_reset_params(
         groups=group_set,
@@ -100,7 +81,7 @@ def maze3_randomize(config):
     """Maze 3: testing if open space is skipped. should be."""
     env_kwargs = config.get('rlenv', {}).get('ENV_KWARGS', {})
     num_groups = env_kwargs.pop('NUM_GROUPS', 1)
-    char2key, group_set, task_objects = get_group_set(num_groups)
+    char2key, group_set, task_objects = mazes.get_group_set(num_groups)
 
     pretrain_params = mazes.get_pretraining_reset_params(
         groups=group_set,
@@ -140,7 +121,7 @@ def maze5_two_paths(config):
     """Maze 3: testing if open space is skipped. should be."""
     env_kwargs = config.get('rlenv', {}).get('ENV_KWARGS', {})
     num_groups = env_kwargs.pop('NUM_GROUPS', 1)
-    char2key, group_set, task_objects = get_group_set(num_groups)
+    char2key, group_set, task_objects = mazes.get_group_set(num_groups)
 
     pretrain_params = mazes.get_pretraining_reset_params(
         groups=group_set,

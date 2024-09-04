@@ -1,4 +1,4 @@
-# WANDB PARAMS
+"PROJECT": "jax-neurorl-baselines"
 
 "ENV_NAME": "CartPole-v1"
 

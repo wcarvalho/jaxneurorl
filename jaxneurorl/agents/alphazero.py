@@ -19,12 +19,12 @@ import optax
 import rlax
 import wandb
 
-from library import utils
-from library import loggers
-from library import losses
+from jaxneurorl import utils
+from jaxneurorl import loggers
+from jaxneurorl import losses
 
-from agents.basics import TimeStep
-from agents import value_based_basics as vbb
+from jaxneurorl.agents.basics import TimeStep
+from jaxneurorl.agents import value_based_basics as vbb
 
 Params = flax.core.FrozenDict
 RnnState = jax.Array

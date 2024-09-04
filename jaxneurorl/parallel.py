@@ -15,7 +15,7 @@ from pathlib import Path
 import subprocess
 
 from pprint import pprint
-import library.flags
+import jaxneurorl.flags
 
 FLAGS = flags.FLAGS
 

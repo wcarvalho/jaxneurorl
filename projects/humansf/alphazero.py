@@ -18,14 +18,14 @@ import optax
 import rlax
 import wandb
 
-from library import utils
-from library import loggers
+from jaxneurorl import utils
+from jaxneurorl import loggers
 
 from projects.humansf.networks import KeyroomObsEncoder
 
-from agents.basics import TimeStep
-from agents import value_based_basics as vbb
-from agents import alphazero as base_agent
+from jaxneurorl.agents.basics import TimeStep
+from jaxneurorl.agents import value_based_basics as vbb
+from jaxneurorl.agents import alphazero as base_agent
 
 Params = flax.core.FrozenDict
 RnnState = jax.Array

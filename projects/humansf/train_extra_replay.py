@@ -11,10 +11,10 @@ from flax.training.train_state import TrainState
 import flashbax as fbx
 from safetensors.flax import save_file
 from flax.traverse_util import flatten_dict
-from agents import value_based_basics as vbb
+from jaxneurorl.agents import value_based_basics as vbb
 
-from library import observers
-from library import loggers
+from jaxneurorl import observers
+from jaxneurorl import loggers
 
 
 class CustomTrainState(TrainState):

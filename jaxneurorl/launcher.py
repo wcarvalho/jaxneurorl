@@ -1,7 +1,6 @@
 from typing import Optional, Sequence
 
 from absl import logging
-import copy
 import datetime
 import hydra
 from hydra.core.global_hydra import GlobalHydra
@@ -182,7 +181,10 @@ def default_process_configs(
   pprint(config)
   return config
 
-def start_wandb_sweep(
+#########################################
+# Starting sweeps
+#########################################
+def start_slurm_wandb_sweep(
     hydra_config: dict,
     sweep_config: dict,
     config_path: str,
@@ -191,7 +193,7 @@ def start_wandb_sweep(
     debug=False,
     process_configs_fn=default_process_configs,
     ):
-  """For each possible configuration of a run, create a config entry. save a list of all config entries. When SBATCH is called, it will use the ${SLURM_ARRAY_TASK_ID} to run a particular one.
+  """Use wandb to make sweep config.
   """
   app_config = hydra_config['app']
   ########
@@ -336,9 +338,7 @@ def start_wandb_sweep(
 
   #process = subprocess.Popen(sbatch_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
-
-
-def start_vanilla_sweep(
+def start_slurm_vanilla_sweep(
     hydra_config: dict,
     sweep_config: dict,
     config_path: str,
@@ -495,7 +495,98 @@ def start_vanilla_sweep(
   process = subprocess.Popen(sbatch_command, shell=True)
   process.wait()
 
-def run_wandb_sweep_run(
+def start_wandb_sweep(
+    hydra_config: dict,
+    sweep_config: dict,
+    config_path: str,
+    trainer_filename: str,
+    folder: str,
+    debug=False,
+    process_configs_fn=default_process_configs,
+):
+  app_config = hydra_config['app']
+  ########
+  # prep paths path
+  ########
+  root_path = str(Path().absolute())
+  base_path = make_base_path(
+    root_path=os.path.join(root_path, folder),
+    trainer_file=trainer_filename,
+    search=app_config['search'])
+
+  sbatch_base_path = os.path.join(base_path, 'sbatch', f'runs-{date_time(True)}')
+  process_path(sbatch_base_path)
+
+  ########
+  # prep sweep config
+  ########
+  cmd_overrides = HydraConfig.get().overrides.task
+  overrides = set(cmd_overrides)
+  sweep_config_overrides = sweep_config.pop('overrides', [])
+  overrides.update(sweep_config_overrides)
+  overrides = list(overrides)
+
+  group = sweep_config.pop('group', app_config['search'])
+
+  if GlobalHydra.instance().is_initialized():
+    GlobalHydra.instance().clear()
+
+  with hydra.initialize(
+          version_base=None,
+          config_path=config_path):
+    hydra_config = hydra.compose(
+        config_name='config',
+        overrides=overrides)
+    hydra_config = OmegaConf.to_container(hydra_config)
+
+  # load the first configuation and use that as the experiment settings
+  final_config = process_configs_fn(
+    hydra_config,
+    run_config=None,  # will load actual configs in subprocesss
+    debug=debug)
+  assert 'PROJECT' in final_config, 'some config must specify wandb project'
+
+  sweep_config['program'] = trainer_filename
+  sweep_config['method'] = app_config['search_method']
+  settings_config_file = f"{sbatch_base_path}/config.pkl"
+  sweep_config['command'] = [
+      'python', trainer_filename,
+      f"app.settings_config={settings_config_file}",
+       "app.subprocess=True",
+       f"app.PROJECT={final_config['PROJECT']}",
+       f"app.base_path={base_path}",
+       f"app.group={group}",
+       f"app.wandb_search=True"
+       ] + sweep_config_overrides
+  if debug:
+    sweep_config['command'].append(
+      'app.debug=True'
+    )
+  print("="*50)
+  print("Sweep config")
+  print("="*50)
+  pprint(sweep_config)
+  sweep_id = wandb.sweep(
+      sweep_config,
+      project=final_config['PROJECT'],
+      entity=final_config["entity"],
+      )
+
+  with open(settings_config_file, 'wb') as fp:
+      pickle.dump(dict(sweep_id=sweep_id), fp)
+      logging.info(f'Saved: {settings_config_file}')
+
+  import jax
+  devices = jax.devices()
+  # launch a process for each GPU
+  if devices:
+    for idx in devices:
+      subprocess.Popen(
+          f'CUDA_VISIBLE_DEVICES={idx} wandb agent {sweep_id}', shell=True)
+  else:
+    subprocess.Popen(f'wandb agent {sweep_id}', shell=True)
+
+def individual_wandb_run(
     run_fn,
     hydra_config: dict,
     folder: str,
@@ -557,7 +648,7 @@ def run_wandb_sweep_run(
               function=wrapped_run_fn,
               count=1)
 
-def run_vanilla_sweep_run(
+def individual_vanilla_slurm_run(
     run_fn,
     hydra_config: dict,
     folder: str,
@@ -698,60 +789,56 @@ def run(
     process_configs_fn=default_process_configs,
   ):
   config_path = os.path.join("..", config_path)
+
+  sweep_kwargs = dict(
+    hydra_config=hydra_config,
+    sweep_config=sweep_fn(hydra_config['app']['search']),
+    config_path=config_path,
+    trainer_filename=trainer_filename,
+    process_configs_fn=process_configs_fn,
+    folder=folder,
+    debug=hydra_config['app']['debug_sweep'],
+  )
+  individual_run_kwargs = dict(
+    run_fn=run_fn,
+    hydra_config=hydra_config,
+    process_configs_fn=process_configs_fn,
+    folder=folder,
+  )
   if hydra_config['app']['parallel'] == 'sbatch':
+    # -------------------
+    # run sweep on slurm
+    # -------------------
     if hydra_config['app']['wandb_search']:
-      return start_wandb_sweep(
-        hydra_config=hydra_config,
-        sweep_config=sweep_fn(hydra_config['app']['search']),
-        config_path=config_path,
-        trainer_filename=trainer_filename,
-        process_configs_fn=process_configs_fn,
-        folder=folder,
-        debug=hydra_config['app']['debug_sweep'],
-      )
+      return start_slurm_wandb_sweep(**sweep_kwargs)
     else:
-      return start_vanilla_sweep(
-        hydra_config=hydra_config,
-        sweep_config=sweep_fn(hydra_config['app']['search']),
-        config_path=config_path,
-        trainer_filename=trainer_filename,
-        process_configs_fn=process_configs_fn,
-        folder=folder,
-        debug=hydra_config['app']['debug_sweep'],
-      )
+      return start_slurm_vanilla_sweep(**sweep_kwargs)
+
+  elif hydra_config['app']['parallel'] == 'wandb':
+    return start_wandb_sweep(**sweep_kwargs)
 
   elif hydra_config['app']['parallel'] == 'none':
     # -------------------
     # load experiment config. varies based on whether called by slurm or not.
     # -------------------
-    if hydra_config['app']['subprocess']:  # called by SLURM
+    if hydra_config['app']['subprocess']:
       if hydra_config['app']['wandb_search']:
-        return run_wandb_sweep_run(
-          run_fn=run_fn,
-          hydra_config=hydra_config,
-          process_configs_fn=process_configs_fn,
-          folder=folder,
-        )
+        return individual_wandb_run(**individual_run_kwargs)
       else:
-        return run_vanilla_sweep_run(
-          run_fn=run_fn,
-          hydra_config=hydra_config,
-          process_configs_fn=process_configs_fn,
-          folder=folder,
-        )
+        return individual_vanilla_slurm_run(**individual_run_kwargs)
 
     else:  # called by this script (i.e. you)
-      # mimics the structure of sweep so file naming is consistent
-      return run_individual(
-        run_fn=run_fn,
-        app_config=hydra_config['app'],
-        sweep_config=sweep_fn(hydra_config['app']['search']),
-        config_path=config_path,
-        trainer_filename=trainer_filename,
-        folder=folder,
-        process_configs_fn=process_configs_fn,
-        debug=hydra_config['app']['debug'],
-      )
+        # mimics the structure of sweep so file naming is consistent
+        return run_individual(
+          run_fn=run_fn,
+          app_config=hydra_config['app'],
+          sweep_config=sweep_fn(hydra_config['app']['search']),
+          config_path=config_path,
+          trainer_filename=trainer_filename,
+          folder=folder,
+          process_configs_fn=process_configs_fn,
+          debug=hydra_config['app']['debug'],
+        )
 
   else:
     raise NotImplementedError
