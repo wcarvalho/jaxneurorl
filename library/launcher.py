@@ -65,14 +65,14 @@ def setup_experiment_config(
     datetime_name: bool = True,
     group: str = None,
 ):
-
+  lowercase = lambda conf: {k.lower(): v for k,v in conf.items()}
   algo_config, env_config = get_agent_env_configs(run_config=run_config)
   log_dir, wandb_name = gen_log_dir(
       base_dir=os.path.join(base_path, 'save_data', group),
       return_kwpath=True,
       path_skip=['num_steps', 'num_learner_steps', 'group', 'config_name'],
-      **algo_config,
-      **env_config,
+      **lowercase(algo_config),
+      **lowercase(env_config),
   )
   if datetime_name:
     wandb_name = f'{wandb_name}_{(date_time(time=True))}'
