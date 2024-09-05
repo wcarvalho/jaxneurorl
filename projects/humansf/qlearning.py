@@ -25,9 +25,9 @@ from projects.humansf.networks import KeyroomObsEncoder, HouzemazeObsEncoder
 from projects.humansf import keyroom
 from projects.humansf.visualizer import plot_frames
 
-from agents.basics import TimeStep
-from agents import value_based_basics as vbb
-from agents import qlearning as base_agent
+from jaxneurorl.agents.basics import TimeStep
+from jaxneurorl.agents import value_based_basics as vbb
+from jaxneurorl.agents import qlearning as base_agent
 
 
 

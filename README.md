@@ -43,7 +43,7 @@ Note that the common practice in this codebase is to use `functools.partial` to 
 
 ```
 import functools
-from agents import value_based_basics as vbb
+from jaxneurorl.agents import value_based_basics as vbb
 
 # more imports and definitions
 

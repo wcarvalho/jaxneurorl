@@ -5,7 +5,7 @@ import jax
 import jax.numpy as jnp
 from collections import deque
 
-from agents import value_based_basics as vbb
+from jaxneurorl.agents import value_based_basics as vbb
 from housemaze.human_dyna import env as maze
 from housemaze import renderer
 from projects.humansf import visualizer
@@ -71,16 +71,17 @@ def collect_trajectory(
 
     return traj_batch
 
-
-def success(timesteps):
-  rewards = timesteps.reward
-  
+def get_in_episode(timestep):
   # get mask for within episode
-  non_terminal = timesteps.discount
-  is_last = timesteps.last()
-  term_cumsum = jnp.cumsum(is_last, 0)
-  in_episode = make_float((term_cumsum + non_terminal) < 2)
+  non_terminal = timestep.discount
+  is_last = timestep.last()
+  term_cumsum = jnp.cumsum(is_last, -1)
+  in_episode = (term_cumsum + non_terminal) < 2
+  return in_episode
 
+def success(timestep):
+  rewards = timestep.reward
+  in_episode = make_float(get_in_episode(timestep))
   total_reward = (in_episode*rewards).sum()
   success = make_float((in_episode*rewards).sum() > .5)
   return total_reward, success

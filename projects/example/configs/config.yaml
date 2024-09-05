@@ -1,8 +1,8 @@
 defaults:
 - _self_
-- alg: ql.yaml
-- rlenv: housemaze.yaml
-- user: example.yaml
+- alg: pqn.yaml
+- rlenv: cartpole.yaml
+- user: wilka.yaml
 - debug: short.yaml
 
 hydra:
@@ -24,7 +24,7 @@ app:
   num_cpus: 12
   config_idx: 1  # which config to load, only used by vanilla slurm
   memory: 120000  # in MB
-  time: "0-48:00:00"  # duration format for SLURM
+  time: "0-01:00:00"  # duration format for SLURM
   max_concurrent: 12
   account: "kempner_fellows"  # specify if there's a default account
   partition: "kempner"  # default SLURM partition

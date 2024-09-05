@@ -19,10 +19,10 @@ import rlax
 import matplotlib.pyplot as plt
 import wandb
 
-from library import losses
-from agents.basics import TimeStep
-from agents import value_based_basics as vbb
-from agents import qlearning as base_agent
+from jaxneurorl import losses
+from jaxneurorl.agents.basics import TimeStep
+from jaxneurorl.agents import value_based_basics as vbb
+from jaxneurorl.agents import qlearning as base_agent
 from projects.humansf import qlearning
 from projects.humansf.networks import KeyroomObsEncoder, MLP
 from projects.humansf import keyroom

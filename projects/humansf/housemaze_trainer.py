@@ -9,7 +9,7 @@ HYDRA_FULL_ERROR=1 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue projec
 
 RUNNING ON SLURM:
 python projects/humansf/housemaze_trainer.py \
-  app.parallel=sbatch \
+  app.parallel=wandb \
   app.time='0-03:00:00' \
   app.wandb_search=True \
   app.search=dynaq_shared
@@ -38,11 +38,11 @@ import numpy as np
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']='false'
 
 
-from agents import value_based_basics as vbb
-from agents import value_based_pqn as vpq
-from library import launcher
-from library import utils
-from library import loggers
+from jaxneurorl.agents import value_based_basics as vbb
+from jaxneurorl.agents import value_based_pqn as vpq
+from jaxneurorl import launcher
+from jaxneurorl import utils
+from jaxneurorl import loggers
 
 from projects.humansf import alphazero
 from projects.humansf import qlearning
@@ -54,7 +54,7 @@ from housemaze import renderer
 from housemaze import utils as housemaze_utils
 from housemaze.human_dyna import env as maze
 
-from projects.humansf import housemaze_experiments
+from housemaze.human_dyna import experiments as housemaze_experiments
 
 
 def make_logger(
@@ -231,16 +231,12 @@ def extract_task_info(timestep: maze.TimeStep):
       'category': state.task_object,
     }
 
-def task_from_variables(variables, keys):
+def task_from_variables(variables, keys, label2name):
   current_label = variables['current_label']
   category = keys[variables['category']]
   is_train_task = variables['is_train_task']
   label = '1.train' if is_train_task else '0.TEST'
-  setting = {
-      0: 'L',
-      1: 'S',
-      2: 'L-open',
-      }[int(current_label)]
+  setting = label2name.get(int(current_label))
   return f'{label} - {setting} - {category}'
 
 def run_single(
@@ -258,7 +254,7 @@ def run_single(
     except Exception as e:
       raise RuntimeError(exp)
 
-    env_params, test_env_params, task_objects = exp_fn(config)
+    env_params, test_env_params, task_objects, idx2maze = exp_fn(config)
 
     image_dict = housemaze_utils.load_image_dict()
     # Reshape the images to separate the blocks
@@ -311,7 +307,10 @@ def run_single(
       action_names=action_names,
     )
 
-    get_task_name = functools.partial(task_from_variables, keys=keys)
+    get_task_name = functools.partial(
+      task_from_variables,
+      keys=keys,
+      label2name=idx2maze)
     ##################
     # algorithms
     ##################
@@ -412,7 +411,7 @@ def run_single(
             ),
       )
 
-    elif alg_name == 'dynaq_shared':
+    elif alg_name in ('dynaq', 'dynaq_shared'):
       import distrax
       sim_policy = config['SIM_POLICY']
       num_simulations = config['NUM_SIMULATIONS']
@@ -693,13 +692,35 @@ def sweep(search: str = ''):
             'goal': 'maximize',
         },
         'parameters': {
+            "SEED": {'values': [1, 2, 3]},
             "env.exp": {'values': [
-              #'maze3_open',
-              'maze3_randomize',
+              'exp1_block1',
+              'exp1_block2',
+              'exp1_block3',
+              'exp1_block4',
             ]},
         },
         'overrides': ['alg=ql', 'rlenv=housemaze','user=wilka'],
-        'group': 'ql-15',
+        'group': 'ql-19',
+    }
+  elif search == 'dynaq_shared':
+    sweep_config = {
+       'metric': {
+            'name': 'evaluator_performance/0.0 avg_episode_return',
+            'goal': 'maximize',
+        },
+        'parameters': {
+            'ALG': {'values': ['dynaq_shared']},
+            "SEED": {'values': [1, 2, 3]},
+            "env.exp": {'values': [
+              'exp1_block1',
+              'exp1_block2',
+              'exp1_block3',
+              'exp1_block4',
+            ]},
+        },
+        'overrides': ['alg=dyna', 'rlenv=housemaze', 'user=wilka'],
+        'group': 'dynaq_shared-16',
     }
   elif search == 'pqn':
     sweep_config = {
@@ -718,28 +739,6 @@ def sweep(search: str = ''):
         },
         'overrides': ['alg=pqn', 'rlenv=housemaze', 'user=wilka'],
         'group': 'pqn-7',
-    }
-  elif search == 'dynaq_shared':
-    sweep_config = {
-       'metric': {
-            'name': 'evaluator_performance/0.0 avg_episode_return',
-            'goal': 'maximize',
-        },
-        'parameters': {
-            "TOTAL_TIMESTEPS": {'values': [20_000_000]},
-            "SIMULATION_LENGTH": {'values': [5, 10]},
-            "NUM_SIMULATIONS": {'values': [5, 15]},
-            "TOTAL_BATCH_SIZE": {'values': [1280, 1280*2]},
-            "LR": {'values': [0.0003, 0.0001, 0.00001]},
-            "env.exp": {'values': [
-              #'maze3_randomize',
-              #'maze3_open',
-              'maze5_two_paths',
-            ]},
-            'ALG': {'values': ['dynaq_shared']},
-        },
-        'overrides': ['alg=dyna', 'rlenv=housemaze', 'user=wilka'],
-        'group': 'dynaq_shared-11',
     }
   elif search == 'alpha':
     sweep_config = {

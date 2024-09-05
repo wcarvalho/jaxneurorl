@@ -37,14 +37,3 @@
 "TD_LAMBDA_LOSS": TRUE
 "TD_LAMBDA": 0.6
 "GAMMA": 0.99
-
-hydra/output_subdir: null
-hydra/hydra_logging: disabled
-hydra/job_logging: disabled
-
-
-defaults:
-- _self_
-- rlenv: overcooked.yaml
-- user: wilka.yaml
-- debug: default.yaml

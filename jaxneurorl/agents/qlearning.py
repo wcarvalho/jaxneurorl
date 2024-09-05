@@ -25,10 +25,10 @@ from flax import struct
 import rlax
 from gymnax.environments import environment
 
-from library import losses
-from library import loggers
-from agents.basics import TimeStep
-from agents import value_based_basics as vbb
+from jaxneurorl import losses
+from jaxneurorl import loggers
+from jaxneurorl.agents.basics import TimeStep
+from jaxneurorl.agents import value_based_basics as vbb
 
 def extract_timestep_input(timestep: TimeStep):
   return RNNInput(

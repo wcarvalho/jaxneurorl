@@ -3,7 +3,7 @@
 from typing import Optional
 import chex
 import jax.numpy as jnp
-from library import losses  # Assuming losses.py is in a folder named 'library'
+from jaxneurorl import losses  # Assuming losses.py is in a folder named 'library'
 import rlax
 
 

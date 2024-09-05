@@ -9,8 +9,8 @@ from functools import partial
 from gymnax.environments import environment
 from gymnax.wrappers.purerl import GymnaxWrapper
 
-from agents.basics import TimeStep
-from agents.basics import StepType
+from jaxneurorl.agents.basics import TimeStep
+from jaxneurorl.agents.basics import StepType
 
 
 class TimestepWrapper(GymnaxWrapper):

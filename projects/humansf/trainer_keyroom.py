@@ -43,16 +43,16 @@ from flax.traverse_util import flatten_dict
 import hydra
 import gymnax
 from gymnax.wrappers.purerl import FlattenObservationWrapper, LogWrapper
-from library.wrappers import TimestepWrapper
+from jaxneurorl.wrappers import TimestepWrapper
 from projects.humansf import logger, observers as humansf_observers
 
 
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']='false'
 
-import library.flags
+import jaxneurorl.flags
 
-from library import loggers, parallel
-from library import utils
+from jaxneurorl import loggers, parallel
+from jaxneurorl import utils
 
 from projects.humansf import keyroom
 from projects.humansf import keyroom_symbolic
@@ -62,7 +62,7 @@ from projects.humansf import alphazero
 from projects.humansf import qlearning
 from projects.humansf import offtask_dyna
 
-from agents import value_based_basics as vbb
+from jaxneurorl.agents import value_based_basics as vbb
 
 FLAGS = flags.FLAGS
 
