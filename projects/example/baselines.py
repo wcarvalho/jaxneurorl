@@ -112,13 +112,13 @@ def sweep(search: str = ''):
         },
         'parameters': {
             "ENV_NAME": {'values': ['Catch-bsuite']},
-            "AGENT_HIDDEN_DIM": {'values': [32, 64, 128, 256, 512]},
+            "AGENT_HIDDEN_DIM": {'values': [32, 64, 128, 256]},
             
         },
         'overrides': ['alg=qlearning',
                       'rlenv=cartpole',
                       'user=wilka'],
-        'group': 'qlearning-1',
+        'group': 'qlearning-2',
     }
   elif search == 'pqn':
     sweep_config = {
