@@ -247,7 +247,7 @@ def start_slurm_wandb_sweep(
        f"app.PROJECT={final_config['PROJECT']}",
        f"app.base_path={base_path}",
        f"app.group={group}",
-       f"app.wandb_search=True"
+       f"app.parent=wandb_search"
        ] + sweep_config_overrides
   if debug:
     sweep_config['command'].append(
@@ -551,12 +551,12 @@ def start_wandb_sweep(
   settings_config_file = f"{sbatch_base_path}/config.pkl"
   sweep_config['command'] = [
       'python', trainer_filename,
-      f"app.settings_config={settings_config_file}",
+      #f"app.settings_config={settings_config_file}",
        "app.subprocess=True",
        f"app.PROJECT={final_config['PROJECT']}",
        f"app.base_path={base_path}",
        f"app.group={group}",
-       f"app.wandb_search=True"
+       f"app.parent=wandb_agent"
        ] + sweep_config_overrides
   if debug:
     sweep_config['command'].append(
@@ -566,31 +566,40 @@ def start_wandb_sweep(
   print("Sweep config")
   print("="*50)
   pprint(sweep_config)
+  project = final_config['PROJECT']
+  entity = final_config["entity"]
   sweep_id = wandb.sweep(
-      sweep_config,
-      project=final_config['PROJECT'],
-      entity=final_config["entity"],
+      sweep_config, project=project, entity=entity,
       )
 
-  with open(settings_config_file, 'wb') as fp:
-      pickle.dump(dict(sweep_id=sweep_id), fp)
-      logging.info(f'Saved: {settings_config_file}')
+  #with open(settings_config_file, 'wb') as fp:
+  #    pickle.dump(dict(sweep_id=sweep_id), fp)
+  #    logging.info(f'Saved: {settings_config_file}')
 
   import jax
   devices = jax.devices()
-  # launch a process for each GPU
+
+  agent_cmd = f'wandb agent {entity}/{project}/{sweep_id}'
   if devices:
-    for idx in devices:
-      subprocess.Popen(
-          f'CUDA_VISIBLE_DEVICES={idx} wandb agent {sweep_id}', shell=True)
+    # launch a process for each GPU
+    for dev in devices:
+      command = f'CUDA_VISIBLE_DEVICES={dev.id} {agent_cmd}'
+      #command = f'nohup CUDA_VISIBLE_DEVICES={dev.id} {agent_cmd} > /dev/null 2>&1 &'
+      #print(command)
+      subprocess.Popen(command, shell=True)
+
   else:
-    subprocess.Popen(f'wandb agent {sweep_id}', shell=True)
+    command = command = f'nohup {agent_cmd} > /dev/null 2>&1 &'
+    print(command)
+    os.system(command)
+    #subprocess.Popen(agent_cmd)
 
 def individual_wandb_run(
     run_fn,
     hydra_config: dict,
     folder: str,
     process_configs_fn=default_process_configs,
+    run_directly: bool = False,
   ):
 
   def wrapped_run_fn():
@@ -635,6 +644,8 @@ def individual_wandb_run(
         config=final_config,
         save_path=experiment_config['log_dir']
     )
+  if run_directly:
+    return wrapped_run_fn()
 
   filename = hydra_config['app']['settings_config']
   with open(filename, 'rb') as fp:
@@ -790,7 +801,7 @@ def run(
   ):
   config_path = os.path.join("..", config_path)
 
-  sweep_kwargs = dict(
+  sweep_kwargs = lambda: dict(
     hydra_config=hydra_config,
     sweep_config=sweep_fn(hydra_config['app']['search']),
     config_path=config_path,
@@ -799,7 +810,7 @@ def run(
     folder=folder,
     debug=hydra_config['app']['debug_sweep'],
   )
-  individual_run_kwargs = dict(
+  individual_run_kwargs = lambda: dict(
     run_fn=run_fn,
     hydra_config=hydra_config,
     process_configs_fn=process_configs_fn,
@@ -810,22 +821,28 @@ def run(
     # run sweep on slurm
     # -------------------
     if hydra_config['app']['wandb_search']:
-      return start_slurm_wandb_sweep(**sweep_kwargs)
+      return start_slurm_wandb_sweep(**sweep_kwargs())
     else:
-      return start_slurm_vanilla_sweep(**sweep_kwargs)
+      return start_slurm_vanilla_sweep(**sweep_kwargs())
 
   elif hydra_config['app']['parallel'] == 'wandb':
-    return start_wandb_sweep(**sweep_kwargs)
+    return start_wandb_sweep(**sweep_kwargs())
 
   elif hydra_config['app']['parallel'] == 'none':
     # -------------------
     # load experiment config. varies based on whether called by slurm or not.
     # -------------------
     if hydra_config['app']['subprocess']:
-      if hydra_config['app']['wandb_search']:
-        return individual_wandb_run(**individual_run_kwargs)
+      if hydra_config['app']['parent'] == 'wandb_search':
+        return individual_wandb_run(**individual_run_kwargs())
+      elif hydra_config['app']['parent'] == 'wandb_agent':
+        return individual_wandb_run(
+          **individual_run_kwargs(),
+          run_directly=True)
+      elif hydra_config['app']['parent'] == 'slurm':
+        return individual_vanilla_slurm_run(**individual_run_kwargs())
       else:
-        return individual_vanilla_slurm_run(**individual_run_kwargs)
+        raise NotImplementedError(hydra_config['app']['parent'])
 
     else:  # called by this script (i.e. you)
         # mimics the structure of sweep so file naming is consistent

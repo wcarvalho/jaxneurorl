@@ -38,8 +38,8 @@ import numpy as np
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']='false'
 
 
-from agents import value_based_basics as vbb
-from agents import value_based_pqn as vpq
+from jaxneurorl.agents import value_based_basics as vbb
+from jaxneurorl.agents import value_based_pqn as vpq
 from jaxneurorl import launcher
 from jaxneurorl import utils
 from jaxneurorl import loggers

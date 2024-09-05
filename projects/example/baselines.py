@@ -7,12 +7,12 @@ HYDRA_FULL_ERROR=1 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue projec
   app.wandb=False \
   app.search=qlearning
 
-RUNNING LOCAL WANNDB SWEEP:
+RUNNING LOCAL WANDB SWEEP:
 python projects/example/baselines.py \
   app.parallel=wandb \
   app.search=qlearning
 
-RUNNING ON SLURM:
+RUNNING WANDB SWEEP ON SLURM:
 python projects/example/baselines.py \
   app.parallel=sbatch \
   app.time='0-03:00:00' \
@@ -44,6 +44,7 @@ os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']='false'
 
 from jaxneurorl import launcher
 from jaxneurorl.agents import value_based_basics as vbb
+from jaxneurorl.agents import value_based_pqn as vpq
 
 from jaxneurorl.agents import alphazero
 from jaxneurorl.agents import qlearning
@@ -64,7 +65,7 @@ def run_single(
     # converts to using timestep
     env = TimestepWrapper(env, autoreset=True)
 
-    alg_name = config['alg']
+    alg_name = config['ALG']
     if alg_name == 'qlearning':
       make_train = qlearning.make_train_preloaded
     elif alg_name == 'qlearning_mlp':
@@ -75,6 +76,8 @@ def run_single(
         make_loss_fn_class=qlearning.make_loss_fn_class,
         make_actor=qlearning.make_actor,
       )
+    elif alg_name == 'pqn':
+      make_train = vpq.make_train,
     elif alg_name == 'alphazero':
       make_train = alphazero.make_train_preloaded(config)
 
@@ -100,7 +103,7 @@ def run_single(
         print(f'Parameters of first batch saved in {save_path}/{alg_name}.safetensors')
 
 def sweep(search: str = ''):
-  search = search or 'baselines'
+  search = search or 'qlearning'
   if search == 'qlearning':
     sweep_config = {
         'metric': {
@@ -109,6 +112,8 @@ def sweep(search: str = ''):
         },
         'parameters': {
             "ENV_NAME": {'values': ['Catch-bsuite']},
+            "AGENT_HIDDEN_DIM": {'values': [32, 64, 128, 256, 512]},
+            
         },
         'overrides': ['alg=qlearning',
                       'rlenv=cartpole',
@@ -126,7 +131,7 @@ def sweep(search: str = ''):
             "BATCH_SIZE": {'values': [512*128, 256*128, 128*128]},
             "NORM_TYPE": {'values': ['layer_norm', 'none']},
             "NORM_QFN": {'values': ['layer_norm', 'none']},
-            "TOTAL_TIMESTEPS": {'values': [100_000_000]},
+            #"TOTAL_TIMESTEPS": {'values': [100_000_000]},
         },
         'overrides': ['alg=pqn', 'rlenv=cartpole', 'user=wilka'],
         'group': 'pqn-1',

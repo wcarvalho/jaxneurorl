@@ -15,7 +15,6 @@ hydra:
 
 app:
   parallel: "none"  # none, sbatch, or ray
-  wandb_search: false
   search_method: "bayes"
   debug_sweep: false
   debug: false
@@ -31,6 +30,7 @@ app:
   partition: "kempner"  # default SLURM partition
   settings_config: ""  # to be set by parallel.py
   subprocess: false  # indicate if this run is a subprocess
+  parent: 'wandb_search'  # 'wandb_slurm', 'wandb_agent', 'slurm'
   PROJECT: null  # name of wandb project, note uppercase
   group: null  # name of wandb project
   base_path: null  # name of wandb project
