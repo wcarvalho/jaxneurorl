@@ -12,6 +12,8 @@ import pickle
 from pprint import pprint
 from pathlib import Path
 import wandb
+import threading
+wandb.require("core")
 
 
 def date_time(time: bool = False):
@@ -335,6 +337,7 @@ def start_slurm_wandb_sweep(
   #sbatch_command = f"sbatch {run_file}"
   print("-"*10, 'run command', "-"*10)
   print(sbatch_command)
+  #thread = threading.Thread(target=lambda command: os.system(command), args=(sbatch_command,))
 
   #process = subprocess.Popen(sbatch_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
@@ -548,10 +551,8 @@ def start_wandb_sweep(
 
   sweep_config['program'] = trainer_filename
   sweep_config['method'] = app_config['search_method']
-  settings_config_file = f"{sbatch_base_path}/config.pkl"
   sweep_config['command'] = [
       'python', trainer_filename,
-      #f"app.settings_config={settings_config_file}",
        "app.subprocess=True",
        f"app.PROJECT={final_config['PROJECT']}",
        f"app.base_path={base_path}",
@@ -581,7 +582,6 @@ def start_wandb_sweep(
 
   agent_cmd = f'wandb agent {entity}/{project}/{sweep_id}'
   if devices:
-    import threading
     import time
     # launch a process for each GPU
     run_command = lambda command: os.system(command)

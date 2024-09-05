@@ -11,7 +11,7 @@ RUNNING ON SLURM:
 python projects/humansf/housemaze_trainer.py \
   app.parallel=wandb \
   app.time='0-03:00:00' \
-  app.wandb_search=True \
+  app.parent=wandb_search \
   app.search=dynaq_shared
 """
 from typing import Any, Callable, Dict, Union, Optional

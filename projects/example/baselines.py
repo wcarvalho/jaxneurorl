@@ -5,19 +5,18 @@ JAX_DISABLE_JIT=1 \
 HYDRA_FULL_ERROR=1 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue projects/example/baselines.py \
   app.debug=True \
   app.wandb=False \
-  app.search=qlearning
+  app.search=pqn
 
 RUNNING LOCAL WANDB SWEEP:
 python projects/example/baselines.py \
   app.parallel=wandb \
-  app.search=qlearning
+  app.search=pqn
 
 RUNNING WANDB SWEEP ON SLURM:
 python projects/example/baselines.py \
   app.parallel=sbatch \
-  app.time='0-03:00:00' \
-  app.wandb_search=True \
-  app.search=qlearning
+  app.parent=wandb_search \
+  app.search=pqn
 
 """
 
@@ -77,7 +76,7 @@ def run_single(
         make_actor=qlearning.make_actor,
       )
     elif alg_name == 'pqn':
-      make_train = vpq.make_train,
+      make_train = vpq.make_train
     elif alg_name == 'alphazero':
       make_train = alphazero.make_train_preloaded(config)
 
@@ -118,7 +117,7 @@ def sweep(search: str = ''):
         'overrides': ['alg=qlearning',
                       'rlenv=cartpole',
                       'user=wilka'],
-        'group': 'qlearning-3',
+        'group': 'qlearning-4',
     }
   elif search == 'pqn':
     sweep_config = {
@@ -134,7 +133,7 @@ def sweep(search: str = ''):
             #"TOTAL_TIMESTEPS": {'values': [100_000_000]},
         },
         'overrides': ['alg=pqn', 'rlenv=cartpole', 'user=wilka'],
-        'group': 'pqn-1',
+        'group': 'pqn-3',
     }
   elif search == 'alpha':
     sweep_config = {

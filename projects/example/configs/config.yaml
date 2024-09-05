@@ -15,7 +15,7 @@ hydra:
 
 app:
   parallel: "none"  # none, sbatch, or ray
-  search_method: "bayes"
+  search_method: "grid"
   debug_sweep: false
   debug: false
   search: ""  # Specify the search term if needed

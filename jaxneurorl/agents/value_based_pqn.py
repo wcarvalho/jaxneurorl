@@ -288,7 +288,9 @@ class PQNLossFn(RecurrentLossFn):
 def make_loss_fn_class(config) -> RecurrentLossFn:
   return functools.partial(
       PQNLossFn,
-      discount=config['GAMMA'])
+      discount=config['GAMMA'],
+      lambda_=config['LAMBDA'],
+      )
 
 ##############################
 # Neural Network Components
@@ -935,7 +937,7 @@ def make_agent(
             hidden_dim=512,
             num_layers=config['NUM_Q_LAYERS'],
             norm_type=config.get("NORM_QFN", 'layer_norm'),
-            out_dim=env.num_actions(env_params),
+            out_dim=env.action_space(env_params).n,
             activate_final=False,
         )
     )
@@ -1231,6 +1233,10 @@ def make_train(
                 env_step_fn=vmap_step,
                 env_params=train_env_params)
 
+            traj_batch = traj_batch._replace(
+                timestep=traj_batch.timestep.replace(
+                reward=config.get('REW_SCALE', 1.0)*traj_batch.timestep.reward,
+            ))
             # things that will be used/changed
             rng = runner_state.rng
             buffer_state = runner_state.buffer_state
