@@ -582,6 +582,7 @@ def start_wandb_sweep(
   agent_cmd = f'wandb agent {entity}/{project}/{sweep_id}'
   if devices:
     import threading
+    import time
     # launch a process for each GPU
     run_command = lambda command: os.system(command)
     for dev in devices:
@@ -589,6 +590,7 @@ def start_wandb_sweep(
       #command = f'nohup CUDA_VISIBLE_DEVICES={dev.id} {agent_cmd} > /dev/null 2>&1 &'
       thread = threading.Thread(target=run_command, args=(command,))
       thread.start()
+      time.sleep(60)  # to avoid race conditions
   else:
     command = command = f'nohup {agent_cmd} > /dev/null 2>&1 &'
     os.system(command)

@@ -118,7 +118,7 @@ def sweep(search: str = ''):
         'overrides': ['alg=qlearning',
                       'rlenv=cartpole',
                       'user=wilka'],
-        'group': 'qlearning-2',
+        'group': 'qlearning-3',
     }
   elif search == 'pqn':
     sweep_config = {
