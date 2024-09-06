@@ -2,7 +2,7 @@ defaults:
 - _self_
 - alg: ql.yaml
 - rlenv: housemaze.yaml
-- user: example.yaml
+- user: wilka.yaml
 - debug: short.yaml
 
 hydra:

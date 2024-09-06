@@ -10,7 +10,6 @@ HYDRA_FULL_ERROR=1 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue projec
 RUNNING ON SLURM:
 python projects/humansf/housemaze_trainer.py \
   app.parallel=wandb \
-  app.time='0-03:00:00' \
   app.parent=wandb_search \
   app.search=dynaq_shared
 """
@@ -406,7 +405,7 @@ def run_single(
             make_logger,
             render_fn=housemaze_render_fn,
             extract_task_info=extract_task_info,
-            get_task_name=functools.partial(task_from_variables, keys=keys),
+            get_task_name=get_task_name,
             action_names=action_names,
             ),
       )
@@ -507,14 +506,14 @@ def run_single(
             make_logger,
             render_fn=housemaze_render_fn,
             extract_task_info=extract_task_info,
-            get_task_name=functools.partial(task_from_variables, keys=keys),
+            get_task_name=get_task_name,
             action_names=action_names,
             learner_log_extra=functools.partial(
               offtask_dyna.learner_log_extra,
               config=config,
               action_names=action_names,
               extract_task_info=extract_task_info,
-              get_task_name=functools.partial(task_from_variables, keys=keys),
+              get_task_name=get_task_name,
               render_fn=housemaze_render_fn,
               sim_idx=greedy_idx,
               )),
@@ -624,14 +623,14 @@ def run_single(
             make_logger,
             render_fn=housemaze_render_fn,
             extract_task_info=extract_task_info,
-            get_task_name=functools.partial(task_from_variables, keys=keys),
+            get_task_name=get_task_name,
             action_names=action_names,
             learner_log_extra=functools.partial(
               offtask_dyna.learner_log_extra,
               config=config,
               action_names=action_names,
               extract_task_info=extract_task_info,
-              get_task_name=functools.partial(task_from_variables, keys=keys),
+              get_task_name=get_task_name,
               render_fn=housemaze_render_fn,
               sim_idx=greedy_idx,
               )),
@@ -720,7 +719,7 @@ def sweep(search: str = ''):
             ]},
         },
         'overrides': ['alg=dyna', 'rlenv=housemaze', 'user=wilka'],
-        'group': 'dynaq_shared-16',
+        'group': 'dynaq_shared-17',
     }
   elif search == 'pqn':
     sweep_config = {
