@@ -1,0 +1,12 @@
+"PROJECT": "jax-neurorl-baselines"
+
+"ENV_NAME": "Craftax-Symbolic-v1"
+
+# RUN PARAMS
+"EVAL_EPISODES": 100
+
+# RUN PARAMS
+"TOTAL_TIMESTEPS": 1e6
+
+# ALGO PARAMS
+"LEARNING_STARTS": 0

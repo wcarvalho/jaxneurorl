@@ -38,6 +38,7 @@ from flax.traverse_util import flatten_dict
 import gymnax
 from gymnax.wrappers.purerl import FlattenObservationWrapper, LogWrapper
 from jaxneurorl.wrappers import TimestepWrapper
+from craftax.craftax_env import make_craftax_env_from_name
 
 os.environ['XLA_PYTHON_CLIENT_PREALLOCATE']='false'
 
@@ -48,6 +49,11 @@ from jaxneurorl.agents import value_based_pqn as vpq
 from jaxneurorl.agents import alphazero
 from jaxneurorl.agents import qlearning
 
+gymnax_envs = ['CartPole-v1',
+       'Breakout-MinAtar',
+       'Catch-bsuite']
+craftax_envs = ['Craftax-Symbolic-v1']
+
 def run_single(
         config: dict,
         save_path: str = None):
@@ -55,12 +61,18 @@ def run_single(
     assert config['ENV_NAME'] in (
        'CartPole-v1',
        'Breakout-MinAtar',
-       'Catch-bsuite'
+       'Catch-bsuite',
+       'Craftax-Symbolic-v1'
     ), 'only these have been tested so far'
 
-    basic_env, env_params = gymnax.make(config['ENV_NAME'])
+    if config['ENV_NAME'] in gymnax_envs:
+      basic_env, env_params = gymnax.make(config['ENV_NAME'])
+    elif config['ENV_NAME'] in craftax_envs:
+      basic_env = make_craftax_env_from_name(config['ENV_NAME'], auto_reset=True)
+      env_params = basic_env.default_params
+
     env = FlattenObservationWrapper(basic_env)
-    
+
     # converts to using timestep
     env = TimestepWrapper(env, autoreset=True)
 
@@ -112,10 +124,9 @@ def sweep(search: str = ''):
         'parameters': {
             "ENV_NAME": {'values': ['Catch-bsuite']},
             "AGENT_HIDDEN_DIM": {'values': [32, 64, 128, 256]},
-            
+
         },
         'overrides': ['alg=qlearning',
-                      'rlenv=cartpole',
                       'user=wilka'],
         'group': 'qlearning-4',
     }
@@ -132,7 +143,7 @@ def sweep(search: str = ''):
             "NORM_QFN": {'values': ['layer_norm', 'none']},
             #"TOTAL_TIMESTEPS": {'values': [100_000_000]},
         },
-        'overrides': ['alg=pqn', 'rlenv=cartpole', 'user=wilka'],
+        'overrides': ['alg=pqn', 'user=wilka'],
         'group': 'pqn-3',
     }
   elif search == 'alpha':
@@ -145,7 +156,6 @@ def sweep(search: str = ''):
             "ENV_NAME": {'values': ['Catch-bsuite']},
         },
         'overrides': ['alg=alphazero',
-                      'rlenv=cartpole',
                       'user=wilka'],
         'group': 'alpha-1',
     }
