@@ -1,75 +1,240 @@
-from typing import Callable
-from functools import partial
-from flax import struct
 import jax
 import jax.numpy as jnp
-from collections import deque
-
-from jaxneurorl.agents import value_based_basics as vbb
-from housemaze.human_dyna import env as maze
-from housemaze import renderer
-from projects.humansf import visualizer
+import matplotlib.pyplot as plt
+import os.path
+import numpy as np
 
 import jax.tree_util as jtu
-from safetensors.flax import load_file
-from flax.traverse_util import unflatten_dict
+import polars as pl
 import pickle
 
+from housemaze import renderer
+from housemaze.human_dyna import utils
+from housemaze.human_dyna import mazes
+from housemaze.human_dyna import multitask_env
 
-def swap_task(x: maze.TimeStep, w: jax.Array):
-    new_state = x.state.replace(
-        step_num=jnp.zeros_like(x.state.step_num),
-        task_w=w,
-    )
+from projects.humansf import housemaze_experiments
+from projects.humansf import data_loading
 
-    return x.replace(
-        state=new_state,
-    )
-def make_float(x): return x.astype(jnp.float32)
+image_dict = utils.load_image_dict()
 
-def load_params(filename):
-    flattened_dict = load_file(filename)
-    return unflatten_dict(flattened_dict, sep=',')
+num_groups = 2
+char2idx, groups, task_objects = mazes.get_group_set(num_groups)
 
-def load_params_config(path: str, file: str, config=True):
-    params = load_params(f'{path}/{file}.safetensors')
+task_runner = multitask_env.TaskRunner(task_objects=task_objects)
 
-    if config:
-        with open(f'{path}/{file}.config', 'rb') as f:
-            config = pickle.load(f)
-    return params, config
 
-def collect_trajectory(
-    init_timestep,
-    task_w,
-    rng,
-    train_state: vbb.CustomTrainState,
-    actor,
-    agent_reset_fn,
-    vmap_step,
-    env_params,
-    max_steps: int = 50,
-    ):
+############
+# trained model
+############
+def get_params(maze_str: str = None):
+  maze_str = maze_str or mazes.maze0
+  return mazes.get_maze_reset_params(
+      groups=groups,
+      char2key=char2idx,
+      maze_str=maze_str,
+      randomize_agent=False,
+      make_env_params=True,
+)
 
-    rng, rng_ = jax.random.split(rng)
+def get_algorithm_data(
+        algorithm: data_loading.Algorithm,
+        exp: str,
+        overwrite: bool = False,
+      ):
+  exp_fn = getattr(housemaze_experiments, exp, None)
+  _, _, _, label2name = exp_fn(algorithm.config)
   
-    timestep = jax.vmap(swap_task, (0, None))(init_timestep, task_w)
-    agent_state = agent_reset_fn(train_state.params, timestep, rng_)
+  base_path = f"{algorithm.path}/analysis/"
+  os.makedirs(base_path, exist_ok=True)
+  timesteps_filename = f"{base_path}/{algorithm.name}_timesteps.pickle"
+  df_filename = f"{base_path}/{algorithm.name}_df.csv"
+  ##############################
+  # if already exists, return
+  ##############################
+  if (os.path.exists(timesteps_filename) and os.path.exists(df_filename) and not overwrite):
+    df = pl.read_csv(df_filename)
+    with open(timesteps_filename, 'rb') as f:
+      all_episodes = pickle.load(f)
 
-    runner_state = vbb.RunnerState(
-        train_state=train_state,
-        timestep=timestep,
-        agent_state=agent_state,
-        rng=rng)
+    return df, all_episodes
 
-    _, traj_batch = vbb.collect_trajectory(
-                runner_state=runner_state,
-                num_steps=max_steps,
-                actor_step_fn=actor.eval_step,
-                env_step_fn=vmap_step,
-                env_params=env_params)
+  ##############################
+  # create data and return
+  ##############################
 
-    return traj_batch
+  rng = jax.random.PRNGKey(42)
+  train_task = groups[0, 0]
+  test_task = groups[1, 0]
+
+  all_info = []
+  all_episodes = []
+  for maze_name in label2name.values():
+      env_params = get_params(getattr(mazes, maze_name))
+      for task in [train_task, test_task]:
+          task_vector = task_runner.task_vector(task)
+          episodes = algorithm.eval_fn(rng, env_params, task_vector)
+          info = dict(
+              eval=bool(task==test_task),
+              algo=algorithm.name,
+              exp=exp,
+              room=0,
+              task=task,
+          )
+          print("-"*50)
+          print("Finished")
+          print(info)
+          all_info.append(info)
+          all_episodes.append(episodes)
+  df = pl.DataFrame(all_info)
+  df.write_csv(df_filename)
+
+  with open(timesteps_filename, 'wb') as f:
+    pickle.dump(all_episodes, f)
+  
+  return df, all_episodes
+
+###################
+# Search
+###################
+
+def concat_pytrees(tree1, tree2, **kwargs):
+    return jax.tree_map(lambda x, y: jnp.concatenate((x, y), **kwargs), tree1, tree2)
+def add_time(v): return jax.tree_map(lambda x: x[None], v)
+def concat_first_rest(first, rest):
+    # init: [...]
+    # rest: [T, ...]
+    # output: [T+1, ...]
+    return concat_pytrees(add_time(first), rest)
+
+def actions_from_search(env_params, rng, task, algo, budget):
+    map_init = jax.tree_map(lambda x:x[0], env_params.reset_params.map_init)
+    grid = np.asarray(map_init.grid)
+    agent_pos = tuple(int(o) for o in map_init.agent_pos)
+    goal = np.array([task])
+    path, _ = algo(grid, agent_pos, goal, key=rng, budget=budget)
+    actions = utils.actions_from_path(path)
+    return actions
+
+def collect_search_episodes(
+  env, env_params, task, algorithm: str, budget=None,
+  max_steps: int =50, 
+  n: int=100):
+  budget = budget or 1e8
+
+  def step_fn(carry, action):
+      rng, timestep = carry
+      rng, step_rng = jax.random.split(rng)
+      next_timestep = env.step(step_rng, timestep, action, env_params)
+      return (rng, next_timestep), next_timestep
+
+  def collect_episode(task, actions, rng):
+    timestep = env.reset(rng, env_params)
+    task_vector = task_runner.task_vector(task)
+    timestep = data_loading.swap_task(timestep, task_vector)
+    initial_carry = (rng, timestep)
+    (rng, timestep), timesteps = jax.lax.scan(step_fn, initial_carry, actions)
+    return concat_first_rest(timestep, timesteps)
+
+  #######################
+  # first get actions from n different runs
+  #######################
+  all_episodes = []
+  all_actions = []
+  rng = jax.random.PRNGKey(42)
+  rngs = jax.random.split(rng, n)
+  for idx in range(n):
+      actions = actions_from_search(
+         env_params, rngs[idx], task,
+         algo=getattr(utils, algorithm),
+         budget=budget)
+      leftover = max_steps - len(actions) + 1
+      actions = np.concatenate((actions, np.array([0]*leftover)))
+      episode = collect_episode(task, actions[:-1], rngs[idx])
+      # might be variable length
+      all_episodes.append(episode)
+      all_actions.append(actions)
+
+  # [N, T]
+  all_actions = np.array(all_actions)
+  all_episodes = jtu.tree_map(lambda *v: jnp.stack(v), *all_episodes)
+  return data_loading.EpisodeData(
+    timesteps=all_episodes,
+    actions=all_actions)
+
+
+def get_search_data(
+        algorithm: str,
+        env,
+        exp: str,
+        base_path: str,
+        budget: int = None,
+        overwrite: bool = False,
+        searches: int=100,
+      ):
+
+  exp_fn = getattr(housemaze_experiments, exp, None)
+  _, _, _, label2name = exp_fn({})
+
+  os.makedirs(base_path, exist_ok=True)
+  timesteps_filename = f"{base_path}/{algorithm}_{budget}_timesteps.pickle"
+  df_filename = f"{base_path}/{algorithm}_{budget}_df.csv"
+
+  ##############################
+  # if already exists, return
+  ##############################
+  if (os.path.exists(timesteps_filename) and os.path.exists(df_filename) and not overwrite):
+    df = pl.read_csv(df_filename)
+    with open(timesteps_filename, 'rb') as f:
+      all_episodes = pickle.load(f)
+
+    return df, all_episodes
+
+  ##############################
+  # create data and return
+  ##############################
+
+  train_task = groups[0, 0]
+  test_task = groups[1, 0]
+
+  all_info = []
+  all_episodes = []
+  for maze_name in label2name.values():
+      env_params = get_params(getattr(mazes, maze_name))
+      for task in [train_task, test_task]:
+          episodes = collect_search_episodes(
+             env=env,
+             env_params=env_params,
+             task=task,
+             algorithm=algorithm,
+             budget=budget,
+             n=searches)
+          info = dict(
+              eval=bool(task==test_task),
+              algo=algorithm,
+              exp=exp,
+              room=0,
+              task=task,
+              budget=budget
+          )
+          print("-"*50)
+          print("Finished")
+          print(info)
+          all_info.append(info)
+          all_episodes.append(episodes)
+
+  df = pl.DataFrame(all_info)
+  df.write_csv(df_filename)
+
+  with open(timesteps_filename, 'wb') as f:
+    pickle.dump(all_episodes, f)
+  
+  return df, all_episodes
+
+
+###################
+# Visualizations
+###################
 
 def get_in_episode(timestep):
   # get mask for within episode
@@ -79,178 +244,31 @@ def get_in_episode(timestep):
   in_episode = (term_cumsum + non_terminal) < 2
   return in_episode
 
-def success(timestep):
-  rewards = timestep.reward
-  in_episode = make_float(get_in_episode(timestep))
-  total_reward = (in_episode*rewards).sum()
-  success = make_float((in_episode*rewards).sum() > .5)
-  return total_reward, success
+def housemaze_render_fn(state: multitask_env.EnvState):
+    return renderer.create_image_from_grid(
+        state.grid,
+        state.agent_pos,
+        state.agent_dir,
+        image_dict)
 
-
-def plot_timesteps(
-  traj,
-  render_fn,
-  get_task_name,
-  extract_task_info,
-  max_len=40,
-  action_names=None):
-  timesteps = traj.timestep
-  actions = traj.action
-  #################
-  # frames
-  #################
-  obs_images = []
-  for idx in range(max_len):
-      index = lambda y: jax.tree_map(lambda x: x[idx], y)
-      obs_image = render_fn(index(timesteps.state))
-      obs_images.append(obs_image)
-
-  #################
-  # actions
-  #################
-  def action_name(a):
-    if action_names is not None:
-      name = action_names.get(int(a), 'ERROR?')
-      return f"action {int(a)}: {name}"
+def render_path(episode_data, from_model=True, ax=None):
+    # get actions that are in episode
+    timesteps = episode_data.timesteps
+    actions = episode_data.actions
+    if from_model:
+      in_episode = get_in_episode(timesteps)
+      actions = actions[in_episode][:-1]
+      positions = jax.tree_map(lambda x: x[in_episode][:-1], timesteps.state.agent_pos)
     else:
-      return f"action: {int(a)}"
-  actions_taken = [action_name(a) for a in actions]
+       positions = timesteps.state.agent_pos[:-1]
+    # positions in episode
 
-  #################
-  # plot
-  #################
-  index = lambda t, idx: jax.tree_map(lambda x: x[idx], t)
-  def panel_title_fn(timesteps, i):
-    task_name = get_task_name(extract_task_info(index(timesteps, i)))
-    title = f'{task_name}'
+    state_0 = jax.tree_map(lambda x: x[0], timesteps.state)
 
-    step_type = int(timesteps.step_type[i])
-    step_type = ['first', 'mid', '|last|'][step_type]
-    title += f'\nt={i}, type={step_type}'
+    # doesn't matter
+    maze_height, maze_width, _ = timesteps.state.grid[0].shape
 
-    if i < len(actions_taken):
-      title += f'\n{actions_taken[i]}'
-    title += f'\nr={timesteps.reward[i]}, $\\gamma={timesteps.discount[i]}$'
-
-    return title
-
-  fig = visualizer.plot_frames(
-      timesteps=timesteps,
-      frames=obs_images,
-      panel_title_fn=panel_title_fn,
-      ncols=6)
-
-@struct.dataclass
-class Algorithm:
-
-  config: dict
-  train_state: Callable
-  actor: Callable
-  network: Callable
-  reset_fn: Callable
-  eval_fn: Callable
-  path: str
-  name: str
-
-  def setting(self):
-     return self.path.split('/')[-1]
-
-
-def load_algorithm(
-      path,
-      name,
-      env_params,
-      env,
-      make_fns,
-      parallel_envs: int=25,
-      ):
-  agent_params, config = load_params_config(path, name)
-
-  config['NUM_ENVS'] = parallel_envs
-
-  def vmap_reset(rng, env_params):
-    return jax.vmap(env.reset, in_axes=(0, None))(
-        jax.random.split(rng, config["NUM_ENVS"]), env_params)
-
-  def vmap_step(rng, env_state, action, env_params):
-      return jax.vmap(
-          env.step, in_axes=(0, 0, 0, None))(
-          jax.random.split(rng, config["NUM_ENVS"]), env_state, action, env_params)
-
-  rng = jax.random.PRNGKey(config["SEED"])
-  rng, rng_ = jax.random.split(rng)
-  example_timestep = vmap_reset(rng_, env_params)
-
-  fns = make_fns(config=config)
-
-  network, _, reset_fn = fns.make_agent(
-      config=config,
-      env=env,
-      env_params=env_params,
-      example_timestep=example_timestep,
-      rng=rng_)
-
-  actor = fns.make_actor(
-              config=config,
-              agent=network,
-              rng=rng_)
-
-  train_state = vbb.CustomTrainState.create(
-              apply_fn=network.apply,
-              params=agent_params,
-              target_network_params=agent_params,
-              tx=fns.make_optimizer(config),  # unnecessary
-          )
-
-  def collect_trajectories(
-        rng,
-        env_params,
-        task_w,
-        n=4):
-
-      collect_fn = partial(
-        collect_trajectory,
-        train_state=train_state,
-        agent_reset_fn=reset_fn,
-        actor=actor,
-        vmap_step=vmap_step,
-        env_params=env_params,
-        )
-      collect_fn = jax.vmap(collect_fn, (None, 0, 0))
-
-      def scan_body(rng, _):
-          rng, rng_ = jax.random.split(rng)
-          init_timestep = vmap_reset(rng=rng_, env_params=env_params)
-          rng, rng_ = jax.random.split(rng)
-          new_trajs = collect_fn(
-            init_timestep, task_w, jax.random.split(rng_, len(task_w)))
-          return rng, new_trajs
-
-      # [n, num_tasks, num_timesteps, num_traj, data]
-      rng, all_trajs = jax.lax.scan(scan_body, rng, None, length=n)
-
-      def fix_shape(x):
-        # [num_tasks, n, num_timesteps, num_traj, data]
-        x = jnp.swapaxes(x, 0, 1)
-
-        # [num_tasks, n, num_traj, num_timesteps, data]
-        x = jnp.swapaxes(x, 2, 3)
-
-        # [num_tasks, n*num_traj, num_timesteps, data]
-        x = x.reshape(x.shape[0], -1, *x.shape[3:])
-        return x
-
-      # [n, num_traj, num_timesteps, num_tasks, data]
-      all_trajs = jax.tree_map(fix_shape, all_trajs)
-      return all_trajs
-
-  return Algorithm(
-      config=config,
-      network=network,
-      reset_fn=reset_fn,
-      actor=actor,
-      train_state=train_state,
-      eval_fn=jax.jit(collect_trajectories),
-      path=path,
-      name=name,
-  )
+    if ax is None:
+      fig, ax = plt.subplots(1, figsize=(5, 5))
+    img = housemaze_render_fn(state_0)
+    renderer.place_arrows_on_image(img, positions, actions, maze_height, maze_width, arrow_scale=5, ax=ax)

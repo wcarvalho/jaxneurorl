@@ -249,7 +249,7 @@ def start_slurm_wandb_sweep(
        f"app.PROJECT={final_config['PROJECT']}",
        f"app.base_path={base_path}",
        f"app.group={group}",
-       f"app.parent=wandb_search"
+       f"app.parallel=wandb_slurm",
        ] + sweep_config_overrides
   if debug:
     sweep_config['command'].append(
@@ -338,7 +338,7 @@ def start_slurm_wandb_sweep(
   print("-"*10, 'run command', "-"*10)
   print(sbatch_command)
   #thread = threading.Thread(target=lambda command: os.system(command), args=(sbatch_command,))
-
+  #thread.start()
   #process = subprocess.Popen(sbatch_command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
 def start_slurm_vanilla_sweep(
@@ -431,7 +431,8 @@ def start_slurm_vanilla_sweep(
        "app.subprocess=True",
        f"app.PROJECT={final_config['PROJECT']}",
        f"app.base_path={base_path}",
-       f"app.group={group}"
+       f"app.group={group}",
+       f"app.parallel=slurm",
        ] + sweep_config_overrides
 
   if debug:
@@ -557,7 +558,7 @@ def start_wandb_sweep(
        f"app.PROJECT={final_config['PROJECT']}",
        f"app.base_path={base_path}",
        f"app.group={group}",
-       f"app.parent=wandb_agent"
+       f"app.parallel=wandb",
        ] + sweep_config_overrides
   if debug:
     sweep_config['command'].append(
@@ -817,36 +818,31 @@ def run(
     process_configs_fn=process_configs_fn,
     folder=folder,
   )
-  if hydra_config['app']['parallel'] == 'sbatch':
-    # -------------------
-    # run sweep on slurm
-    # -------------------
-    if hydra_config['app']['wandb_search']:
-      return start_slurm_wandb_sweep(**sweep_kwargs())
-    else:
-      return start_slurm_vanilla_sweep(**sweep_kwargs())
-
-  elif hydra_config['app']['parallel'] == 'wandb':
-    return start_wandb_sweep(**sweep_kwargs())
-
-  elif hydra_config['app']['parallel'] == 'none':
-    # -------------------
-    # load experiment config. varies based on whether called by slurm or not.
-    # -------------------
-    if hydra_config['app']['subprocess']:
-      if hydra_config['app']['parent'] == 'wandb_search':
-        return individual_wandb_run(**individual_run_kwargs())
-      elif hydra_config['app']['parent'] == 'wandb_agent':
+  if hydra_config['app']['subprocess']:
+      if hydra_config['app']['parallel'] == 'slurm_wandb':
+        # this process will launch a wandb agent to run fetch the config and run the process
         return individual_wandb_run(
-          **individual_run_kwargs(),
-          run_directly=True)
-      elif hydra_config['app']['parent'] == 'slurm':
+          **individual_run_kwargs(), run_directly=False)
+      elif hydra_config['app']['parallel'] == 'wandb':
+        # this process will directly run the function
+        # a wandb agent was already created before this
+        return individual_wandb_run(
+          **individual_run_kwargs(), run_directly=True)
+      elif hydra_config['app']['parallel'] == 'slurm':
         return individual_vanilla_slurm_run(**individual_run_kwargs())
+      elif hydra_config['app']['parallel'] == 'none':
+        raise RuntimeError(
+          "parallel=none and subprocess=True doesn't make sense. bug.")
       else:
-        raise NotImplementedError(hydra_config['app']['parent'])
-
-    else:  # called by this script (i.e. you)
-        # mimics the structure of sweep so file naming is consistent
+        raise NotImplementedError(f"parallel: {hydra_config['app']['parallel']}")
+  else:
+      if hydra_config['app']['parallel'] == 'slurm_wandb':
+        return start_slurm_wandb_sweep(**sweep_kwargs())
+      elif hydra_config['app']['parallel'] == 'wandb':
+        return start_wandb_sweep(**sweep_kwargs())
+      elif hydra_config['app']['parallel'] == 'slurm':
+        return start_slurm_vanilla_sweep(**sweep_kwargs())
+      elif hydra_config['app']['parallel'] == 'none':
         return run_individual(
           run_fn=run_fn,
           app_config=hydra_config['app'],
@@ -857,6 +853,5 @@ def run(
           process_configs_fn=process_configs_fn,
           debug=hydra_config['app']['debug'],
         )
-
-  else:
-    raise NotImplementedError
+      else:
+        raise NotImplementedError(f"parallel: {hydra_config['app']['parallel']}")

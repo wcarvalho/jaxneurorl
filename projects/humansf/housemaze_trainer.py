@@ -9,8 +9,7 @@ HYDRA_FULL_ERROR=1 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue projec
 
 RUNNING ON SLURM:
 python projects/humansf/housemaze_trainer.py \
-  app.parallel=wandb \
-  app.parent=wandb_search \
+  app.parallel=slurm_wandb \
   app.search=dynaq_shared
 """
 from typing import Any, Callable, Dict, Union, Optional
@@ -48,18 +47,18 @@ from projects.humansf import qlearning
 from projects.humansf import offtask_dyna
 from projects.humansf import networks
 from projects.humansf import observers as humansf_observers
+from projects.humansf import housemaze_experiments
 
 from housemaze import renderer
 from housemaze import utils as housemaze_utils
-from housemaze.human_dyna import env as maze
+from housemaze.human_dyna import multitask_env
 
-from housemaze.human_dyna import experiments as housemaze_experiments
 
 
 def make_logger(
         config: dict,
-        env: maze.HouseMaze,
-        env_params: maze.EnvParams,
+        env: multitask_env.HouseMaze,
+        env_params: multitask_env.EnvParams,
         action_names: dict,
         render_fn: Callable = None,
         extract_task_info: Callable = None,
@@ -185,7 +184,7 @@ def get_dynaq_fns(
   else:
     raise NotImplementedError
 
-  def make_init_offtask_timestep(x: maze.TimeStep, offtask_w: jax.Array):
+  def make_init_offtask_timestep(x: multitask_env.TimeStep, offtask_w: jax.Array):
       task_object = (task_objects*offtask_w).sum(-1)
       task_object = task_object.astype(jnp.int32)
       new_state = x.state.replace(
@@ -221,7 +220,7 @@ def get_dynaq_fns(
     make_actor=offtask_dyna.make_actor,
   )
 
-def extract_task_info(timestep: maze.TimeStep):
+def extract_task_info(timestep: multitask_env.TimeStep):
   state = timestep.state
   return {
       'map_idx': state.map_idx,
@@ -251,8 +250,7 @@ def run_single(
     try:
       exp_fn = getattr(housemaze_experiments, exp, None)
     except Exception as e:
-      raise RuntimeError(exp)
-
+      raise RuntimeError(e)
     env_params, test_env_params, task_objects, idx2maze = exp_fn(config)
 
     image_dict = housemaze_utils.load_image_dict()
@@ -266,9 +264,9 @@ def run_single(
     ###################
     # load env
     ###################
-    task_runner = maze.TaskRunner(task_objects=task_objects)
+    task_runner = multitask_env.TaskRunner(task_objects=task_objects)
     keys = image_dict['keys']
-    env = maze.HouseMaze(
+    env = multitask_env.HouseMaze(
         task_runner=task_runner,
         num_categories=200,
     )
@@ -292,7 +290,7 @@ def run_single(
         action.value: action.name for action in env.action_enum()}
 
 
-    def housemaze_render_fn(state: maze.EnvState):
+    def housemaze_render_fn(state: multitask_env.EnvState):
       return renderer.create_image_from_grid(
           state.grid,
           state.agent_pos,
@@ -466,7 +464,7 @@ def run_single(
       else:
         raise NotImplementedError
 
-      def make_init_offtask_timestep(x: maze.TimeStep, offtask_w: jax.Array):
+      def make_init_offtask_timestep(x: multitask_env.TimeStep, offtask_w: jax.Array):
           task_object = (task_objects*offtask_w).sum(-1)
           task_object = task_object.astype(jnp.int32)
           new_state = x.state.replace(
@@ -576,7 +574,7 @@ def run_single(
       else:
         raise NotImplementedError
 
-      def make_init_offtask_timestep(x: maze.TimeStep, offtask_w: jax.Array):
+      def make_init_offtask_timestep(x: multitask_env.TimeStep, offtask_w: jax.Array):
           task_object = (task_objects*offtask_w).sum(-1)
           task_object = task_object.astype(jnp.int32)
           new_state = x.state.replace(
@@ -691,16 +689,11 @@ def sweep(search: str = ''):
             'goal': 'maximize',
         },
         'parameters': {
-            "SEED": {'values': [1, 2, 3]},
-            "env.exp": {'values': [
-              'exp1_block1',
-              'exp1_block2',
-              'exp1_block3',
-              'exp1_block4',
-            ]},
+            "SEED": {'values': list(range(1,11))},
+            "env.exp": {'values': ['exp1']},
         },
         'overrides': ['alg=ql', 'rlenv=housemaze','user=wilka'],
-        'group': 'ql-19',
+        'group': 'ql-21',
     }
   elif search == 'dynaq_shared':
     sweep_config = {
@@ -710,16 +703,11 @@ def sweep(search: str = ''):
         },
         'parameters': {
             'ALG': {'values': ['dynaq_shared']},
-            "SEED": {'values': [1, 2, 3]},
-            "env.exp": {'values': [
-              'exp1_block1',
-              'exp1_block2',
-              'exp1_block3',
-              'exp1_block4',
-            ]},
+            "SEED": {'values': list(range(1,11))},
+            "env.exp": {'values': ['exp1']},
         },
         'overrides': ['alg=dyna', 'rlenv=housemaze', 'user=wilka'],
-        'group': 'dynaq_shared-17',
+        'group': 'dynaq_shared-19',
     }
   elif search == 'pqn':
     sweep_config = {

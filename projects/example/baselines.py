@@ -14,8 +14,7 @@ python projects/example/baselines.py \
 
 RUNNING WANDB SWEEP ON SLURM:
 python projects/example/baselines.py \
-  app.parallel=sbatch \
-  app.parent=wandb_search \
+  app.parallel=slurm_wandb \
   app.search=pqn
 
 """

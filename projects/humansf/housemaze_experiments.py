@@ -5,7 +5,7 @@ import jax.tree_util as jtu
 import numpy as np
 import os.path
 
-from housemaze.human_dyna import env as maze
+from housemaze.human_dyna import multitask_env
 from housemaze.human_dyna import mazes
 
 
@@ -26,12 +26,12 @@ def maze1_all(config):
         label=jnp.array(0),
         curriculum=True,
     )
-    train_params = maze.EnvParams(
+    train_params = multitask_env.EnvParams(
         reset_params=jtu.tree_map(
             lambda *v: jnp.stack(v), *(pretrain_params + main_params)),
     )
 
-    test_params = maze.EnvParams(
+    test_params = multitask_env.EnvParams(
         reset_params=jtu.tree_map(
             lambda *v: jnp.stack(v), *main_params),
     ).replace(training=False)
@@ -63,13 +63,13 @@ def maze3_open(config):
     )
 
     train_params = pretrain_params + main_params
-    train_params = maze.EnvParams(
+    train_params = multitask_env.EnvParams(
         reset_params=jtu.tree_map(
             lambda *v: jnp.stack(v), *train_params),
     )
 
     test_params = main_params + main_open_params
-    test_params = maze.EnvParams(
+    test_params = multitask_env.EnvParams(
         reset_params=jtu.tree_map(
             lambda *v: jnp.stack(v), *test_params),
     ).replace(training=False)
@@ -100,14 +100,14 @@ def maze3_randomize(config):
     )
 
     train_params = pretrain_params + main_params
-    train_params = maze.EnvParams(
+    train_params = multitask_env.EnvParams(
         randomize_agent=True,
         reset_params=jtu.tree_map(
             lambda *v: jnp.stack(v), *train_params),
     )
 
     test_params = main_params + main_open_params
-    test_params = maze.EnvParams(
+    test_params = multitask_env.EnvParams(
         training=False,
         randomize_agent=False,
         reset_params=jtu.tree_map(
@@ -134,13 +134,13 @@ def maze5_two_paths(config):
     )
 
     train_params = pretrain_params + main_params
-    train_params = maze.EnvParams(
+    train_params = multitask_env.EnvParams(
         reset_params=jtu.tree_map(
             lambda *v: jnp.stack(v), *train_params),
     )
 
     test_params = main_params
-    test_params = maze.EnvParams(
+    test_params = multitask_env.EnvParams(
         training=False,
         reset_params=jtu.tree_map(
             lambda *v: jnp.stack(v), *test_params),
@@ -161,7 +161,7 @@ def basic_make_exp_block(
     # setup
     env_kwargs = config.get('rlenv', {}).get('ENV_KWARGS', {})
     num_groups = env_kwargs.pop('NUM_GROUPS', 2)
-    char2key, group_set, task_objects = get_group_set(num_groups)
+    char2key, group_set, task_objects = mazes.get_group_set(num_groups)
 
     all_train_params = []
     all_eval_params = []
@@ -192,13 +192,13 @@ def basic_make_exp_block(
         )
         all_eval_params += params
 
-    train_params = maze.EnvParams(
+    train_params = multitask_env.EnvParams(
         **train_kwargs,
         reset_params=jtu.tree_map(
             lambda *v: jnp.stack(v), *all_train_params),
     )
 
-    test_params = maze.EnvParams(
+    test_params = multitask_env.EnvParams(
         **eval_kwargs,
         training=False,
         reset_params=jtu.tree_map(
@@ -216,8 +216,8 @@ def exp1_block1(config):
     return basic_make_exp_block(config, train_mazes, eval_mazes)
 
 def exp1_block2(config):
-    train_mazes = ['maze3']
-    eval_mazes = ['maze3_onpath_shortcut', 'maze3_offpath_shortcut']
+    train_mazes = ['maze3_r']
+    eval_mazes = ['maze3_onpath_shortcut_r', 'maze3_offpath_shortcut_r']
     return basic_make_exp_block(config, train_mazes, eval_mazes)
 
 def exp1_block3(config):
@@ -228,5 +228,10 @@ def exp1_block3(config):
 def exp1_block4(config):
     train_mazes = ['maze6']
     eval_mazes = ['maze6_flipped_offtask']
+    return basic_make_exp_block(config, train_mazes, eval_mazes)
+
+def exp1(config):
+    train_mazes = ['maze3', 'maze3_r', 'maze5', 'maze6']
+    eval_mazes = train_mazes
     return basic_make_exp_block(config, train_mazes, eval_mazes)
 

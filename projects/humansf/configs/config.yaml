@@ -14,7 +14,8 @@ hydra:
     subdir: .
 
 app:
-  parallel: "none"  # none, sbatch, or ray
+  parallel: "none"  # none, slurm_wandb, slurm, wandb
+  subprocess: false  # indicate if this run is a subprocess
   search_method: "grid"
   debug_sweep: false
   debug: false
@@ -28,9 +29,7 @@ app:
   max_concurrent: 12
   account: "kempner_fellows"  # specify if there's a default account
   partition: "kempner"  # default SLURM partition
-  settings_config: ""  # to be set by parallel.py
-  subprocess: false  # indicate if this run is a subprocess
-  parent: 'wandb_search'  # 'wandb_slurm', 'wandb_agent', 'slurm'
+  settings_config: ""  # to be set by launcher.py
   PROJECT: null  # name of wandb project, note uppercase
   group: null  # name of wandb project
   base_path: null  # name of wandb project
