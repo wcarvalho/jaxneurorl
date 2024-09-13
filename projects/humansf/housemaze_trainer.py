@@ -708,7 +708,7 @@ def sweep(search: str = ''):
             "TOTAL_TIMESTEPS": {'values': [50_000_000]},
         },
         'overrides': ['alg=dyna', 'rlenv=housemaze', 'user=wilka'],
-        'group': 'dynaq_shared-19',
+        'group': 'dynaq_shared-20',
     }
   elif search == 'pqn':
     sweep_config = {

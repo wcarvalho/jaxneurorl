@@ -150,6 +150,7 @@ def collect_search_episodes(
          budget=budget)
       leftover = max_steps - len(actions) + 1
       actions = np.concatenate((actions, np.array([0]*leftover)))
+      actions = actions.astype(np.int32)
       episode = collect_episode(task, actions[:-1], rngs[idx])
       # might be variable length
       all_episodes.append(episode)
