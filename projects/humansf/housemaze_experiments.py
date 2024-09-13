@@ -230,8 +230,11 @@ def exp1_block4(config):
     eval_mazes = ['maze6_flipped_offtask']
     return basic_make_exp_block(config, train_mazes, eval_mazes)
 
-def exp1(config):
+def exp1(config, analysis_eval: bool = False):
     train_mazes = ['maze3', 'maze3_r', 'maze5', 'maze6']
-    eval_mazes = train_mazes
+    if analysis_eval:
+        eval_mazes = ['maze3_open2', 'maze3_onpath_shortcut_r', 'maze3_offpath_shortcut_r', 'maze5', 'maze6_flipped_offtask']
+    else:
+        eval_mazes = train_mazes
     return basic_make_exp_block(config, train_mazes, eval_mazes)
 

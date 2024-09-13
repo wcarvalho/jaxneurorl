@@ -43,7 +43,7 @@ def get_algorithm_data(
         overwrite: bool = False,
       ):
   exp_fn = getattr(housemaze_experiments, exp, None)
-  _, _, _, label2name = exp_fn(algorithm.config)
+  _, _, _, label2name = exp_fn(algorithm.config, analysis_eval=True)
   
   base_path = f"{algorithm.path}/analysis/"
   os.makedirs(base_path, exist_ok=True)
@@ -80,10 +80,11 @@ def get_algorithm_data(
               exp=exp,
               room=0,
               task=task,
+              maze_name=maze_name,
           )
-          print("-"*50)
-          print("Finished")
-          print(info)
+          #print("-"*50)
+          #print("Finished")
+          #print(info)
           all_info.append(info)
           all_episodes.append(episodes)
   df = pl.DataFrame(all_info)
@@ -175,7 +176,7 @@ def get_search_data(
       ):
 
   exp_fn = getattr(housemaze_experiments, exp, None)
-  _, _, _, label2name = exp_fn({})
+  _, _, _, label2name = exp_fn({}, analysis_eval=True)
 
   os.makedirs(base_path, exist_ok=True)
   timesteps_filename = f"{base_path}/{algorithm}_{budget}_timesteps.pickle"
@@ -218,9 +219,9 @@ def get_search_data(
               task=task,
               budget=budget
           )
-          print("-"*50)
-          print("Finished")
-          print(info)
+          #print("-"*50)
+          #print("Finished")
+          #print(info)
           all_info.append(info)
           all_episodes.append(episodes)
 
