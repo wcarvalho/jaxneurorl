@@ -705,6 +705,7 @@ def sweep(search: str = ''):
             'ALG': {'values': ['dynaq_shared']},
             "SEED": {'values': list(range(1,11))},
             "env.exp": {'values': ['exp1']},
+            "TOTAL_TIMESTEPS": {'values': [50_000_000]},
         },
         'overrides': ['alg=dyna', 'rlenv=housemaze', 'user=wilka'],
         'group': 'dynaq_shared-19',
