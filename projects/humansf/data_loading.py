@@ -41,11 +41,15 @@ def is_in_notebook():
     except AttributeError:
         return False
 
-#if is_in_notebook():
-#    from tqdm.notebook import tqdm
-#    import ipywidgets
-#else:
-from tqdm import tqdm
+if is_in_notebook():
+    from tqdm.notebook import tqdm
+    try:
+        import ipywidgets
+    except:
+        pass
+else:
+    from tqdm import tqdm
+
 ############
 # deep learning models
 ############
@@ -366,7 +370,7 @@ def make_episode_data(data: List[dict], example_timestep: multitask_env.TimeStep
     episode_info = pl.DataFrame(episode_info)
     return episode_info, episode_data
 
-def make_all_episode_data(files, example_timestep, base_path, overwrite: bool = False):
+def make_all_episode_data(files, example_timestep, base_path, filter_fn = None, overwrite: bool = False):
 
     all_episode_data = []
     episode_df_list = []
@@ -382,6 +386,9 @@ def make_all_episode_data(files, example_timestep, base_path, overwrite: bool = 
         else:
             with open(file, 'r') as f:
                 data = json.load(f)
+            
+            if filter_fn is not None:
+                if filter_fn(data): continue
             episode_df, episode_data = make_episode_data(data, example_timestep)
         all_episode_data += episode_data
         episode_df_list.append(episode_df)

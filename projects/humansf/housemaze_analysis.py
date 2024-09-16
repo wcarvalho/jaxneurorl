@@ -20,7 +20,7 @@ image_dict = utils.load_image_dict()
 
 num_groups = 2
 char2idx, groups, task_objects = mazes.get_group_set(num_groups)
-
+idx2key = {idx: image_dict['keys'][idx] for char, idx in char2idx.items()}
 task_runner = multitask_env.TaskRunner(task_objects=task_objects)
 
 
@@ -41,7 +41,9 @@ def get_algorithm_data(
         algorithm: data_loading.Algorithm,
         exp: str,
         overwrite: bool = False,
+        extra_info = None,
       ):
+  extra_info = extra_info or {}
   exp_fn = getattr(housemaze_experiments, exp, None)
   _, _, _, label2name = exp_fn(algorithm.config, analysis_eval=True)
   
@@ -64,23 +66,25 @@ def get_algorithm_data(
   ##############################
 
   rng = jax.random.PRNGKey(42)
-  train_task = groups[0, 0]
-  test_task = groups[1, 0]
+  train_tasks = groups[:1, 0]
+  test_tasks = groups[:1, 1]
+  tasks = jnp.concatenate((train_tasks, test_tasks))
 
   all_info = []
   all_episodes = []
   for maze_name in label2name.values():
       env_params = get_params(getattr(mazes, maze_name))
-      for task in [train_task, test_task]:
+      for task in tasks:
           task_vector = task_runner.task_vector(task)
           episodes = algorithm.eval_fn(rng, env_params, task_vector)
           info = dict(
-              eval=bool(task==test_task),
+              eval=bool(task in test_tasks),
               algo=algorithm.name,
               exp=exp,
               room=0,
               task=task,
               maze_name=maze_name,
+              **extra_info,
           )
           #print("-"*50)
           #print("Finished")
@@ -119,7 +123,7 @@ def actions_from_search(env_params, rng, task, algo, budget):
 
 def collect_search_episodes(
   env, env_params, task, algorithm: str, budget=None,
-  max_steps: int =50, 
+  max_steps: int = 100, 
   n: int=100):
   budget = budget or 1e8
 
@@ -140,22 +144,36 @@ def collect_search_episodes(
   #######################
   # first get actions from n different runs
   #######################
-  all_episodes = []
   all_actions = []
   rng = jax.random.PRNGKey(42)
   rngs = jax.random.split(rng, n)
+
+  # First, get all actions
   for idx in range(n):
       actions = actions_from_search(
-         env_params, rngs[idx], task,
-         algo=getattr(utils, algorithm),
-         budget=budget)
-      leftover = max_steps - len(actions) + 1
-      actions = np.concatenate((actions, np.array([0]*leftover)))
-      actions = actions.astype(np.int32)
-      episode = collect_episode(task, actions[:-1], rngs[idx])
-      # might be variable length
-      all_episodes.append(episode)
+          env_params, rngs[idx], task,
+          algo=getattr(utils, algorithm),
+          budget=budget
+      )
       all_actions.append(actions)
+
+  # Find the maximum length among all action sequences
+  max_length = max(len(actions) for actions in all_actions)
+
+  # Pad each action sequence to the maximum length
+  padded_actions = []
+  for actions in all_actions:
+      padding = [0] * (max_length - len(actions))
+      padded_actions.append(np.concatenate((actions, np.array(padding, dtype=np.int32))))
+
+  # Convert to numpy array
+  all_actions = np.array(padded_actions, dtype=np.int32)
+
+  # Now compute all episodes
+  all_episodes = []
+  for idx in range(n):
+      episode = collect_episode(task, all_actions[idx][:-1], rngs[idx])
+      all_episodes.append(episode)
 
   # [N, T]
   all_actions = np.array(all_actions)
@@ -196,14 +214,15 @@ def get_search_data(
   # create data and return
   ##############################
 
-  train_task = groups[0, 0]
-  test_task = groups[1, 0]
+  train_tasks = groups[:1, 0]
+  test_tasks = groups[:1, 1]
+  tasks = jnp.concatenate((train_tasks, test_tasks))
 
   all_info = []
   all_episodes = []
   for maze_name in label2name.values():
       env_params = get_params(getattr(mazes, maze_name))
-      for task in [train_task, test_task]:
+      for task in tasks:
           episodes = collect_search_episodes(
              env=env,
              env_params=env_params,
@@ -212,12 +231,13 @@ def get_search_data(
              budget=budget,
              n=searches)
           info = dict(
-              eval=bool(task==test_task),
+              eval=bool(task in test_tasks),
               algo=algorithm,
               exp=exp,
               room=0,
               task=task,
-              budget=budget
+              budget=budget,
+              maze_name=maze_name,
           )
           #print("-"*50)
           #print("Finished")
@@ -274,3 +294,45 @@ def render_path(episode_data, from_model=True, ax=None):
       fig, ax = plt.subplots(1, figsize=(5, 5))
     img = housemaze_render_fn(state_0)
     renderer.place_arrows_on_image(img, positions, actions, maze_height, maze_width, arrow_scale=5, ax=ax)
+
+
+###################
+# Metrics
+###################
+
+
+def success(e):
+    rewards = e.timesteps.reward
+    #return rewards
+    assert rewards.ndim == 1, 'this is only defined over vector, e.g. 1 episode'
+    success = rewards > .5
+    return success.any().astype(np.float32)
+
+
+def rewards(e):
+    rewards = e.timesteps.reward
+    assert rewards.ndim == 1, 'this is only defined over vector, e.g. 1 episode'
+    success = rewards > .5
+    return success.any()
+
+
+def get_human_data(user_df, user_data, fn, **kwargs):
+    eval_df = user_df.filter(**kwargs)
+    idxs = np.array(eval_df['index'])-1
+    array = []
+    for idx in idxs:
+        val = fn(user_data[idx])
+        array.append(val)
+
+    return array
+
+
+def get_model_data(model_df, model_data, fn, **kwargs):
+    eval_df = model_df.filter(**kwargs)
+    idxs = np.array(eval_df['index'])-1
+    array = []
+    for idx in idxs:
+        val = jax.vmap(fn)(model_data[idx])
+        array.append(val)
+
+    return np.array(array).mean(-1)
