@@ -156,6 +156,8 @@ def basic_make_exp_block(
         eval_kwargs=None,
         pretrain_level=None,
         ):
+    make_int = lambda i: jnp.array(i, dtype=jnp.int32)
+
     train_kwargs = train_kwargs or dict()
     eval_kwargs = eval_kwargs or dict()
 
@@ -168,10 +170,16 @@ def basic_make_exp_block(
     all_eval_params = []
 
     all_mazes = list(set(train_mazes + eval_mazes))
-    maze2idx = {maze_name: idx for idx, maze_name in enumerate(all_mazes)}
-
-    all_train_params += mazes.get_pretraining_reset_params(group_set, pretrain_level=pretrain_level)
-    make_int = lambda i: jnp.array(i, dtype=jnp.int32)
+    maze2idx = {maze_name: idx for idx, maze_name in enumerate(all_mazes+[pretrain_level])}
+    if pretrain_level:
+        all_train_params += mazes.get_maze_reset_params(
+                groups=group_set,
+                char2key=char2key,
+                maze_str=getattr(mazes, pretrain_level),
+                label=make_int(maze2idx[pretrain_level]),
+                curriculum=True,
+                swap_train_test=True,
+            )
 
     for maze_name in train_mazes:
         params = mazes.get_maze_reset_params(
@@ -259,5 +267,5 @@ def exp2(config, analysis_eval: bool = False):
         config,
         train_mazes,
         eval_mazes,
-        pretrain_level=mazes.big_practice_maze,
+        pretrain_level='big_practice_maze',
         )

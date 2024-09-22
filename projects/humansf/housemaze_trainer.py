@@ -1,6 +1,7 @@
 """
 
 TESTING:
+JAX_DEBUG_NANS=True \
 JAX_DISABLE_JIT=1 \
 HYDRA_FULL_ERROR=1 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue projects/humansf/housemaze_trainer.py \
   app.debug=True \
@@ -272,10 +273,9 @@ def run_single(
     )
     env = housemaze_utils.AutoResetWrapper(env)
 
-
     HouzemazeObsEncoder = functools.partial(
         networks.CategoricalHouzemazeObsEncoder,
-        num_categories=500,
+        num_categories=max(10_000, env.total_categories(env_params)),
         embed_hidden_dim=config["EMBED_HIDDEN_DIM"],
         mlp_hidden_dim=config["MLP_HIDDEN_DIM"],
         num_embed_layers=config["NUM_EMBED_LAYERS"],
@@ -711,77 +711,77 @@ def sweep(search: str = ''):
         'overrides': ['alg=dyna', 'rlenv=housemaze', 'user=wilka'],
         'group': 'dynaq-big-1',
     }
-  elif search == 'pqn':
-    sweep_config = {
-        'metric': {
-            'name': 'evaluator_performance/0.0 avg_episode_return',
-            'goal': 'maximize',
-        },
-        'parameters': {
-            "env.exp": {'values': [
-                'maze3_open',
-            ]},
-            "BATCH_SIZE": {'values': [512*128, 256*128, 128*128]},
-            "NORM_TYPE": {'values': ['layer_norm', 'none']},
-            "NORM_QFN": {'values': ['layer_norm', 'none']},
-            "TOTAL_TIMESTEPS": {'values': [100_000_000]},
-        },
-        'overrides': ['alg=pqn', 'rlenv=housemaze', 'user=wilka'],
-        'group': 'pqn-7',
-    }
-  elif search == 'alpha':
-    sweep_config = {
-        'metric': {
-            'name': 'evaluator_performance/0.0 avg_episode_return',
-            'goal': 'maximize',
-        },
-        'parameters': {
-            "config_name": {'values': ['alpha_housemaze']},
-            'TOTAL_TIMESTEPS': {'values': [5e6]},
-        }
-    }
-  elif search == 'dynaq_replay':
-    sweep_config = {
-       'metric': {
-            'name': 'evaluator_performance/0.0 avg_episode_return',
-            'goal': 'maximize',
-        },
-        'parameters': {
-            #'TOTAL_TIMESTEPS': {'values': [5e6]},
-            'ACTIVATION': {'values': ['leaky_relu', 'relu', 'tanh']},
-            'DYNA_ONLINE_COEFF': {'values': [1., .1, .01]},
-            'NUM_EXTRA_SAVE': {'values': [0]},
-            "NUM_EMBED_LAYERS": {'values': [0]},
-            "NUM_MLP_LAYERS": {'values': [0]},
-            "AGENT_RNN_DIM": {'values': [128, 256]},
-            "NUM_Q_LAYERS": {'values': [1, 2, 3]},
-            "env.exp": {'values': [
-              #'maze3_randomize',
-              'maze3_open',
-              'maze1_all',
-            ]},
-            #'LR_LINEAR_DECAY': {'values': [False, True]},
-        },
-        'overrides': ['alg=dyna_replay_split',
-                      'rlenv=housemaze',
-                      'user=wilka'],
-        'group': 'dynaq-29',
-    }
-  elif search == 'test':
-    sweep_config = {
-       'metric': {
-            'name': 'evaluator_performance/0.0 avg_episode_return',
-            'goal': 'maximize',
-        },
-        'parameters': {
-            #'TOTAL_TIMESTEPS': {'values': [5e6]},
-            'DYNA_COEFF': {'values': [1, .1]},
-        },
-        'overrides': ['alg=dyna_replay_split',
-                      'rlenv=housemaze',
-                      'user=wilka'],
-        'group': 'dynaq-15',
-    }
+  #elif search == 'pqn':
+  #  sweep_config = {
+  #      'metric': {
+  #          'name': 'evaluator_performance/0.0 avg_episode_return',
+  #          'goal': 'maximize',
+  #      },
+  #      'parameters': {
+  #          "env.exp": {'values': [
+  #              'maze3_open',
+  #          ]},
+  #          "BATCH_SIZE": {'values': [512*128, 256*128, 128*128]},
+  #          "NORM_TYPE": {'values': ['layer_norm', 'none']},
+  #          "NORM_QFN": {'values': ['layer_norm', 'none']},
+  #          "TOTAL_TIMESTEPS": {'values': [100_000_000]},
+  #      },
+  #      'overrides': ['alg=pqn', 'rlenv=housemaze', 'user=wilka'],
+  #      'group': 'pqn-7',
+  #  }
+  #elif search == 'alpha':
+  #  sweep_config = {
+  #      'metric': {
+  #          'name': 'evaluator_performance/0.0 avg_episode_return',
+  #          'goal': 'maximize',
+  #      },
+  #      'parameters': {
+  #          "config_name": {'values': ['alpha_housemaze']},
+  #          'TOTAL_TIMESTEPS': {'values': [5e6]},
+  #      }
+  #  }
+  #elif search == 'dynaq_replay':
+  #  sweep_config = {
+  #     'metric': {
+  #          'name': 'evaluator_performance/0.0 avg_episode_return',
+  #          'goal': 'maximize',
+  #      },
+  #      'parameters': {
+  #          #'TOTAL_TIMESTEPS': {'values': [5e6]},
+  #          'ACTIVATION': {'values': ['leaky_relu', 'relu', 'tanh']},
+  #          'DYNA_ONLINE_COEFF': {'values': [1., .1, .01]},
+  #          'NUM_EXTRA_SAVE': {'values': [0]},
+  #          "NUM_EMBED_LAYERS": {'values': [0]},
+  #          "NUM_MLP_LAYERS": {'values': [0]},
+  #          "AGENT_RNN_DIM": {'values': [128, 256]},
+  #          "NUM_Q_LAYERS": {'values': [1, 2, 3]},
+  #          "env.exp": {'values': [
+  #            #'maze3_randomize',
+  #            'maze3_open',
+  #            'maze1_all',
+  #          ]},
+  #          #'LR_LINEAR_DECAY': {'values': [False, True]},
+  #      },
+  #      'overrides': ['alg=dyna_replay_split',
+  #                    'rlenv=housemaze',
+  #                    'user=wilka'],
+  #      'group': 'dynaq-29',
+  #  }
+  #elif search == 'test':
+  #  sweep_config = {
+  #     'metric': {
+  #          'name': 'evaluator_performance/0.0 avg_episode_return',
+  #          'goal': 'maximize',
+  #      },
+  #      'parameters': {
+  #          #'TOTAL_TIMESTEPS': {'values': [5e6]},
+  #          'DYNA_COEFF': {'values': [1, .1]},
+  #      },
+  #      'overrides': ['alg=dyna_replay_split',
+  #                    'rlenv=housemaze',
+  #                    'user=wilka'],
+  #      'group': 'dynaq-15',
+  #  }
   else:
     raise NotImplementedError(search)
 
