@@ -3,6 +3,7 @@ import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import os.path
 import numpy as np
+from matplotlib.animation import FuncAnimation
 
 import jax.tree_util as jtu
 import polars as pl
@@ -86,9 +87,7 @@ def get_algorithm_data(
               maze_name=maze_name,
               **extra_info,
           )
-          #print("-"*50)
-          #print("Finished")
-          #print(info)
+
           all_info.append(info)
           all_episodes.append(episodes)
   df = pl.DataFrame(all_info)
@@ -296,6 +295,62 @@ def render_path(episode_data, from_model=True, ax=None):
     renderer.place_arrows_on_image(img, positions, actions, maze_height, maze_width, arrow_scale=5, ax=ax)
 
 
+def create_reaction_times_video(images, reaction_times, output_file, fps=1):
+    # Ensure the directory exists
+    output_dir = os.path.dirname(output_file)
+    if output_dir and not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    n = len(images)
+    width = 5
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(2*width, width))
+
+    def update(frame):
+        # Clear previous content
+        ax1.clear()
+        ax2.clear()
+
+        # Left plot: Image
+        if images.size > 0:
+            img = images[frame]
+            ax1.imshow(img, cmap='viridis')
+        else:
+            ax1.text(0.5, 0.5, "No image data", ha='center', va='center')
+        rt = reaction_times[frame]/1e3
+        ax1.set_title(
+            f"Step: {frame}, Reaction Time: {rt:.2f} s")
+        ax1.axis('off')
+
+        # Right plot: Bar plot of reaction times
+        bars = ax2.bar(range(len(reaction_times)),
+                       reaction_times, color='lightblue')
+        bars[frame].set_color('red')  # Highlight current index
+        ax2.set_xlabel('Time Index')
+        ax2.set_ylabel('Reaction Time')
+        ax2.set_title('Reaction Times')
+        ax2.set_ylim(0, max(reaction_times) * 1.1)
+
+        return ax1, ax2
+
+    # Create the animation
+    anim = FuncAnimation(fig, update, frames=n, interval=1000/fps, blit=False)
+    video = anim.to_html5_video()
+    return video
+
+
+def create_episode_reaction_times_video(
+      episode_data,
+      output_file='/tmp/housemaze_anlaysis/rt_video.mp4',
+      fps=1,
+      html: bool = True,
+      ):
+  images = jax.vmap(housemaze_render_fn)(episode_data.timesteps.state)
+  reaction_times = episode_data.reaction_times
+  video = create_reaction_times_video(images, reaction_times, output_file, fps)
+  if html:
+     from IPython.display import HTML, display
+     return display(HTML(video))
+  return video
 ###################
 # Metrics
 ###################

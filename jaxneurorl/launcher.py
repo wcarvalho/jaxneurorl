@@ -574,10 +574,6 @@ def start_wandb_sweep(
       sweep_config, project=project, entity=entity,
       )
 
-  #with open(settings_config_file, 'wb') as fp:
-  #    pickle.dump(dict(sweep_id=sweep_id), fp)
-  #    logging.info(f'Saved: {settings_config_file}')
-
   import jax
   devices = jax.devices()
 

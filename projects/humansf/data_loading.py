@@ -168,7 +168,7 @@ def load_algorithm(
         rng,
         env_params,
         task,
-        n=4):
+        n=1):
 
       def scan_body(rng, _):
           rng, rng_ = jax.random.split(rng)
@@ -320,8 +320,13 @@ def make_episode_data(data: List[dict], example_timestep: multitask_env.TimeStep
 
     The dataframe can be used to get indices into the list of EpisodeData for further computation.
     """
-
-    data = [row for row in data if not 'practice' in row['metadata']['block_metadata']['desc']]
+    def filter_fn(datum):
+        if 'metadata' not in datum: return True
+        desc = datum['metadata']['block_metadata']['desc']
+        if 'practice' in desc: return True
+    nbefore = len(data)
+    data = [datum for datum in data if not filter_fn(datum)]
+    print(f"Filtered {nbefore-len(data)} data points")
     gds, gd_infos = separate_data_by_block_stage(data)
 
     episode_data = [None]*len(gds.keys())
@@ -386,10 +391,13 @@ def make_all_episode_data(files, example_timestep, base_path, filter_fn = None, 
         else:
             with open(file, 'r') as f:
                 data = json.load(f)
-            
+
             if filter_fn is not None:
                 if filter_fn(data): continue
             episode_df, episode_data = make_episode_data(data, example_timestep)
+            episode_df.write_csv(df_filename)
+            with open(timesteps_filename, 'wb') as f:
+                pickle.dump(episode_data, f)
         all_episode_data += episode_data
         episode_df_list.append(episode_df)
 

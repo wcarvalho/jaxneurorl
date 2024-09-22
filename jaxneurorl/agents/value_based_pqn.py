@@ -1258,7 +1258,8 @@ def make_train(
             )
 
             # update buffer with data of size 
-            buffer_state = buffer.add(buffer_state, buffer_traj_batch)
+            buffer_state = buffer_state.replace(
+                experience=buffer_traj_batch)
 
             ##############################
             # 2. Learner update
