@@ -154,6 +154,7 @@ def basic_make_exp_block(
         eval_mazes,
         train_kwargs=None,
         eval_kwargs=None,
+        pretrain_level=None,
         ):
     train_kwargs = train_kwargs or dict()
     eval_kwargs = eval_kwargs or dict()
@@ -169,7 +170,7 @@ def basic_make_exp_block(
     all_mazes = list(set(train_mazes + eval_mazes))
     maze2idx = {maze_name: idx for idx, maze_name in enumerate(all_mazes)}
 
-    all_train_params += mazes.get_pretraining_reset_params(group_set)
+    all_train_params += mazes.get_pretraining_reset_params(group_set, pretrain_level=pretrain_level)
     make_int = lambda i: jnp.array(i, dtype=jnp.int32)
 
     for maze_name in train_mazes:
@@ -238,3 +239,25 @@ def exp1(config, analysis_eval: bool = False):
         eval_mazes = train_mazes
     return basic_make_exp_block(config, train_mazes, eval_mazes)
 
+
+def exp2(config, analysis_eval: bool = False):
+    train_mazes = ['big_m1_maze3',
+                   'big_m2_maze2',
+                   'big_m3_maze1']
+    if analysis_eval:
+        eval_mazes = [
+            'big_m1_maze3',
+            'big_m1_maze3_shortcut',
+            'big_m2_maze2',
+            'big_m2_maze2_onpath',
+            'big_m2_maze2_offpath',
+            'big_m3_maze1'
+        ]
+    else:
+        eval_mazes = train_mazes
+    return basic_make_exp_block(
+        config,
+        train_mazes,
+        eval_mazes,
+        pretrain_level=mazes.big_practice_maze,
+        )

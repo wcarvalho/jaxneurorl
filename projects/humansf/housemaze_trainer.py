@@ -690,10 +690,11 @@ def sweep(search: str = ''):
         },
         'parameters': {
             "SEED": {'values': list(range(1,11))},
-            "env.exp": {'values': ['exp1']},
+            "env.exp": {'values': ['exp2']},
+            "TOTAL_TIMESTEPS": {'values': [40_000_000]},
         },
         'overrides': ['alg=ql', 'rlenv=housemaze','user=wilka'],
-        'group': 'ql-21',
+        'group': 'ql-big-1',
     }
   elif search == 'dynaq_shared':
     sweep_config = {
@@ -704,11 +705,11 @@ def sweep(search: str = ''):
         'parameters': {
             'ALG': {'values': ['dynaq_shared']},
             "SEED": {'values': list(range(1,11))},
-            "env.exp": {'values': ['exp1']},
-            "TOTAL_TIMESTEPS": {'values': [50_000_000]},
+            "env.exp": {'values': ['exp2']},
+            "TOTAL_TIMESTEPS": {'values': [100_000_000]},
         },
         'overrides': ['alg=dyna', 'rlenv=housemaze', 'user=wilka'],
-        'group': 'dynaq_shared-20',
+        'group': 'dynaq-big-1',
     }
   elif search == 'pqn':
     sweep_config = {
