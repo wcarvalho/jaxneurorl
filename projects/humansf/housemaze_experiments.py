@@ -155,6 +155,7 @@ def basic_make_exp_block(
         train_kwargs=None,
         eval_kwargs=None,
         pretrain_level=None,
+        max_starting_locs=10,
         ):
     make_int = lambda i: jnp.array(i, dtype=jnp.int32)
 
@@ -179,6 +180,7 @@ def basic_make_exp_block(
                 label=make_int(maze2idx[pretrain_level]),
                 curriculum=True,
                 swap_train_test=True,
+                max_starting_locs=max_starting_locs,
             )
 
     for maze_name in train_mazes:
@@ -188,6 +190,7 @@ def basic_make_exp_block(
             maze_str=getattr(mazes, maze_name),
             label=make_int(maze2idx[maze_name]),
             curriculum=True,
+            max_starting_locs=max_starting_locs,
         )
         all_train_params += params
         all_eval_params += params
@@ -245,7 +248,7 @@ def exp1(config, analysis_eval: bool = False):
         eval_mazes = ['maze3_open2', 'maze3_onpath_shortcut_r', 'maze3_offpath_shortcut_r', 'maze5', 'maze6_flipped_offtask']
     else:
         eval_mazes = train_mazes
-    return basic_make_exp_block(config, train_mazes, eval_mazes)
+    return basic_make_exp_block(config, train_mazes, eval_mazes, max_starting_locs=10)
 
 
 def exp2(config, analysis_eval: bool = False):
@@ -268,4 +271,5 @@ def exp2(config, analysis_eval: bool = False):
         train_mazes,
         eval_mazes,
         pretrain_level='big_practice_maze',
+        max_starting_locs=20,
         )

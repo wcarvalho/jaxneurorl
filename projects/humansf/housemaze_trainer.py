@@ -689,12 +689,12 @@ def sweep(search: str = ''):
             'goal': 'maximize',
         },
         'parameters': {
-            "SEED": {'values': list(range(1,11))},
+            "SEED": {'values': list(range(1,6))},
             "env.exp": {'values': ['exp2']},
             "TOTAL_TIMESTEPS": {'values': [40_000_000]},
         },
         'overrides': ['alg=ql', 'rlenv=housemaze','user=wilka'],
-        'group': 'ql-big-1',
+        'group': 'ql-big-2',
     }
   elif search == 'dynaq_shared':
     sweep_config = {
@@ -704,12 +704,13 @@ def sweep(search: str = ''):
         },
         'parameters': {
             'ALG': {'values': ['dynaq_shared']},
-            "SEED": {'values': list(range(1,11))},
+            "SEED": {'values': list(range(1,3))},
             "env.exp": {'values': ['exp2']},
-            "TOTAL_TIMESTEPS": {'values': [100_000_000]},
+            "NUM_SIMULATIONS": {'values': [2, 5]},
+            "TOTAL_TIMESTEPS": {'values': [80_000_000]},
         },
         'overrides': ['alg=dyna', 'rlenv=housemaze', 'user=wilka'],
-        'group': 'dynaq-big-1',
+        'group': 'dynaq-big-2',
     }
   #elif search == 'pqn':
   #  sweep_config = {

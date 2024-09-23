@@ -13,7 +13,6 @@ from flax import struct
 import optax
 import flax.linen as nn
 from gymnax.environments import environment
-
 import numpy as np
 import rlax
 import matplotlib.pyplot as plt
@@ -27,6 +26,8 @@ from projects.humansf import qlearning
 from projects.humansf.networks import KeyroomObsEncoder, MLP
 from projects.humansf import keyroom
 from projects.humansf.visualizer import plot_frames
+
+from housemaze import renderer
 
 Agent = nn.Module
 Params = flax.core.FrozenDict
@@ -543,6 +544,14 @@ def make_loss_fn_class(config, **kwargs) -> vbb.RecurrentLossFn:
         **kwargs
         )
 
+def get_in_episode(timestep):
+  # get mask for within episode
+  non_terminal = timestep.discount
+  is_last = timestep.last()
+  term_cumsum = jnp.cumsum(is_last, -1)
+  in_episode = (term_cumsum + non_terminal) < 2
+  return in_episode
+
 def learner_log_extra(
         data: dict,
         config: dict,
@@ -617,63 +626,80 @@ def learner_log_extra(
         ##############################
         # plot images of env
         ##############################
-        # ------------
-        # get images
-        # ------------
+        # initial image
+        maze_height, maze_width, _ = timesteps.state.grid[0].shape
+        fig, ax = plt.subplots(1, figsize=(5, 5))
+        in_episode = get_in_episode(timesteps)
+        actions = actions[in_episode][:-1]
+        positions = jax.tree_map(lambda x: x[in_episode][:-1], timesteps.state.agent_pos)
 
-        #state_images = []
-        obs_images = []
-        max_len = min(config.get("MAX_EPISODE_LOG_LEN", 40), len(rewards))
-        for idx in range(max_len):
-            index = lambda y: jax.tree_map(lambda x: x[idx], y)
-            #state_image = rgb_render(
-            #    timesteps.state.grid[idx],
-            #    index(timesteps.state.agent),
-            #    env_params.view_size,
-            #    tile_size=8)
-            obs_image = render_fn(index(timesteps.state))
-            #obs_image = keyroom.render_room(
-            #    index(timesteps.state),
-            #    tile_size=8)
-            #state_images.append(state_image)
-            obs_images.append(obs_image)
-
-        # ------------
-        # plot
-        # ------------
-        def action_name(a):
-            if action_names is not None:
-                name = action_names.get(int(a), 'ERROR?')
-                return f"action {int(a)}: {name}"
-            else:
-                return f"action: {int(a)}"
-        actions_taken = [action_name(a) for a in actions]
-
-        index = lambda t, idx: jax.tree_map(lambda x: x[idx], t)
-        def panel_title_fn(timesteps, i):
-            task_name = get_task_name(extract_task_info(index(timesteps, i)))
-            #room_setting = int(timesteps.state.room_setting[i])
-            #task_room = int(timesteps.state.goal_room_idx[i])
-            #task_object = int(timesteps.state.task_object_idx[i])
-            #setting = 'single' if room_setting == 0 else 'multi'
-            #category, color = maze_config['pairs'][task_room][task_object]
-            #task_name = f'{setting} - {color} {category}'
-
-            title = f'{task_name}\n'
-            title += f't={i}\n'
-            title += f'{actions_taken[i]}\n'
-            title += f'r={timesteps.reward[i]}, $\\gamma={timesteps.discount[i]}$'
-            return title
-
-        fig = plot_frames(
-            timesteps=timesteps,
-            frames=obs_images,
-            panel_title_fn=panel_title_fn,
-            ncols=6)
+        img = render_fn(jax.tree_map(lambda x: x[0], timesteps.state))
+        renderer.place_arrows_on_image(
+            img,
+            positions,
+            actions,
+            maze_height, maze_width, arrow_scale=5, ax=ax)
         if wandb.run is not None:
             wandb.log(
                 {f"learner_example/{key}/trajectory": wandb.Image(fig)})
         plt.close(fig)
+        ## ------------
+        ## get images
+        ## ------------
+
+        ##state_images = []
+        #obs_images = []
+        #max_len = min(config.get("MAX_EPISODE_LOG_LEN", 40), len(rewards))
+        #for idx in range(max_len):
+        #    index = lambda y: jax.tree_map(lambda x: x[idx], y)
+        #    #state_image = rgb_render(
+        #    #    timesteps.state.grid[idx],
+        #    #    index(timesteps.state.agent),
+        #    #    env_params.view_size,
+        #    #    tile_size=8)
+        #    obs_image = render_fn(index(timesteps.state))
+        #    #obs_image = keyroom.render_room(
+        #    #    index(timesteps.state),
+        #    #    tile_size=8)
+        #    #state_images.append(state_image)
+        #    obs_images.append(obs_image)
+
+        ## ------------
+        ## plot
+        ## ------------
+        #def action_name(a):
+        #    if action_names is not None:
+        #        name = action_names.get(int(a), 'ERROR?')
+        #        return f"action {int(a)}: {name}"
+        #    else:
+        #        return f"action: {int(a)}"
+        #actions_taken = [action_name(a) for a in actions]
+
+        #index = lambda t, idx: jax.tree_map(lambda x: x[idx], t)
+        #def panel_title_fn(timesteps, i):
+        #    task_name = get_task_name(extract_task_info(index(timesteps, i)))
+        #    #room_setting = int(timesteps.state.room_setting[i])
+        #    #task_room = int(timesteps.state.goal_room_idx[i])
+        #    #task_object = int(timesteps.state.task_object_idx[i])
+        #    #setting = 'single' if room_setting == 0 else 'multi'
+        #    #category, color = maze_config['pairs'][task_room][task_object]
+        #    #task_name = f'{setting} - {color} {category}'
+
+        #    title = f'{task_name}\n'
+        #    title += f't={i}\n'
+        #    title += f'{actions_taken[i]}\n'
+        #    title += f'r={timesteps.reward[i]}, $\\gamma={timesteps.discount[i]}$'
+        #    return title
+
+        #fig = plot_frames(
+        #    timesteps=timesteps,
+        #    frames=obs_images,
+        #    panel_title_fn=panel_title_fn,
+        #    ncols=6)
+        #if wandb.run is not None:
+        #    wandb.log(
+        #        {f"learner_example/{key}/trajectory": wandb.Image(fig)})
+        #plt.close(fig)
 
     def callback(d):
         n_updates = d.pop('n_updates')
