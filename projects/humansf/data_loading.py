@@ -1,3 +1,4 @@
+from joblib import Parallel, delayed
 from functools import partial
 import polars as pl
 import json
@@ -375,33 +376,51 @@ def make_episode_data(data: List[dict], example_timestep: multitask_env.TimeStep
     episode_info = pl.DataFrame(episode_info)
     return episode_info, episode_data
 
-def make_all_episode_data(files, example_timestep, base_path, filter_fn = None, overwrite: bool = False):
+def process_file(file, example_timestep, overwrite):
+    user_filename = file.split("/")[-1].split(".json")[0]
+    base_path = file.split(user_filename)[0]
+    timesteps_filename = f"{base_path}/{user_filename}_timesteps.pickle"
+    df_filename = f"{base_path}/{user_filename}_df.csv"
+    
+    if (os.path.exists(timesteps_filename) and os.path.exists(df_filename) and not overwrite):
+        episode_df = pl.read_csv(df_filename)
+        with open(timesteps_filename, 'rb') as f:
+            episode_data = pickle.load(f)
+    else:
+        with open(file, 'r') as f:
+            data = json.load(f)
+
+        finished = data[-1].get("finished", False)
+        if not finished:
+            return None, None
+
+        episode_df, episode_data = make_episode_data(data, example_timestep)
+        episode_df.write_csv(df_filename)
+        with open(timesteps_filename, 'wb') as f:
+            pickle.dump(episode_data, f)
+    
+    return episode_df, episode_data
+
+
+
+
+
+def make_all_episode_data(files, example_timestep, overwrite=False):
+    def process_file_wrapper(file):
+        return process_file(file, example_timestep, overwrite)
+
+    results = Parallel(n_jobs=-1)(delayed(process_file_wrapper)(file)
+                                  for file in files)
 
     all_episode_data = []
     episode_df_list = []
-    for file in tqdm(files, desc="Processing files"):
-        user_filename = file.split("/")
-        user_filename = file.split("/")[1].split(".json")[0]
-        timesteps_filename = f"{base_path}/{user_filename}_timesteps.pickle"
-        df_filename = f"{base_path}/{user_filename}_df.csv"
-        if (os.path.exists(timesteps_filename) and os.path.exists(df_filename) and not overwrite):
-            episode_df = pl.read_csv(df_filename)
-            with open(timesteps_filename, 'rb') as f:
-                episode_data = pickle.load(f)
-        else:
-            with open(file, 'r') as f:
-                data = json.load(f)
 
-            if filter_fn is not None:
-                if filter_fn(data): continue
-            episode_df, episode_data = make_episode_data(data, example_timestep)
-            episode_df.write_csv(df_filename)
-            with open(timesteps_filename, 'wb') as f:
-                pickle.dump(episode_data, f)
-        all_episode_data += episode_data
-        episode_df_list.append(episode_df)
+    for episode_df, episode_data in results:
+        if episode_df is not None and episode_data is not None:
+            all_episode_data.extend(episode_data)
+            episode_df_list.append(episode_df)
 
     episode_df = pl.concat(episode_df_list).with_row_count(name="index").with_columns(
-    pl.col("index").add(1).alias("index"))
+        pl.col("index").add(1).alias("index"))
 
     return episode_df, all_episode_data

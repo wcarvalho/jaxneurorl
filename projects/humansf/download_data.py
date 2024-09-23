@@ -33,7 +33,6 @@ def download_user_files(bucket_name, prefix, pattern, destination_folder):
             print(f"Downloaded: {blob.name} to {destination_file}")
 
 
-
 ##############################
 # Model Data
 ##############################
@@ -71,7 +70,6 @@ def download_model_files(qlearning_server_dir,
     hostname = 'rcfas_login1'  # Using the SSH config alias
     
     # Ensure local directories exist
-    import ipdb; ipdb.set_trace()
     os.makedirs(qlearning_local_dir, exist_ok=True)
     os.makedirs(dyna_local_dir, exist_ok=True)
 
@@ -91,15 +89,16 @@ def download_model_files(qlearning_server_dir,
 # User Data
 bucket_name = "human-dyna"
 prefix = "data/"
-pattern = "data/data_user=*_name=r0-v2*debug=0.json"
-destination_folder = "~/git/research/results/human_dyna/user_data"
+#pattern = "data/data_user=*_name=r0-v2*debug=0.json"
+human_data_pattern = "data/data_user=*r0-exp2-obj*-v0*debug=0.json"
+destination_folder = "/Users/wilka/git/research/results/human_dyna/user_data/exp2"
 
 ##############################
 # Model Data
 server_dir = '/n/holylfs06/LABS/kempner_fellow_wcarvalho/results/jaxrl_result/housemaze_trainer'
-local_dir = "~/git/research/results/human_dyna/model_data"
-qlearning_dir = f'ql/save_data/ql-21/exp=exp1'
-dyna_dir = f'dynaq_shared/save_data/dynaq_shared-19/alg=dynaq_shared,exp=exp1'
+local_dir = "/Users/wilka/git/research/results/human_dyna/model_data"
+qlearning_dir = f'ql/save_data/ql-big-2/tota=40000000,exp=exp2'
+dyna_dir = f'dynaq_shared/save_data/dynaq-big-2/alg=dynaq_shared,tota=100000000,exp=exp2'
 
 qlearning_server_dir = f'{server_dir}/{qlearning_dir}'
 dyna_server_dir = f'{server_dir}/{dyna_dir}'
@@ -109,5 +108,5 @@ dyna_local_dir = f'{local_dir}/{dyna_dir}'
 
 if __name__ == "__main__":
     pass
-    #download_user_files(bucket_name, prefix, pattern, destination_folder)
-    download_model_files(qlearning_server_dir, dyna_server_dir, qlearning_local_dir, dyna_local_dir)
+    download_user_files(bucket_name, prefix, human_data_pattern, destination_folder)
+    #download_model_files(qlearning_server_dir, dyna_server_dir, qlearning_local_dir, dyna_local_dir)

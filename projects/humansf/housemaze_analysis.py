@@ -1,3 +1,4 @@
+import seaborn as sns
 import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
@@ -371,11 +372,13 @@ def rewards(e):
     return success.any()
 
 
-def get_human_data(user_df, user_data, fn, **kwargs):
+def get_human_data(user_df, user_data, fn, filter_fn=None, **kwargs):
     eval_df = user_df.filter(**kwargs)
     idxs = np.array(eval_df['index'])-1
     array = []
     for idx in idxs:
+        if filter_fn is not None:
+           if filter_fn(user_data[idx]): continue
         val = fn(user_data[idx])
         array.append(val)
 
@@ -391,3 +394,42 @@ def get_model_data(model_df, model_data, fn, **kwargs):
         array.append(val)
 
     return np.array(array).mean(-1)
+
+
+###################
+# Plots
+###################
+
+
+def bar_plot_results(model_dict, title="", ylabel=""):
+    # Set up the plot style
+    plt.figure(figsize=(12, 6))
+    sns.set_style("whitegrid")
+
+    # Color-blind friendly color palette
+    colors = sns.color_palette("colorblind", n_colors=len(model_dict))
+
+    # Prepare data for plotting
+    models = list(model_dict.keys())
+    values = [np.mean(arr) for arr in model_dict.values()]
+    errors = [np.std(arr) for arr in model_dict.values()]
+
+    # Create the bar plot
+    bars = plt.bar(models, values, yerr=errors, capsize=5, color=colors)
+
+    # Customize the plot
+    plt.title(title, fontsize=16)
+    plt.xlabel("Data source", fontsize=12)
+    plt.ylabel(ylabel, fontsize=12)
+    plt.xticks(rotation=45, ha='right')
+
+    # Add value labels on top of each bar
+    for bar in bars:
+        height = bar.get_height()
+        plt.text(bar.get_x() + bar.get_width()/2., height,
+                 f'{height:.2f}',
+                 ha='center', va='bottom')
+
+    # Adjust layout and display the plot
+    plt.tight_layout()
+    plt.show()
