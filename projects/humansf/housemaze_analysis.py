@@ -412,7 +412,7 @@ def bar_plot_results(model_dict, title="", ylabel=""):
     # Prepare data for plotting
     models = list(model_dict.keys())
     values = [np.mean(arr) for arr in model_dict.values()]
-    errors = [np.std(arr) for arr in model_dict.values()]
+    errors = [np.std(arr)/len(arr) for arr in model_dict.values()]
 
     # Create the bar plot
     bars = plt.bar(models, values, yerr=errors, capsize=5, color=colors)

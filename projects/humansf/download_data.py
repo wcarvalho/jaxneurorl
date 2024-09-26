@@ -98,7 +98,7 @@ destination_folder = "/Users/wilka/git/research/results/human_dyna/user_data/exp
 server_dir = '/n/holylfs06/LABS/kempner_fellow_wcarvalho/results/jaxrl_result/housemaze_trainer'
 local_dir = "/Users/wilka/git/research/results/human_dyna/model_data"
 qlearning_dir = f'ql/save_data/ql-big-2/tota=40000000,exp=exp2'
-dyna_dir = f'dynaq_shared/save_data/dynaq-big-2/alg=dynaq_shared,tota=100000000,exp=exp2'
+dyna_dir = f'dynaq_shared/save_data/dynaq-big-4/alg=dynaq_shared,agen=256,tota=100000000,exp=exp2'
 
 qlearning_server_dir = f'{server_dir}/{qlearning_dir}'
 dyna_server_dir = f'{server_dir}/{dyna_dir}'
@@ -108,5 +108,5 @@ dyna_local_dir = f'{local_dir}/{dyna_dir}'
 
 if __name__ == "__main__":
     pass
-    download_user_files(bucket_name, prefix, human_data_pattern, destination_folder)
-    #download_model_files(qlearning_server_dir, dyna_server_dir, qlearning_local_dir, dyna_local_dir)
+    #download_user_files(bucket_name, prefix, human_data_pattern, destination_folder)
+    download_model_files(qlearning_server_dir, dyna_server_dir, qlearning_local_dir, dyna_local_dir)
