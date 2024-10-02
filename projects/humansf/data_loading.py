@@ -141,7 +141,7 @@ def load_algorithm(
       init_timestep,
       task_w,
       rng,
-      max_steps: int = 50,
+      max_steps: int = 200,
       ):
       rng, rng_ = jax.random.split(rng)
 
@@ -248,10 +248,11 @@ def compute_reaction_time(datum) -> float:
 def get_task_object(timesteps: multitask_env.TimeStep):
     return timesteps.state.task_object[0]
 
-def get_task_room(timesteps: multitask_env.TimeStep):
+def get_task_room(timesteps: multitask_env.TimeStep, task_groups=None):
     task_object = get_task_object(timesteps)
+    task_groups = task_groups or groups
     # Find the room (row) that contains the task object
-    task_room = next((i for i, row in enumerate(groups) if task_object in row), None)
+    task_room = next((i for i, row in enumerate(task_groups) if task_object in row), None)
     return task_room
 
 def dict_to_string(data):
@@ -362,12 +363,14 @@ def make_episode_data(data: List[dict], example_timestep: multitask_env.TimeStep
         ######################
         # THIS IS WHERE YOU'LL WANT TO INSERT OTHER EPISODE LEVEL INFO TO TRACK IN DATAFRAME!!!
         ######################
+        datum0 = red[0]
+        groups = datum0['metadata']['block_metadata'].get('groups')
+
         info = copy.deepcopy(gd_infos[key])
         info.update(
             task=get_task_object(timesteps),
-            room=get_task_room(timesteps),
+            room=get_task_room(timesteps, task_groups=groups),
         )
-        datum0 = red[0]
         # add in user information to dataframe
         info.update(datum0['user_data'])
 
@@ -421,6 +424,6 @@ def make_all_episode_data(files, example_timestep, overwrite=False):
             episode_df_list.append(episode_df)
 
     episode_df = pl.concat(episode_df_list).with_row_count(name="index").with_columns(
-        pl.col("index").add(1).alias("index"))
+        pl.col("index").alias("index"))
 
     return episode_df, all_episode_data

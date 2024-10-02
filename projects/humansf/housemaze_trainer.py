@@ -87,10 +87,11 @@ class AlgorithmConstructor:
   make_loss_fn_class: Callable
   make_actor: Callable
 
-def get_qlearning_fns(config):
+
+def get_qlearning_fns(config, num_categories=10_000,):
   HouzemazeObsEncoder = functools.partial(
       networks.CategoricalHouzemazeObsEncoder,
-      num_categories=500,
+      num_categories=num_categories,
       embed_hidden_dim=config["EMBED_HIDDEN_DIM"],
       mlp_hidden_dim=config["MLP_HIDDEN_DIM"],
       num_embed_layers=config["NUM_EMBED_LAYERS"],
@@ -114,6 +115,7 @@ def get_dynaq_fns(
   env,
   env_params,
   task_objects,
+  num_categories=10_000,
   rng=None):
 
   if rng is None:
@@ -122,7 +124,7 @@ def get_dynaq_fns(
 
   HouzemazeObsEncoder = functools.partial(
       networks.CategoricalHouzemazeObsEncoder,
-      num_categories=500,
+      num_categories=num_categories,
       embed_hidden_dim=config["EMBED_HIDDEN_DIM"],
       mlp_hidden_dim=config["MLP_HIDDEN_DIM"],
       num_embed_layers=config["NUM_EMBED_LAYERS"],

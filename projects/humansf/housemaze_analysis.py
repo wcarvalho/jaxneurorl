@@ -25,6 +25,14 @@ char2idx, groups, task_objects = mazes.get_group_set(num_groups)
 idx2key = {idx: image_dict['keys'][idx] for char, idx in char2idx.items()}
 task_runner = multitask_env.TaskRunner(task_objects=task_objects)
 
+if data_loading.is_in_notebook():
+    from tqdm.notebook import tqdm
+    try:
+        import ipywidgets
+    except:
+        pass
+else:
+    from tqdm import tqdm
 
 ############
 # trained model
@@ -123,7 +131,6 @@ def actions_from_search(env_params, rng, task, algo, budget):
 
 def collect_search_episodes(
   env, env_params, task, algorithm: str, budget=None,
-  max_steps: int = 100, 
   n: int=100):
   budget = budget or 1e8
 
@@ -136,10 +143,10 @@ def collect_search_episodes(
   def collect_episode(task, actions, rng):
     timestep = env.reset(rng, env_params)
     task_vector = task_runner.task_vector(task)
-    timestep = data_loading.swap_task(timestep, task_vector)
-    initial_carry = (rng, timestep)
-    (rng, timestep), timesteps = jax.lax.scan(step_fn, initial_carry, actions)
-    return concat_first_rest(timestep, timesteps)
+    init_timestep = data_loading.swap_task(timestep, task_vector)
+    initial_carry = (rng, init_timestep)
+    (rng, _), timesteps = jax.lax.scan(step_fn, initial_carry, actions)
+    return concat_first_rest(init_timestep, timesteps)
 
   #######################
   # first get actions from n different runs
@@ -178,6 +185,7 @@ def collect_search_episodes(
   # [N, T]
   all_actions = np.array(all_actions)
   all_episodes = jtu.tree_map(lambda *v: jnp.stack(v), *all_episodes)
+
   return data_loading.EpisodeData(
     timesteps=all_episodes,
     actions=all_actions)
@@ -364,6 +372,17 @@ def success(e):
     success = rewards > .5
     return success.any().astype(np.float32)
 
+def features_achieved(e):
+    features = e.timesteps.state.task_state.features
+    achieved = features.sum(-1) > 0
+    return achieved.any().astype(np.float32)
+
+def terminated(e):
+    return features_achieved(e)
+    #import ipdb; ipdb.set_trace()
+    #is_last = e.timesteps.last().any()
+    #return is_last.any()
+
 
 def rewards(e):
     rewards = e.timesteps.reward
@@ -371,6 +390,20 @@ def rewards(e):
     success = rewards > .5
     return success.any()
 
+
+def went_to_junction(episode_data, junction=(0, 11)):
+    positions = episode_data.positions
+    if positions is None:
+        positions = episode_data.timesteps.state.agent_pos
+    match = np.array(junction) == positions
+    match = (match).sum(-1) == 2  # both x and y matches
+    return match.any().astype(jnp.float32)  # if any matched
+
+
+def sucess_or_not_terminate(e):
+    succeeded = success(e) > 0
+    keep = not terminated(e) or succeeded
+    return keep
 
 def get_human_data(user_df, user_data, fn, filter_fn=None, **kwargs):
     eval_df = user_df.filter(**kwargs)
@@ -400,22 +433,28 @@ def get_model_data(model_df, model_data, fn, **kwargs):
 # Plots
 ###################
 
+model_colors = {
+    'human_success': '#0072B2',
+    'human': '#009E73',
+    'human_terminate': '#D55E00',
+    'qlearning': '#CC79A7',
+    'dyna': '#F0E442',
+    'bfs': '#56B4E9',
+    'dfs': '#E69F00'
+}
 
-def bar_plot_results(model_dict, title="", ylabel=""):
+def bar_plot_results(model_dict, figsize=(8, 4), error_bars=False, title="", ylabel=""):
     # Set up the plot style
-    plt.figure(figsize=(12, 6))
+    plt.figure(figsize=figsize)
     sns.set_style("whitegrid")
-
-    # Color-blind friendly color palette
-    colors = sns.color_palette("colorblind", n_colors=len(model_dict))
 
     # Prepare data for plotting
     models = list(model_dict.keys())
     values = [np.mean(arr) for arr in model_dict.values()]
-    errors = [np.std(arr)/len(arr) for arr in model_dict.values()]
+    errors = [np.std(arr)/np.sqrt(len(arr)) for arr in model_dict.values()] if error_bars else None
 
-    # Create the bar plot
-    bars = plt.bar(models, values, yerr=errors, capsize=5, color=colors)
+    # Create the bar plot with consistent colors
+    bars = plt.bar(models, values, yerr=errors, capsize=5, color=[model_colors.get(model, '#333333') for model in models])
 
     # Customize the plot
     plt.title(title, fontsize=16)
@@ -431,5 +470,97 @@ def bar_plot_results(model_dict, title="", ylabel=""):
                  ha='center', va='bottom')
 
     # Adjust layout and display the plot
+    plt.tight_layout()
+    plt.show()
+
+
+def success_termination_results(success_dict, termination_dict, title="", ylabel=""):
+    # Set up the plot style
+    plt.figure(figsize=(12, 6))
+    sns.set_style("whitegrid")
+
+    # Prepare data for plotting
+    models = list(success_dict.keys())
+    success_values = [np.mean(arr) for arr in success_dict.values()]
+    success_errors = [np.std(arr)/np.sqrt(len(arr))
+                      for arr in success_dict.values()]
+    termination_values = [np.mean(arr) for arr in termination_dict.values()]
+    termination_errors = [np.std(arr)/np.sqrt(len(arr))
+                          for arr in termination_dict.values()]
+
+    # Set up bar positions
+    x = np.arange(len(models))
+    width = 0.35
+
+    # Create the bar plot with consistent colors
+    fig, ax = plt.subplots(figsize=(12, 6))
+    success_bars = ax.bar(x - width/2, success_values, width, yerr=success_errors, capsize=5,
+                          color=[model_colors.get(model, '#333333')
+                                 for model in models],
+                          label='Success Rate', hatch='//')
+    termination_bars = ax.bar(x + width/2, termination_values, width, yerr=termination_errors, capsize=5,
+                              color=[model_colors.get(model, '#333333')
+                                     for model in models],
+                              label='Termination Rate', alpha=0.7)
+
+    # Customize the plot
+    ax.set_title(title, fontsize=16)
+    ax.set_xlabel("Data source", fontsize=12)
+    ax.set_ylabel(ylabel, fontsize=12)
+    ax.set_xticks(x)
+    ax.set_xticklabels(models, rotation=45, ha='right')
+
+    # Add legend
+    ax.legend()
+
+    # Add value labels on top of each bar
+    def autolabel(rects):
+        for rect in rects:
+            height = rect.get_height()
+            ax.text(rect.get_x() + rect.get_width()/2., height,
+                    f'{height:.2f}',
+                    ha='center', va='bottom')
+
+    autolabel(success_bars)
+    autolabel(termination_bars)
+
+    # Adjust layout and display the plot
+    fig.tight_layout()
+    plt.show()
+
+
+def plot_reaction_times(group1, group2, label1='group1', label2='group2'):
+
+    def rt_fn2(e):
+        rts = e.reaction_times[:-1]
+        return rts.mean()
+
+    def rt_fn3(e):
+        rts = e.reaction_times[:-1]
+        return rts[0]
+
+    rt_types = ['avg', 'first']
+    rt_functions = [rt_fn2, rt_fn3]
+
+    fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+    fig.suptitle("Episode Reaction Time Comparison", fontsize=16)
+
+    for ax, rt_fn, rt_type in zip(axes, rt_functions, rt_types):
+        s_rts = np.array([rt_fn(e) for e in group1])
+        f_rts = np.array([rt_fn(e) for e in group2])
+
+        # Combine data and create labels
+        data = np.concatenate([f_rts, s_rts])
+        labels = np.array([label2] * len(f_rts) + [label1] * len(s_rts))
+
+        # Create box plot with individual points
+        sns.boxplot(x=labels, y=data, ax=ax, width=0.5,
+                    palette=['red', 'green'])
+        sns.stripplot(x=labels, y=data, ax=ax,
+                      color='black', alpha=0.5, jitter=True)
+
+        ax.set_ylabel('Reaction Time')
+        ax.set_title(f"RT Type: {rt_type}")
+
     plt.tight_layout()
     plt.show()
