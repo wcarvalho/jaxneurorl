@@ -443,6 +443,12 @@ model_colors = {
     'dfs': '#E69F00'
 }
 
+model_names = {
+    'dyna': 'multi-task preplay',
+    'bfs': 'breadth-first search',
+    'dfs': 'depth-first search',
+}
+
 def bar_plot_results(model_dict, figsize=(8, 4), error_bars=False, title="", ylabel=""):
     # Set up the plot style
     plt.figure(figsize=figsize)
@@ -454,7 +460,7 @@ def bar_plot_results(model_dict, figsize=(8, 4), error_bars=False, title="", yla
     errors = [np.std(arr)/np.sqrt(len(arr)) for arr in model_dict.values()] if error_bars else None
 
     # Create the bar plot with consistent colors
-    bars = plt.bar(models, values, yerr=errors, capsize=5, color=[model_colors.get(model, '#333333') for model in models])
+    bars = plt.bar([model_names.get(model, model) for model in models], values, yerr=errors, capsize=5, color=[model_colors.get(model, '#333333') for model in models])
 
     # Customize the plot
     plt.title(title, fontsize=16)
