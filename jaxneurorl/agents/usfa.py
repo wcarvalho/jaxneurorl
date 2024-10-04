@@ -182,6 +182,14 @@ class SfGpiHead(nn.Module):
     variance: float = 0.5
     eval_task_support: str = 'train'
 
+    def setup(self):
+        self.policy_net = nn.Sequential([
+            nn.Dense(features=layer) for layer in self.policy_layers
+        ]) if self.policy_layers else lambda x: x
+        self.sf_net = nn.Sequential([
+            nn.Dense(features=layer) for layer in self.sf_layers
+        ] + [nn.Dense(features=self.num_actions * self.state_features_dim)])
+
     @nn.compact
     def __call__(self, usfa_input: jnp.ndarray, task: jnp.ndarray) -> USFAPreds:
         policy = get_task_onehot(task, self.train_tasks)
@@ -203,7 +211,6 @@ class SfGpiHead(nn.Module):
                  task: jnp.ndarray) -> USFAPreds:
         if self.eval_task_support == 'train':
             policies = jnp.array([get_task_onehot(task, self.train_tasks) for task in self.train_tasks])
-            import ipdb; ipdb.set_trace()
         elif self.eval_task_support == 'eval':
             policies = jnp.expand_dims(
                 get_task_onehot(task, self.train_tasks), axis=-2)
@@ -218,22 +225,15 @@ class SfGpiHead(nn.Module):
         return self.sfgpi(usfa_input=usfa_input, policies=policies, task=task)
 
     def sfgpi(self, usfa_input: jnp.ndarray, policies: jnp.ndarray, task: jnp.ndarray) -> USFAPreds:
-        policy_net = nn.Sequential([
-            nn.Dense(features=layer) for layer in self.policy_layers
-        ])
-        sf_net = nn.Sequential([
-            nn.Dense(features=layer) for layer in self.sf_layers
-        ] + [nn.Dense(features=self.num_actions * self.state_features_dim)])
-
         def compute_sf_q(sf_input: jnp.ndarray, policy: jnp.ndarray, task: jnp.ndarray):
             sf_input = jnp.concatenate((sf_input, policy))  # 2D
-            sf = sf_net(sf_input)
+            sf = self.sf_net(sf_input)
             sf = jnp.reshape(sf, (self.num_actions, self.state_features_dim))
             q_values = jnp.sum(sf * task, axis=-1)
             return sf, q_values
 
         # []
-        policy_embeddings = policy_net(policies)
+        policy_embeddings = self.policy_net(policies)
         sfs, q_values = jax.vmap(compute_sf_q, in_axes=(None, 0, None), out_axes=0)(
             usfa_input, policy_embeddings, task)
 
@@ -265,7 +265,6 @@ class UsfaAgent(nn.Module):
         new_rnn_state, rnn_out = self.rnn(rnn_state, rnn_in, _rng)
         
         if evaluate:
-            import ipdb; ipdb.set_trace()
             predictions = jax.vmap(self.sf_head.evaluate)(
               rnn_out, x.observation.task_w)
         else:
@@ -300,7 +299,7 @@ def make_agent(
         state_features_dim=example_timestep.observation.task_w.shape[-1],
         nsamples=config.get('NSAMPLES', 1),
         sf_layers=config.get('SF_LAYERS', (128, 128)),
-        policy_layers=config.get('POLICY_LAYERS', (32,)),
+        policy_layers=config.get('POLICY_LAYERS', ()),
         eval_task_support=config.get('EVAL_TASK_SUPPORT', 'train'),
         train_tasks=train_tasks,
     )
@@ -381,6 +380,8 @@ def make_actor(config: dict, agent: nn.Module, rng: jax.random.PRNGKey) -> vbb.A
         action = explorer.choose_actions(
             preds.q_vals, train_state.timesteps, rng)
 
+        preds = preds._replace(sf=preds.sf[:, 0], policy=preds.policy[:, 0])
+
         return preds, action, agent_state
 
     def eval_step(
@@ -390,8 +391,9 @@ def make_actor(config: dict, agent: nn.Module, rng: jax.random.PRNGKey) -> vbb.A
             rng: jax.random.PRNGKey):
         preds, agent_state = agent.apply(
             train_state.params, agent_state, timestep, rng, evaluate=True)
-
         action = preds.q_vals.argmax(-1)
+
+        preds = preds._replace(sf=preds.sf[:, 0], policy=preds.policy[:, 0])
 
         return preds, action, agent_state
 

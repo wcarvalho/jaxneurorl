@@ -446,11 +446,11 @@ def collect_trajectory(
 
         # update observer with data (used for logging)
         if observer is not None:
-         observer_state = observer.observe(
-             observer_state=observer_state,
-             next_timestep=timestep,
-             predictions=preds,
-             action=action)
+            observer_state = observer.observe(
+                observer_state=observer_state,
+                next_timestep=timestep,
+                predictions=preds,
+                action=action)
 
 
         rs = rs._replace(

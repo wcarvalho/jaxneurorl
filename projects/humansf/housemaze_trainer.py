@@ -5,8 +5,8 @@ JAX_DEBUG_NANS=True \
 JAX_DISABLE_JIT=1 \
 HYDRA_FULL_ERROR=1 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue projects/humansf/housemaze_trainer.py \
   app.debug=True \
-  app.wandb=False \
-  app.search=dynaq_shared
+  app.wandb=True \
+  app.search=usfa
 
 RUNNING ON SLURM:
 python projects/humansf/housemaze_trainer.py \
