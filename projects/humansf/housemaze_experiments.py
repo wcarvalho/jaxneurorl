@@ -273,3 +273,16 @@ def exp2(config, analysis_eval: bool = False):
         pretrain_level='big_practice_maze',
         max_starting_locs=20,
         )
+
+
+def exp_test(config, analysis_eval: bool = False):
+    del analysis_eval
+    train_mazes = ['big_test_level']
+    eval_mazes = train_mazes
+    return basic_make_exp_block(
+        config,
+        train_mazes,
+        eval_mazes,
+        pretrain_level='big_practice_maze',
+        max_starting_locs=20,
+    )

@@ -267,7 +267,13 @@ def run_single(
     ###################
     # load env
     ###################
-    task_runner = multitask_env.TaskRunner(task_objects=task_objects)
+    if config['ALG'] == 'usfa':
+      from housemaze.human_dyna import sf_task_runner
+      task_runner = sf_task_runner.TaskRunner(
+        task_objects=task_objects,
+        radius=config.get('VIS_RADIUS', 5))
+    else:
+      task_runner = multitask_env.TaskRunner(task_objects=task_objects)
     keys = image_dict['keys']
     env = multitask_env.HouseMaze(
         task_runner=task_runner,
@@ -339,6 +345,36 @@ def run_single(
               render_fn=housemaze_render_fn,
               )
             ),
+      )
+    elif alg_name == 'usfa':
+      from projects.humansf import usfa
+
+      train_objects = env_params.reset_params.train_objects[0]
+      train_tasks = jnp.array([env.task_runner.task_vector(o)
+                              for o in train_objects])
+
+      make_train = functools.partial(
+          usfa.make_train,
+          make_agent=functools.partial(
+              usfa.make_agent,
+              train_tasks=train_tasks,
+              ObsEncoderCls=HouzemazeObsEncoder,
+          ),
+          make_logger=functools.partial(
+              make_logger,
+              render_fn=housemaze_render_fn,
+              extract_task_info=extract_task_info,
+              get_task_name=get_task_name,
+              action_names=action_names,
+              learner_log_extra=functools.partial(
+                  usfa.learner_log_extra,
+                  config=config,
+                  action_names=action_names,
+                  extract_task_info=extract_task_info,
+                  get_task_name=get_task_name,
+                  render_fn=housemaze_render_fn,
+              )
+          ),
       )
     elif alg_name == 'pqn':
       make_train = functools.partial(
@@ -577,6 +613,20 @@ def sweep(search: str = ''):
         },
         'overrides': ['alg=ql', 'rlenv=housemaze','user=wilka'],
         'group': 'ql-big-2',
+    }
+  elif search == 'usfa':
+    sweep_config = {
+        'metric': {
+            'name': 'evaluator_performance/0.0 avg_episode_return',
+            'goal': 'maximize',
+        },
+        'parameters': {
+            "SEED": {'values': list(range(1,2))},
+            "env.exp": {'values': ['exp_test']},
+            "TOTAL_TIMESTEPS": {'values': [5_000_000]},
+        },
+        'overrides': ['alg=usfa', 'rlenv=housemaze', 'user=wilka'],
+        'group': 'usfa-big-1',
     }
   elif search == 'dynaq_shared':
     sweep_config = {
