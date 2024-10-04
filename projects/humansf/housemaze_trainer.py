@@ -638,11 +638,11 @@ def sweep(search: str = ''):
             'ALG': {'values': ['dynaq_shared']},
             "SEED": {'values': list(range(1,3))},
             "env.exp": {'values': ['exp2']},
-            "NUM_SIMULATIONS": {'values': [2, 5]},
-            "TOTAL_TIMESTEPS": {'values': [80_000_000]},
+            "AGENT_RNN_DIM": {'values': [256, 512]},
+            "TOTAL_TIMESTEPS": {'values': [100_000_000]},
         },
         'overrides': ['alg=dyna', 'rlenv=housemaze', 'user=wilka'],
-        'group': 'dynaq-big-2',
+        'group': 'dynaq-big-4',
     }
   #elif search == 'pqn':
   #  sweep_config = {
