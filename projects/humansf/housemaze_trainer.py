@@ -45,6 +45,7 @@ from jaxneurorl import loggers
 
 from projects.humansf import alphazero
 from projects.humansf import qlearning
+from projects.humansf import usfa
 from projects.humansf import offtask_dyna
 from projects.humansf import networks
 from projects.humansf import observers as humansf_observers
@@ -89,6 +90,28 @@ class AlgorithmConstructor:
 
 
 def get_qlearning_fns(config, num_categories=10_000,):
+  HouzemazeObsEncoder = functools.partial(
+      networks.CategoricalHouzemazeObsEncoder,
+      num_categories=num_categories,
+      embed_hidden_dim=config["EMBED_HIDDEN_DIM"],
+      mlp_hidden_dim=config["MLP_HIDDEN_DIM"],
+      num_embed_layers=config["NUM_EMBED_LAYERS"],
+      num_mlp_layers=config['NUM_MLP_LAYERS'],
+      activation=config['ACTIVATION'],
+      norm_type=config.get('NORM_TYPE', 'none'),
+      )
+
+  return AlgorithmConstructor(
+    make_agent=functools.partial(
+              qlearning.make_agent,
+              ObsEncoderCls=HouzemazeObsEncoder,
+              ),
+    make_optimizer=qlearning.make_optimizer,
+    make_loss_fn_class=qlearning.make_loss_fn_class,
+    make_actor=qlearning.make_actor,
+  )
+
+def get_sf_fns(config, num_categories=10_000,):
   HouzemazeObsEncoder = functools.partial(
       networks.CategoricalHouzemazeObsEncoder,
       num_categories=num_categories,
@@ -356,8 +379,6 @@ def run_single(
             ),
       )
     elif alg_name == 'usfa':
-      from projects.humansf import usfa
-
       train_objects = env_params.reset_params.train_objects[0]
       train_tasks = jnp.array([env.task_runner.task_vector(o)
                               for o in train_objects])
