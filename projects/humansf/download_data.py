@@ -54,36 +54,30 @@ def download_files(ssh, sftp, server_dir, local_dir, file_extensions):
             sftp.get(remote_path, local_path)
 
 
-def run_command(command):
+def run_command(command, dir_path):
     print(f"Executing: {command}")
     result = subprocess.run(command, shell=True, capture_output=True, text=True)
     if result.returncode != 0:
         print(f"Error occurred: {result.stderr}")
     else:
-        print("Download completed successfully.")
+        print(f"Download {dir_path} successfully.")
 
-def download_model_files(qlearning_server_dir,
-                         dyna_server_dir,
-                         qlearning_local_dir,
-                         dyna_local_dir):
+def download_model_files(base_server_dir, base_local_dir, dir_list):
     # SSH connection details
     hostname = 'rcfas_login1'  # Using the SSH config alias
     
-    # Ensure local directories exist
-    os.makedirs(qlearning_local_dir, exist_ok=True)
-    os.makedirs(dyna_local_dir, exist_ok=True)
-
     # Common rsync options
     rsync_options = "-avz --prune-empty-dirs --exclude='*wandb*'"
 
-    # Download files from Q-learning directory
-    run_command(f"rsync {rsync_options} {hostname}:{qlearning_server_dir}/ {qlearning_local_dir}/")
+    for dir_path in dir_list:
+        server_dir = f'{base_server_dir}/{dir_path}'
+        local_dir = f'{base_local_dir}/{dir_path}'
 
-    # Download files from Dyna-Q directory
-    run_command(f"rsync {rsync_options} {hostname}:{dyna_server_dir}/ {dyna_local_dir}/")
+        # Ensure local directory exists
+        os.makedirs(local_dir, exist_ok=True)
 
-
-
+        # Download files
+        run_command(f"rsync {rsync_options} {hostname}:{server_dir}/ {local_dir}/", local_dir)
 
 ##############################
 # User Data
@@ -98,15 +92,26 @@ destination_folder = "/Users/wilka/git/research/results/human_dyna/user_data/exp
 server_dir = '/n/holylfs06/LABS/kempner_fellow_wcarvalho/results/jaxrl_result/housemaze_trainer'
 local_dir = "/Users/wilka/git/research/results/human_dyna/model_data"
 qlearning_dir = f'ql/save_data/ql-big-2/tota=40000000,exp=exp2'
+sf_dir = f'usfa/save_data/usfa-big-10-search/sf_h=1024,num_=2,tota=40000000,exp=exp2'
 dyna_dir = f'dynaq_shared/save_data/dynaq-big-4/alg=dynaq_shared,agen=256,tota=100000000,exp=exp2'
 
 qlearning_server_dir = f'{server_dir}/{qlearning_dir}'
+sf_server_dir = f'{server_dir}/{sf_dir}'
 dyna_server_dir = f'{server_dir}/{dyna_dir}'
 
 qlearning_local_dir = f'{local_dir}/{qlearning_dir}'
+sf_local_dir = f'{local_dir}/{sf_dir}'
 dyna_local_dir = f'{local_dir}/{dyna_dir}'
 
 if __name__ == "__main__":
     pass
     #download_user_files(bucket_name, prefix, human_data_pattern, destination_folder)
-    download_model_files(qlearning_server_dir, dyna_server_dir, qlearning_local_dir, dyna_local_dir)
+    download_model_files(
+        base_server_dir=server_dir,
+        base_local_dir=local_dir,
+        dir_list=[
+            #qlearning_dir,
+            sf_dir,
+            #dyna_dir,
+        ]
+    )
