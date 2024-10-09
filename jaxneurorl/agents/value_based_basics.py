@@ -242,6 +242,7 @@ class RlRnnCell(nn.Module):
     def setup(self):
         cell_constructor = getattr(nn, self.cell_type)
         self.cell = cell_constructor(self.hidden_dim)
+        nn.OptimizedLSTMCell
 
     def __call__(
         self,

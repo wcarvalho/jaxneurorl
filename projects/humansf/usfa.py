@@ -86,16 +86,6 @@ def learner_log_extra(
         fig, axes = plt.subplots(num_rows, num_cols, figsize=(5 * num_cols, 5 * num_rows))
         axes = axes.flatten()
 
-        y_max = max(
-            np.max(cumulants),
-            np.max(sf_values_taken),
-            np.max(sf_target)
-        )
-        y_min = min(
-            np.min(cumulants),
-            np.min(sf_values_taken),
-            np.min(sf_target)
-        )
         for i in range(num_cumulants):
             ax = axes[i]
             time_steps = range(len(cumulants))
@@ -108,9 +98,6 @@ def learner_log_extra(
             ax.set_ylabel('Value')
             ax.legend()
             ax.grid(True)
-            
-            # Calculate the global y_max outside the loop
-            ax.set_ylim(.9*y_min, 1.1*y_max)
 
         # Remove any unused subplots
         for i in range(num_cumulants, len(axes)):
@@ -134,7 +121,7 @@ def learner_log_extra(
         q_values_taken = (sf_values_taken*task).sum(-1)
         q_target = (sf_target*task).sum(-1)
         td_errors = jnp.abs(q_target - q_values_taken)
-        fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(int(width*nT), 1))
+        fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(int(width*nT), 16))
         def format(ax):
             ax.set_xlabel('Time')
             ax.grid(True)

@@ -5,7 +5,7 @@ JAX_DEBUG_NANS=True \
 JAX_DISABLE_JIT=1 \
 HYDRA_FULL_ERROR=1 JAX_TRACEBACK_FILTERING=off python -m ipdb -c continue projects/humansf/housemaze_trainer.py \
   app.debug=True \
-  app.wandb=True \
+  app.wandb=False \
   app.search=usfa
 
 RUNNING ON SLURM:
@@ -238,7 +238,7 @@ def task_from_variables(variables, keys, label2name):
   is_train_task = variables['is_train_task']
   label = '1.train' if is_train_task else '0.TEST'
   setting = label2name.get(int(current_label))
-  return f'{label} - {setting} - {category}'
+  return f'{label} \n {setting} - {category}'
 
 def run_single(
         config: dict,
@@ -272,8 +272,16 @@ def run_single(
       task_runner = sf_task_runner.TaskRunner(
         task_objects=task_objects,
         radius=config.get('VIS_RADIUS', 5))
+      #def success_fn(timestep):
+      #  features = timestep.observation.state_features
+      #  task_w = timestep.observation.task_w
+      #  # only first half count. 2nd half are about visibility.
+      #  half = len(features)//2
+      #  import ipdb; ipdb.set_trace()
+      #  return (features[:half]*task_w[:half]).sum(-1)
     else:
       task_runner = multitask_env.TaskRunner(task_objects=task_objects)
+      #success_fn = lambda timestep: timestep.rewards > .5
     keys = image_dict['keys']
     env = multitask_env.HouseMaze(
         task_runner=task_runner,
@@ -310,6 +318,7 @@ def run_single(
       humansf_observers.TaskObserver,
       extract_task_info=extract_task_info,
       action_names=action_names,
+      #success_fn=success_fn,
     )
 
     get_task_name = functools.partial(
@@ -622,11 +631,13 @@ def sweep(search: str = ''):
         },
         'parameters': {
             "SEED": {'values': list(range(1,2))},
-            "env.exp": {'values': ['exp_test']},
-            "TOTAL_TIMESTEPS": {'values': [5_000_000]},
+            "env.exp": {'values': ['exp2']},
+            "SF_HIDDEN_DIM": {'values': [512, 1024]},
+            "NUM_SF_LAYERS": {'values': [2, 3]},
+            "TOTAL_TIMESTEPS": {'values': [40_000_000]},
         },
         'overrides': ['alg=usfa', 'rlenv=housemaze', 'user=wilka'],
-        'group': 'usfa-big-1',
+        'group': 'usfa-big-10-search',
     }
   elif search == 'dynaq_shared':
     sweep_config = {

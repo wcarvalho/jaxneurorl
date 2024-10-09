@@ -172,23 +172,36 @@ def get_task_onehot(task_vector, train_tasks):
     one_hot = jnp.eye(len(train_tasks))[jnp.argmax(matches)]
     return one_hot
 
+class MLP(nn.Module):
+  hidden_dim: int
+  out_dim: Optional[int] = None
+  num_layers: int = 1
+
+  @nn.compact
+  def __call__(self, x):
+    for _ in range(self.num_layers):
+        x = nn.Dense(self.hidden_dim, use_bias=False)(x)
+        x = jax.nn.relu(x)
+
+    x = nn.Dense(self.out_dim or self.hidden_dim, use_bias=False)(x)
+    return x
+
 class SfGpiHead(nn.Module):
     num_actions: int
     state_features_dim: int
     train_tasks: jnp.ndarray
-    sf_layers: Tuple[int] = (128, 128)
-    policy_layers: Tuple[int] = (32,)
+    num_layers: int = 2
+    hidden_dim: int = 512
     nsamples: int = 10
     variance: float = 0.5
     eval_task_support: str = 'train'
 
     def setup(self):
-        self.policy_net = nn.Sequential([
-            nn.Dense(features=layer) for layer in self.policy_layers
-        ]) if self.policy_layers else lambda x: x
-        self.sf_net = nn.Sequential([
-            nn.Dense(features=layer) for layer in self.sf_layers
-        ] + [nn.Dense(features=self.num_actions * self.state_features_dim)])
+        self.policy_net = lambda x: x
+        self.sf_net = MLP(
+           hidden_dim=self.hidden_dim,
+           num_layers=self.num_layers,
+           out_dim=self.num_actions * self.state_features_dim)
 
     @nn.compact
     def __call__(self, usfa_input: jnp.ndarray, task: jnp.ndarray) -> USFAPreds:
@@ -298,10 +311,10 @@ def make_agent(
         num_actions=env.num_actions(env_params),
         state_features_dim=example_timestep.observation.task_w.shape[-1],
         nsamples=config.get('NSAMPLES', 1),
-        sf_layers=config.get('SF_LAYERS', (128, 128)),
-        policy_layers=config.get('POLICY_LAYERS', ()),
         eval_task_support=config.get('EVAL_TASK_SUPPORT', 'train'),
         train_tasks=train_tasks,
+        num_layers=config.get('NUM_SF_LAYERS', 2),
+        hidden_dim=config.get('SF_HIDDEN_DIM', 512),
     )
 
     agent = UsfaAgent(
