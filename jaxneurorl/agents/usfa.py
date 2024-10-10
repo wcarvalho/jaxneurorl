@@ -222,6 +222,7 @@ class SfGpiHead(nn.Module):
     def evaluate(self,
                  usfa_input: jnp.ndarray,
                  task: jnp.ndarray) -> USFAPreds:
+
         if self.eval_task_support == 'train':
             policies = jnp.array([get_task_onehot(task, self.train_tasks) for task in self.train_tasks])
         elif self.eval_task_support == 'eval':
@@ -361,7 +362,12 @@ class FixedEpsilonGreedy:
         rng = jax.random.split(rng, q_vals.shape[0])
         return jax.vmap(epsilon_greedy_act, in_axes=(0, 0, 0))(q_vals, self.epsilons, rng)
 
-def make_actor(config: dict, agent: nn.Module, rng: jax.random.PRNGKey) -> vbb.Actor:
+def make_actor(
+        config: dict,
+        agent: nn.Module,
+        rng: jax.random.PRNGKey,
+        remove_gpi_dim: bool = True,
+        ) -> vbb.Actor:
     fixed_epsilon = config.get('FIXED_EPSILON', 1)
     assert fixed_epsilon in (0, 1, 2)
     if fixed_epsilon == 1:
@@ -393,7 +399,8 @@ def make_actor(config: dict, agent: nn.Module, rng: jax.random.PRNGKey) -> vbb.A
         action = explorer.choose_actions(
             preds.q_vals, train_state.timesteps, rng)
 
-        preds = preds._replace(sf=preds.sf[:, 0], policy=preds.policy[:, 0])
+        if remove_gpi_dim:
+            preds = preds._replace(sf=preds.sf[:, 0], policy=preds.policy[:, 0])
 
         return preds, action, agent_state
 
@@ -406,7 +413,8 @@ def make_actor(config: dict, agent: nn.Module, rng: jax.random.PRNGKey) -> vbb.A
             train_state.params, agent_state, timestep, rng, evaluate=True)
         action = preds.q_vals.argmax(-1)
 
-        preds = preds._replace(sf=preds.sf[:, 0], policy=preds.policy[:, 0])
+        if remove_gpi_dim:
+            preds = preds._replace(sf=preds.sf[:, 0], policy=preds.policy[:, 0])
 
         return preds, action, agent_state
 

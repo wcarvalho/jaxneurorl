@@ -29,6 +29,7 @@ class EpisodeData(NamedTuple):
     timesteps: multitask_env.TimeStep
     positions: jax.Array = None
     reaction_times: jax.Array = None
+    transitions: struct.PyTreeNode = None
 
 def is_in_notebook():
     try:
@@ -98,8 +99,13 @@ def load_algorithm(
       env,
       make_fns,
       nenvs: int=25,
+      config: dict = None,
       ):
-  agent_params, config = load_params_config(path, name)
+  agent_params, loaded_config = load_params_config(path, name)
+  if config is not None:
+      config = {**loaded_config, **config}
+  else:
+      config = loaded_config
 
   config['NUM_ENVS'] = nenvs
 
@@ -154,7 +160,7 @@ def load_algorithm(
           agent_state=agent_state,
           rng=rng)
 
-      _, traj_batch = vbb.collect_trajectory(
+      _, transitions = vbb.collect_trajectory(
                   runner_state=runner_state,
                   num_steps=max_steps,
                   actor_step_fn=actor.eval_step,
@@ -162,8 +168,12 @@ def load_algorithm(
                   env_params=example_env_params)
 
       return EpisodeData(
-         timesteps=traj_batch.timestep,
-         actions=traj_batch.action)
+          timesteps=transitions.timestep,
+          actions=transitions.action,
+          transitions=transitions,
+          positions=transitions.timestep.state.agent_pos,
+          reaction_times=None,
+          )
 
   def collect_trajectories(
         rng,

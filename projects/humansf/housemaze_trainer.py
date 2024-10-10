@@ -111,7 +111,7 @@ def get_qlearning_fns(config, num_categories=10_000,):
     make_actor=qlearning.make_actor,
   )
 
-def get_sf_fns(config, num_categories=10_000,):
+def get_sf_fns(config, env, env_params, num_categories=10_000,):
   HouzemazeObsEncoder = functools.partial(
       networks.CategoricalHouzemazeObsEncoder,
       num_categories=num_categories,
@@ -122,15 +122,18 @@ def get_sf_fns(config, num_categories=10_000,):
       activation=config['ACTIVATION'],
       norm_type=config.get('NORM_TYPE', 'none'),
       )
-
+  train_objects = env_params.reset_params.train_objects[0]
+  train_tasks = jnp.array([env.task_runner.task_vector(o)
+                           for o in train_objects])
   return AlgorithmConstructor(
     make_agent=functools.partial(
-              qlearning.make_agent,
+              usfa.make_agent,
+              train_tasks=train_tasks,
               ObsEncoderCls=HouzemazeObsEncoder,
               ),
-    make_optimizer=qlearning.make_optimizer,
-    make_loss_fn_class=qlearning.make_loss_fn_class,
-    make_actor=qlearning.make_actor,
+    make_optimizer=usfa.make_optimizer,
+    make_loss_fn_class=usfa.make_loss_fn_class,
+    make_actor=functools.partial(usfa.make_actor, remove_gpi_dim=False),
   )
 
 def get_dynaq_fns(

@@ -52,12 +52,15 @@ def get_algorithm_data(
         exp: str,
         overwrite: bool = False,
         extra_info = None,
+        data_task_runner = None,
+        path: str = None,
       ):
   extra_info = extra_info or {}
+  data_task_runner = data_task_runner or task_runner
   exp_fn = getattr(housemaze_experiments, exp, None)
   _, _, _, label2name = exp_fn(algorithm.config, analysis_eval=True)
   
-  base_path = f"{algorithm.path}/analysis/"
+  base_path = path or f"{algorithm.path}/analysis/"
   os.makedirs(base_path, exist_ok=True)
   timesteps_filename = f"{base_path}/{algorithm.name}_timesteps.pickle"
   df_filename = f"{base_path}/{algorithm.name}_df.csv"
@@ -85,7 +88,7 @@ def get_algorithm_data(
   for maze_name in label2name.values():
       env_params = get_params(getattr(mazes, maze_name))
       for task in tasks:
-          task_vector = task_runner.task_vector(task)
+          task_vector = data_task_runner.task_vector(task)
           episodes = algorithm.eval_fn(rng, env_params, task_vector)
           info = dict(
               eval=bool(task in test_tasks),
@@ -360,6 +363,90 @@ def create_episode_reaction_times_video(
      from IPython.display import HTML, display
      return display(HTML(video))
   return video
+
+
+def make_sf_video(
+      e,
+      idx=0,
+      output_file='/tmp/housemaze_analysis/sf_video.mp4',
+      fps=1,
+      html=True,
+      n=1e8,
+      line_mask=None,
+      line_names=None):
+    actions = e.actions
+    preds = e.transitions.extras['preds']
+    sf_values = preds.sf  # [T, N, A, W]
+    actions = e.actions  # [T]
+
+    sf_values = jnp.take_along_axis(
+        sf_values, actions[:, None, None, None], axis=-2)
+
+    sf_values = jnp.squeeze(sf_values, axis=-2)  # [T, N, W]
+
+    in_episode = get_in_episode(e.timesteps)
+    sf_values = sf_values[in_episode]
+    sf_values = sf_values[:, idx]  # [T', ... ]
+    states = e.timesteps.state
+
+    states = jax.tree_map(lambda x: x[in_episode], states)  # [T', ... ]
+    images = jax.vmap(housemaze_render_fn)(states)
+
+    #sf_values = jax.tree_map(lambda x: x[:-1], sf_values)  # [T', ... ]
+    #states = jax.tree_map(lambda x: x[:-1], states)  # [T', ... ]
+
+    # Ensure the directory exists
+    output_dir = os.path.dirname(output_file)
+    if output_dir and not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    n = len(images)
+    width = 7
+    height = 5
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(2*width, height))
+
+    # Initialize the plots
+    im1 = ax1.imshow(images[0])
+    
+    # Plot SF values as lines instead of an image
+
+    time_steps = np.arange(sf_values.shape[0])
+    for i in range(sf_values.shape[1]):
+        if line_mask is not None and not line_mask[i]:
+            continue
+        label = line_names[i] if line_names and i < len(line_names) else None
+        ax2.plot(time_steps, sf_values[:, i], label=label)
+    
+    ax2.legend()
+    red_bar = ax2.axvline(x=0, color='red', linewidth=2)
+    
+    ax1.set_title('Environment')
+    ax2.set_title('SF Values')
+    ax2.set_xlabel('Time Step')
+    ax2.set_ylabel('SF Value')
+    ax2.set_xlim(0, sf_values.shape[0] - 1)
+    ax2.set_ylim(sf_values.min(), sf_values.max())
+
+    def update(frame):
+        # Update left panel (environment image)
+        im1.set_array(images[frame])
+        ax1.set_title(f"Step: {frame}")
+
+        # Update red bar position
+        red_bar.set_xdata(frame)
+
+        return im1, red_bar
+
+    # Create the animation
+    anim = FuncAnimation(fig, update, frames=n, interval=1000/fps, blit=False)
+    video = anim.to_html5_video()
+    
+    plt.close(fig)
+
+    if html:
+        from IPython.display import HTML, display
+        return display(HTML(video))
+    return video
 ###################
 # Metrics
 ###################
@@ -392,10 +479,10 @@ def rewards(e):
 
 
 def went_to_junction(episode_data, junction=(0, 11)):
-    positions = episode_data.positions
-    if positions is None:
-        positions = episode_data.timesteps.state.agent_pos
-    match = np.array(junction) == positions
+    #positions = episode_data.positions
+    #if positions is None:
+    positions = episode_data.timesteps.state.agent_pos
+    match = jnp.array(junction) == positions
     match = (match).sum(-1) == 2  # both x and y matches
     return match.any().astype(jnp.float32)  # if any matched
 
@@ -447,6 +534,13 @@ model_names = {
     'dyna': 'multi-task preplay',
     'bfs': 'breadth-first search',
     'dfs': 'depth-first search',
+}
+model_names = {
+    'qlearning': 'Q-learning',
+    'usfa': 'Successor features',
+    'dyna': 'Multitask preplay',
+    'bfs': 'Breadth-first search',
+    'dfs': 'Depth-first search',
 }
 
 def bar_plot_results(model_dict, figsize=(8, 4), error_bars=False, title="", ylabel=""):
