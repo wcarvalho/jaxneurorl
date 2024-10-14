@@ -203,87 +203,6 @@ class UsfaLossFn(vbb.RecurrentLossFn):
 
     return batch_td_error, batch_loss, metrics # [T, B], [B]
 
-@struct.dataclass
-class R2D2LossFn(vbb.RecurrentLossFn):
-
-  """Loss function of R2D2.
-
-  https://openreview.net/forum?id=r1lyTjAqYX
-  """
-
-  tx_pair: rlax.TxPair = rlax.IDENTITY_PAIR
-  extract_q: Callable[[jax.Array], jax.Array] = lambda preds: preds.q_vals
-
-
-  def error(self, data, online_preds, online_state, target_preds, target_state, steps, **kwargs):
-    """R2D2 learning.
-    """
-
-    float = lambda x: x.astype(jnp.float32)
-    # Get value-selector actions from online Q-values for double Q-learning.
-    selector_actions = jnp.argmax(self.extract_q(online_preds), axis=-1)  # [T+1, B]
-
-    # Preprocess discounts & rewards.
-    discounts = float(data.discount)*self.discount
-    lambda_ = jnp.ones_like(data.discount)*self.lambda_
-    rewards = float(data.reward)
-    is_last = float(data.is_last)
-
-    # Get N-step transformed TD error and loss.
-    batch_td_error_fn = jax.vmap(
-        losses.q_learning_lambda_td,
-        in_axes=1,
-        out_axes=1)
-
-    # [T, B]
-    q_t, target_q_t = batch_td_error_fn(
-        self.extract_q(online_preds)[:-1],  # [T+1] --> [T]
-        data.action[:-1],    # [T+1] --> [T]
-        self.extract_q(target_preds)[1:],  # [T+1] --> [T]
-        selector_actions[1:],  # [T+1] --> [T]
-        rewards[1:],        # [T+1] --> [T]
-        discounts[1:],
-        is_last[1:],
-        lambda_[1:])      # [T+1] --> [T]
-
-    # ensure target = 0 when episode terminates
-    target_q_t = target_q_t*data.discount[:-1]
-    batch_td_error = target_q_t - q_t
-
-    # ensure loss = 0 when episode truncates
-    # truncated if FINAL time-step but data.discount = 1.0, something like [1,1,2,1,1]
-    truncated = (data.discount+is_last) > 1  # truncated is discount on AND is last
-    loss_mask = (1-truncated).astype(batch_td_error.dtype)[:-1]
-    batch_td_error = batch_td_error*loss_mask
-
-    # [T, B]
-    batch_loss = 0.5 * jnp.square(batch_td_error)
-
-    # [B]
-    batch_loss_mean = (batch_loss*loss_mask).mean(0)
-
-    metrics = {
-        '0.q_loss': batch_loss.mean(),
-        '0.q_td': jnp.abs(batch_td_error).mean(),
-        '1.reward': rewards[1:].mean(),
-        'z.q_mean': self.extract_q(online_preds).mean(),
-        'z.q_var': self.extract_q(online_preds).var(),
-        }
-
-    if self.logger.learner_log_extra is not None:
-        self.logger.learner_log_extra({
-        'data': data,
-        'td_errors': batch_td_error,                 # [T]
-        'mask': loss_mask,                 # [T]
-        'q_values': self.extract_q(online_preds),    # [T, B]
-        'q_loss': batch_loss,                        #[ T, B]
-        'q_target': target_q_t,
-        'n_updates': steps,
-        })
-
-    return batch_td_error, batch_loss_mean, metrics  # [T-1, B], [B]
-
-
 def make_logger(config: dict,
                 env: environment.Environment,
                 env_params: environment.EnvParams):
@@ -411,10 +330,6 @@ class RnnAgent(nn.Module):
     train_tasks: int = 5
 
     def setup(self):
-        # self.observation_encoder = MLP(
-        #    hidden_dim=self.hidden_dim, num_layers=1, use_bias=self.use_bias,
-        #    kernel_init=orthogonal(2) # From craftax
-        #    )
         self.q_fn = MLP(hidden_dim=self.hidden_dim, num_layers=1, out_dim=self.action_dim, use_bias=self.use_bias)
         # self.state_features = 10 # SF feature dimensions
         self.sf_nets = [MLP(
@@ -445,10 +360,8 @@ class RnnAgent(nn.Module):
         rng, _rng = jax.random.split(rng)
         new_rnn_state, rnn_out = self.rnn(rnn_state, rnn_in, _rng)
 
-        # q_vals = self.q_fn(rnn_out)
         task_w = x.obs.task_w
 
-        # return Predictions(q_vals, rnn_out), new_rnn_state
         return self.sfgpi(rnn_out, task_w, x.obs.train_vector), new_rnn_state
 
     def unroll(self, rnn_state, xs: TimeStep, rng: jax.random.PRNGKey):
@@ -463,10 +376,8 @@ class RnnAgent(nn.Module):
         rng, _rng = jax.random.split(rng)
         new_rnn_state, rnn_out = self.rnn.unroll(rnn_state, rnn_in, _rng)
 
-        # q_vals = self.q_fn(rnn_out)
         task_w = xs.obs.task_w
 
-        # return Predictions(q_vals, rnn_out), new_rnn_state
         return jax.vmap(self.sfgpi, in_axes=0)(rnn_out, task_w, xs.obs.train_vector), new_rnn_state
 
     def sfgpi(self,
@@ -500,27 +411,15 @@ class RnnAgent(nn.Module):
             # sf_input = jnp.concatenate((sf_input, policy))  # 2D
 
             # [A * C]
-            # sf = self.sf_net(sf_input)
             # [N, A * C]
             # When not in evaluation, the iteration should be over the current task only, not gpi.
             tasks = self.train_tasks
-            # if is_train == 1:
-            #    tasks = 1
-            #    sf = jnp.array([self.sf_nets[task_idx](sf_input)])
-            # else:
-            #     sf = jnp.array([self.sf_nets[idx](sf_input) for idx in range(tasks)])
             sf = jnp.array([self.sf_nets[idx](sf_input) for idx in range(tasks)])
-            # train_vector_reshaped = train_vector[:, jnp.newaxis]
-            # sf = sf * train_vector_reshaped
             # Multiply the sfs with train vector. If train task, only particular task taken, if test task, all SFs valid.
             sf = jax.vmap(lambda a,b: a*b, in_axes=(0, 0))(sf, train_vector)
             # [N, A, C]
             sf = jnp.reshape(sf, (tasks, self.action_dim, self.sf_features))
-            # dot = lambda a,b: jnp.sum(a*b).sum()
 
-            # # dot-product: A
-            # q_values = jax.vmap(
-            # dot, in_axes=(0, None), out_axes=0)(sf, task)
             # [B, N, A]
             # train_task = self.tasks
             # eval_task = obs.task
