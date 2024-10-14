@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "JaxNeuroRL"
+version = "0.0.1"
+authors = [
+    {name = "Wilka Carvalho", email = "wcarvalho92@gmail.com"},
+]
+description = ""
+readme = "README.md"
+requires-python = ">=3.7"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "wandb",
+    "xminigrid==0.6.0",
+    "ipdb",
+    "tqdm==4.66.2",
+    "rlax==0.1.6",
+    "mctx==0.0.5",
+    "ray[tune]==2.10.0",
+    "typing_extensions==4.11.0",
+    "optax==0.2.1",
+    "scipy==1.12.0",
+    "hydra-core",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/wcarvalho/jaxneurorl"
+"Bug Tracker" = "https://github.com/wcarvalho/jaxneurorl/issues"
+
+[tool.setuptools]
+packages = ["find:"]
+
