@@ -1,75 +1,273 @@
-from typing import Callable
-from functools import partial
-from flax import struct
+import seaborn as sns
 import jax
 import jax.numpy as jnp
-from collections import deque
-
-from jaxneurorl.agents import value_based_basics as vbb
-from housemaze.human_dyna import env as maze
-from housemaze import renderer
-from projects.humansf import visualizer
+import matplotlib.pyplot as plt
+import os.path
+import numpy as np
+from matplotlib.animation import FuncAnimation
 
 import jax.tree_util as jtu
-from safetensors.flax import load_file
-from flax.traverse_util import unflatten_dict
+import polars as pl
 import pickle
 
+from housemaze import renderer
+from housemaze.human_dyna import utils
+from housemaze.human_dyna import mazes
+from housemaze.human_dyna import multitask_env
 
-def swap_task(x: maze.TimeStep, w: jax.Array):
-    new_state = x.state.replace(
-        step_num=jnp.zeros_like(x.state.step_num),
-        task_w=w,
-    )
+from projects.humansf import housemaze_experiments
+from projects.humansf import data_loading
 
-    return x.replace(
-        state=new_state,
-    )
-def make_float(x): return x.astype(jnp.float32)
+image_dict = utils.load_image_dict()
 
-def load_params(filename):
-    flattened_dict = load_file(filename)
-    return unflatten_dict(flattened_dict, sep=',')
+num_groups = 2
+char2idx, groups, task_objects = mazes.get_group_set(num_groups)
+idx2key = {idx: image_dict['keys'][idx] for char, idx in char2idx.items()}
+task_runner = multitask_env.TaskRunner(task_objects=task_objects)
 
-def load_params_config(path: str, file: str, config=True):
-    params = load_params(f'{path}/{file}.safetensors')
+if data_loading.is_in_notebook():
+    from tqdm.notebook import tqdm
+    try:
+        import ipywidgets
+    except:
+        pass
+else:
+    from tqdm import tqdm
 
-    if config:
-        with open(f'{path}/{file}.config', 'rb') as f:
-            config = pickle.load(f)
-    return params, config
+############
+# trained model
+############
+def get_params(maze_str: str = None):
+  maze_str = maze_str or mazes.maze0
+  return mazes.get_maze_reset_params(
+      groups=groups,
+      char2key=char2idx,
+      maze_str=maze_str,
+      randomize_agent=False,
+      make_env_params=True,
+)
 
-def collect_trajectory(
-    init_timestep,
-    task_w,
-    rng,
-    train_state: vbb.CustomTrainState,
-    actor,
-    agent_reset_fn,
-    vmap_step,
-    env_params,
-    max_steps: int = 50,
-    ):
-
-    rng, rng_ = jax.random.split(rng)
+def get_algorithm_data(
+        algorithm: data_loading.Algorithm,
+        exp: str,
+        overwrite: bool = False,
+        extra_info = None,
+        data_task_runner = None,
+        path: str = None,
+      ):
+  extra_info = extra_info or {}
+  data_task_runner = data_task_runner or task_runner
+  exp_fn = getattr(housemaze_experiments, exp, None)
+  _, _, _, label2name = exp_fn(algorithm.config, analysis_eval=True)
   
-    timestep = jax.vmap(swap_task, (0, None))(init_timestep, task_w)
-    agent_state = agent_reset_fn(train_state.params, timestep, rng_)
+  base_path = path or f"{algorithm.path}/analysis/"
+  os.makedirs(base_path, exist_ok=True)
+  timesteps_filename = f"{base_path}/{algorithm.name}_timesteps.pickle"
+  df_filename = f"{base_path}/{algorithm.name}_df.csv"
+  ##############################
+  # if already exists, return
+  ##############################
+  if (os.path.exists(timesteps_filename) and os.path.exists(df_filename) and not overwrite):
+    df = pl.read_csv(df_filename)
+    with open(timesteps_filename, 'rb') as f:
+      all_episodes = pickle.load(f)
 
-    runner_state = vbb.RunnerState(
-        train_state=train_state,
-        timestep=timestep,
-        agent_state=agent_state,
-        rng=rng)
+    return df, all_episodes
 
-    _, traj_batch = vbb.collect_trajectory(
-                runner_state=runner_state,
-                num_steps=max_steps,
-                actor_step_fn=actor.eval_step,
-                env_step_fn=vmap_step,
-                env_params=env_params)
+  ##############################
+  # create data and return
+  ##############################
 
-    return traj_batch
+  rng = jax.random.PRNGKey(42)
+  train_tasks = groups[:1, 0]
+  test_tasks = groups[:1, 1]
+  tasks = jnp.concatenate((train_tasks, test_tasks))
+
+  all_info = []
+  all_episodes = []
+  for maze_name in label2name.values():
+      env_params = get_params(getattr(mazes, maze_name))
+      for task in tasks:
+          task_vector = data_task_runner.task_vector(task)
+          episodes = algorithm.eval_fn(rng, env_params, task_vector)
+          info = dict(
+              eval=bool(task in test_tasks),
+              algo=algorithm.name,
+              exp=exp,
+              room=0,
+              task=task,
+              maze_name=maze_name,
+              **extra_info,
+          )
+
+          all_info.append(info)
+          all_episodes.append(episodes)
+  df = pl.DataFrame(all_info)
+  df.write_csv(df_filename)
+
+  with open(timesteps_filename, 'wb') as f:
+    pickle.dump(all_episodes, f)
+  
+  return df, all_episodes
+
+###################
+# Search
+###################
+
+def concat_pytrees(tree1, tree2, **kwargs):
+    return jax.tree_map(lambda x, y: jnp.concatenate((x, y), **kwargs), tree1, tree2)
+def add_time(v): return jax.tree_map(lambda x: x[None], v)
+def concat_first_rest(first, rest):
+    # init: [...]
+    # rest: [T, ...]
+    # output: [T+1, ...]
+    return concat_pytrees(add_time(first), rest)
+
+def actions_from_search(env_params, rng, task, algo, budget):
+    map_init = jax.tree_map(lambda x:x[0], env_params.reset_params.map_init)
+    grid = np.asarray(map_init.grid)
+    agent_pos = tuple(int(o) for o in map_init.agent_pos)
+    goal = np.array([task])
+    path, _ = algo(grid, agent_pos, goal, key=rng, budget=budget)
+    actions = utils.actions_from_path(path)
+    return actions
+
+def collect_search_episodes(
+  env, env_params, task, algorithm: str, budget=None,
+  n: int=100):
+  budget = budget or 1e8
+
+  def step_fn(carry, action):
+      rng, timestep = carry
+      rng, step_rng = jax.random.split(rng)
+      next_timestep = env.step(step_rng, timestep, action, env_params)
+      return (rng, next_timestep), next_timestep
+
+  def collect_episode(task, actions, rng):
+    timestep = env.reset(rng, env_params)
+    task_vector = task_runner.task_vector(task)
+    init_timestep = data_loading.swap_task(timestep, task_vector)
+    initial_carry = (rng, init_timestep)
+    (rng, _), timesteps = jax.lax.scan(step_fn, initial_carry, actions)
+    return concat_first_rest(init_timestep, timesteps)
+
+  #######################
+  # first get actions from n different runs
+  #######################
+  all_actions = []
+  rng = jax.random.PRNGKey(42)
+  rngs = jax.random.split(rng, n)
+
+  # First, get all actions
+  for idx in range(n):
+      actions = actions_from_search(
+          env_params, rngs[idx], task,
+          algo=getattr(utils, algorithm),
+          budget=budget
+      )
+      all_actions.append(actions)
+
+  # Find the maximum length among all action sequences
+  max_length = max(len(actions) for actions in all_actions)
+
+  # Pad each action sequence to the maximum length
+  padded_actions = []
+  for actions in all_actions:
+      padding = [0] * (max_length - len(actions))
+      padded_actions.append(np.concatenate((actions, np.array(padding, dtype=np.int32))))
+
+  # Convert to numpy array
+  all_actions = np.array(padded_actions, dtype=np.int32)
+
+  # Now compute all episodes
+  all_episodes = []
+  for idx in range(n):
+      episode = collect_episode(task, all_actions[idx][:-1], rngs[idx])
+      all_episodes.append(episode)
+
+  # [N, T]
+  all_actions = np.array(all_actions)
+  all_episodes = jtu.tree_map(lambda *v: jnp.stack(v), *all_episodes)
+
+  return data_loading.EpisodeData(
+    timesteps=all_episodes,
+    actions=all_actions)
+
+
+def get_search_data(
+        algorithm: str,
+        env,
+        exp: str,
+        base_path: str,
+        budget: int = None,
+        overwrite: bool = False,
+        searches: int=100,
+      ):
+
+  exp_fn = getattr(housemaze_experiments, exp, None)
+  _, _, _, label2name = exp_fn({}, analysis_eval=True)
+
+  os.makedirs(base_path, exist_ok=True)
+  timesteps_filename = f"{base_path}/{algorithm}_{budget}_timesteps.pickle"
+  df_filename = f"{base_path}/{algorithm}_{budget}_df.csv"
+
+  ##############################
+  # if already exists, return
+  ##############################
+  if (os.path.exists(timesteps_filename) and os.path.exists(df_filename) and not overwrite):
+    df = pl.read_csv(df_filename)
+    with open(timesteps_filename, 'rb') as f:
+      all_episodes = pickle.load(f)
+
+    return df, all_episodes
+
+  ##############################
+  # create data and return
+  ##############################
+
+  train_tasks = groups[:1, 0]
+  test_tasks = groups[:1, 1]
+  tasks = jnp.concatenate((train_tasks, test_tasks))
+
+  all_info = []
+  all_episodes = []
+  for maze_name in label2name.values():
+      env_params = get_params(getattr(mazes, maze_name))
+      for task in tasks:
+          episodes = collect_search_episodes(
+             env=env,
+             env_params=env_params,
+             task=task,
+             algorithm=algorithm,
+             budget=budget,
+             n=searches)
+          info = dict(
+              eval=bool(task in test_tasks),
+              algo=algorithm,
+              exp=exp,
+              room=0,
+              task=task,
+              budget=budget,
+              maze_name=maze_name,
+          )
+          #print("-"*50)
+          #print("Finished")
+          #print(info)
+          all_info.append(info)
+          all_episodes.append(episodes)
+
+  df = pl.DataFrame(all_info)
+  df.write_csv(df_filename)
+
+  with open(timesteps_filename, 'wb') as f:
+    pickle.dump(all_episodes, f)
+  
+  return df, all_episodes
+
+
+###################
+# Visualizations
+###################
 
 def get_in_episode(timestep):
   # get mask for within episode
@@ -79,178 +277,390 @@ def get_in_episode(timestep):
   in_episode = (term_cumsum + non_terminal) < 2
   return in_episode
 
-def success(timestep):
-  rewards = timestep.reward
-  in_episode = make_float(get_in_episode(timestep))
-  total_reward = (in_episode*rewards).sum()
-  success = make_float((in_episode*rewards).sum() > .5)
-  return total_reward, success
+def housemaze_render_fn(state: multitask_env.EnvState):
+    return renderer.create_image_from_grid(
+        state.grid,
+        state.agent_pos,
+        state.agent_dir,
+        image_dict)
 
-
-def plot_timesteps(
-  traj,
-  render_fn,
-  get_task_name,
-  extract_task_info,
-  max_len=40,
-  action_names=None):
-  timesteps = traj.timestep
-  actions = traj.action
-  #################
-  # frames
-  #################
-  obs_images = []
-  for idx in range(max_len):
-      index = lambda y: jax.tree_map(lambda x: x[idx], y)
-      obs_image = render_fn(index(timesteps.state))
-      obs_images.append(obs_image)
-
-  #################
-  # actions
-  #################
-  def action_name(a):
-    if action_names is not None:
-      name = action_names.get(int(a), 'ERROR?')
-      return f"action {int(a)}: {name}"
+def render_path(episode_data, from_model=True, ax=None):
+    # get actions that are in episode
+    timesteps = episode_data.timesteps
+    actions = episode_data.actions
+    if from_model:
+      in_episode = get_in_episode(timesteps)
+      actions = actions[in_episode][:-1]
+      positions = jax.tree_map(lambda x: x[in_episode][:-1], timesteps.state.agent_pos)
     else:
-      return f"action: {int(a)}"
-  actions_taken = [action_name(a) for a in actions]
+       positions = timesteps.state.agent_pos[:-1]
+    # positions in episode
 
-  #################
-  # plot
-  #################
-  index = lambda t, idx: jax.tree_map(lambda x: x[idx], t)
-  def panel_title_fn(timesteps, i):
-    task_name = get_task_name(extract_task_info(index(timesteps, i)))
-    title = f'{task_name}'
+    state_0 = jax.tree_map(lambda x: x[0], timesteps.state)
 
-    step_type = int(timesteps.step_type[i])
-    step_type = ['first', 'mid', '|last|'][step_type]
-    title += f'\nt={i}, type={step_type}'
+    # doesn't matter
+    maze_height, maze_width, _ = timesteps.state.grid[0].shape
 
-    if i < len(actions_taken):
-      title += f'\n{actions_taken[i]}'
-    title += f'\nr={timesteps.reward[i]}, $\\gamma={timesteps.discount[i]}$'
-
-    return title
-
-  fig = visualizer.plot_frames(
-      timesteps=timesteps,
-      frames=obs_images,
-      panel_title_fn=panel_title_fn,
-      ncols=6)
-
-@struct.dataclass
-class Algorithm:
-
-  config: dict
-  train_state: Callable
-  actor: Callable
-  network: Callable
-  reset_fn: Callable
-  eval_fn: Callable
-  path: str
-  name: str
-
-  def setting(self):
-     return self.path.split('/')[-1]
+    if ax is None:
+      fig, ax = plt.subplots(1, figsize=(5, 5))
+    img = housemaze_render_fn(state_0)
+    renderer.place_arrows_on_image(img, positions, actions, maze_height, maze_width, arrow_scale=5, ax=ax)
 
 
-def load_algorithm(
-      path,
-      name,
-      env_params,
-      env,
-      make_fns,
-      parallel_envs: int=25,
+def create_reaction_times_video(images, reaction_times, output_file, fps=1):
+    # Ensure the directory exists
+    output_dir = os.path.dirname(output_file)
+    if output_dir and not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    n = len(images)
+    width = 5
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(2*width, width))
+
+    def update(frame):
+        # Clear previous content
+        ax1.clear()
+        ax2.clear()
+
+        # Left plot: Image
+        if images.size > 0:
+            img = images[frame]
+            ax1.imshow(img, cmap='viridis')
+        else:
+            ax1.text(0.5, 0.5, "No image data", ha='center', va='center')
+        rt = reaction_times[frame]/1e3
+        ax1.set_title(
+            f"Step: {frame}, Reaction Time: {rt:.2f} s")
+        ax1.axis('off')
+
+        # Right plot: Bar plot of reaction times
+        bars = ax2.bar(range(len(reaction_times)),
+                       reaction_times, color='lightblue')
+        bars[frame].set_color('red')  # Highlight current index
+        ax2.set_xlabel('Time Index')
+        ax2.set_ylabel('Reaction Time')
+        ax2.set_title('Reaction Times')
+        ax2.set_ylim(0, max(reaction_times) * 1.1)
+
+        return ax1, ax2
+
+    # Create the animation
+    anim = FuncAnimation(fig, update, frames=n, interval=1000/fps, blit=False)
+    video = anim.to_html5_video()
+    return video
+
+
+def create_episode_reaction_times_video(
+      episode_data,
+      output_file='/tmp/housemaze_anlaysis/rt_video.mp4',
+      fps=1,
+      html: bool = True,
       ):
-  agent_params, config = load_params_config(path, name)
+  images = jax.vmap(housemaze_render_fn)(episode_data.timesteps.state)
+  reaction_times = episode_data.reaction_times
+  video = create_reaction_times_video(images, reaction_times, output_file, fps)
+  if html:
+     from IPython.display import HTML, display
+     return display(HTML(video))
+  return video
 
-  config['NUM_ENVS'] = parallel_envs
 
-  def vmap_reset(rng, env_params):
-    return jax.vmap(env.reset, in_axes=(0, None))(
-        jax.random.split(rng, config["NUM_ENVS"]), env_params)
+def make_sf_video(
+      e,
+      idx=0,
+      output_file='/tmp/housemaze_analysis/sf_video.mp4',
+      fps=1,
+      html=True,
+      n=1e8,
+      line_mask=None,
+      line_names=None):
+    actions = e.actions
+    preds = e.transitions.extras['preds']
+    sf_values = preds.sf  # [T, N, A, W]
+    actions = e.actions  # [T]
 
-  def vmap_step(rng, env_state, action, env_params):
-      return jax.vmap(
-          env.step, in_axes=(0, 0, 0, None))(
-          jax.random.split(rng, config["NUM_ENVS"]), env_state, action, env_params)
+    sf_values = jnp.take_along_axis(
+        sf_values, actions[:, None, None, None], axis=-2)
 
-  rng = jax.random.PRNGKey(config["SEED"])
-  rng, rng_ = jax.random.split(rng)
-  example_timestep = vmap_reset(rng_, env_params)
+    sf_values = jnp.squeeze(sf_values, axis=-2)  # [T, N, W]
 
-  fns = make_fns(config=config)
+    in_episode = get_in_episode(e.timesteps)
+    sf_values = sf_values[in_episode]
+    sf_values = sf_values[:, idx]  # [T', ... ]
+    states = e.timesteps.state
 
-  network, _, reset_fn = fns.make_agent(
-      config=config,
-      env=env,
-      env_params=env_params,
-      example_timestep=example_timestep,
-      rng=rng_)
+    states = jax.tree_map(lambda x: x[in_episode], states)  # [T', ... ]
+    images = jax.vmap(housemaze_render_fn)(states)
 
-  actor = fns.make_actor(
-              config=config,
-              agent=network,
-              rng=rng_)
+    #sf_values = jax.tree_map(lambda x: x[:-1], sf_values)  # [T', ... ]
+    #states = jax.tree_map(lambda x: x[:-1], states)  # [T', ... ]
 
-  train_state = vbb.CustomTrainState.create(
-              apply_fn=network.apply,
-              params=agent_params,
-              target_network_params=agent_params,
-              tx=fns.make_optimizer(config),  # unnecessary
-          )
+    # Ensure the directory exists
+    output_dir = os.path.dirname(output_file)
+    if output_dir and not os.path.exists(output_dir):
+        os.makedirs(output_dir)
 
-  def collect_trajectories(
-        rng,
-        env_params,
-        task_w,
-        n=4):
+    n = len(images)
+    width = 7
+    height = 5
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(2*width, height))
 
-      collect_fn = partial(
-        collect_trajectory,
-        train_state=train_state,
-        agent_reset_fn=reset_fn,
-        actor=actor,
-        vmap_step=vmap_step,
-        env_params=env_params,
-        )
-      collect_fn = jax.vmap(collect_fn, (None, 0, 0))
+    # Initialize the plots
+    im1 = ax1.imshow(images[0])
+    
+    # Plot SF values as lines instead of an image
 
-      def scan_body(rng, _):
-          rng, rng_ = jax.random.split(rng)
-          init_timestep = vmap_reset(rng=rng_, env_params=env_params)
-          rng, rng_ = jax.random.split(rng)
-          new_trajs = collect_fn(
-            init_timestep, task_w, jax.random.split(rng_, len(task_w)))
-          return rng, new_trajs
+    time_steps = np.arange(sf_values.shape[0])
+    for i in range(sf_values.shape[1]):
+        if line_mask is not None and not line_mask[i]:
+            continue
+        label = line_names[i] if line_names and i < len(line_names) else None
+        ax2.plot(time_steps, sf_values[:, i], label=label)
+    
+    ax2.legend()
+    red_bar = ax2.axvline(x=0, color='red', linewidth=2)
+    
+    ax1.set_title('Environment')
+    ax2.set_title('SF Values')
+    ax2.set_xlabel('Time Step')
+    ax2.set_ylabel('SF Value')
+    ax2.set_xlim(0, sf_values.shape[0] - 1)
+    ax2.set_ylim(sf_values.min(), sf_values.max())
 
-      # [n, num_tasks, num_timesteps, num_traj, data]
-      rng, all_trajs = jax.lax.scan(scan_body, rng, None, length=n)
+    def update(frame):
+        # Update left panel (environment image)
+        im1.set_array(images[frame])
+        ax1.set_title(f"Step: {frame}")
 
-      def fix_shape(x):
-        # [num_tasks, n, num_timesteps, num_traj, data]
-        x = jnp.swapaxes(x, 0, 1)
+        # Update red bar position
+        red_bar.set_xdata(frame)
 
-        # [num_tasks, n, num_traj, num_timesteps, data]
-        x = jnp.swapaxes(x, 2, 3)
+        return im1, red_bar
 
-        # [num_tasks, n*num_traj, num_timesteps, data]
-        x = x.reshape(x.shape[0], -1, *x.shape[3:])
-        return x
+    # Create the animation
+    anim = FuncAnimation(fig, update, frames=n, interval=1000/fps, blit=False)
+    video = anim.to_html5_video()
+    
+    plt.close(fig)
 
-      # [n, num_traj, num_timesteps, num_tasks, data]
-      all_trajs = jax.tree_map(fix_shape, all_trajs)
-      return all_trajs
+    if html:
+        from IPython.display import HTML, display
+        return display(HTML(video))
+    return video
+###################
+# Metrics
+###################
 
-  return Algorithm(
-      config=config,
-      network=network,
-      reset_fn=reset_fn,
-      actor=actor,
-      train_state=train_state,
-      eval_fn=jax.jit(collect_trajectories),
-      path=path,
-      name=name,
-  )
+
+def success(e):
+    rewards = e.timesteps.reward
+    #return rewards
+    assert rewards.ndim == 1, 'this is only defined over vector, e.g. 1 episode'
+    success = rewards > .5
+    return success.any().astype(np.float32)
+
+def features_achieved(e):
+    features = e.timesteps.state.task_state.features
+    achieved = features.sum(-1) > 0
+    return achieved.any().astype(np.float32)
+
+def terminated(e):
+    return features_achieved(e)
+    #import ipdb; ipdb.set_trace()
+    #is_last = e.timesteps.last().any()
+    #return is_last.any()
+
+
+def rewards(e):
+    rewards = e.timesteps.reward
+    assert rewards.ndim == 1, 'this is only defined over vector, e.g. 1 episode'
+    success = rewards > .5
+    return success.any()
+
+
+def went_to_junction(episode_data, junction=(0, 11)):
+    #positions = episode_data.positions
+    #if positions is None:
+    positions = episode_data.timesteps.state.agent_pos
+    match = jnp.array(junction) == positions
+    match = (match).sum(-1) == 2  # both x and y matches
+    return match.any().astype(jnp.float32)  # if any matched
+
+
+def sucess_or_not_terminate(e):
+    succeeded = success(e) > 0
+    keep = not terminated(e) or succeeded
+    return keep
+
+def get_human_data(user_df, user_data, fn, filter_fn=None, **kwargs):
+    eval_df = user_df.filter(**kwargs)
+    idxs = np.array(eval_df['index'])-1
+    array = []
+    for idx in idxs:
+        if filter_fn is not None:
+           if filter_fn(user_data[idx]): continue
+        val = fn(user_data[idx])
+        array.append(val)
+
+    return array
+
+
+def get_model_data(model_df, model_data, fn, **kwargs):
+    eval_df = model_df.filter(**kwargs)
+    idxs = np.array(eval_df['index'])-1
+    array = []
+    for idx in idxs:
+        val = jax.vmap(fn)(model_data[idx])
+        array.append(val)
+
+    return np.array(array).mean(-1)
+
+
+###################
+# Plots
+###################
+
+model_colors = {
+    'human_success': '#0072B2',
+    'human': '#009E73',
+    'human_terminate': '#D55E00',
+    'qlearning': '#CC79A7',
+    'dyna': '#F0E442',
+    'bfs': '#56B4E9',
+    'dfs': '#E69F00'
+}
+
+model_names = {
+    'dyna': 'multi-task preplay',
+    'bfs': 'breadth-first search',
+    'dfs': 'depth-first search',
+}
+model_names = {
+    'qlearning': 'Q-learning',
+    'usfa': 'Successor features',
+    'dyna': 'Multitask preplay',
+    'bfs': 'Breadth-first search',
+    'dfs': 'Depth-first search',
+}
+
+def bar_plot_results(model_dict, figsize=(8, 4), error_bars=False, title="", ylabel=""):
+    # Set up the plot style
+    plt.figure(figsize=figsize)
+    sns.set_style("whitegrid")
+
+    # Prepare data for plotting
+    models = list(model_dict.keys())
+    values = [np.mean(arr) for arr in model_dict.values()]
+    errors = [np.std(arr)/np.sqrt(len(arr)) for arr in model_dict.values()] if error_bars else None
+
+    # Create the bar plot with consistent colors
+    bars = plt.bar([model_names.get(model, model) for model in models], values, yerr=errors, capsize=5, color=[model_colors.get(model, '#333333') for model in models])
+
+    # Customize the plot
+    plt.title(title, fontsize=16)
+    plt.xlabel("Data source", fontsize=12)
+    plt.ylabel(ylabel, fontsize=12)
+    plt.xticks(rotation=45, ha='right')
+
+    # Add value labels on top of each bar
+    for bar in bars:
+        height = bar.get_height()
+        plt.text(bar.get_x() + bar.get_width()/2., height,
+                 f'{height:.2f}',
+                 ha='center', va='bottom')
+
+    # Adjust layout and display the plot
+    plt.tight_layout()
+    plt.show()
+
+
+def success_termination_results(success_dict, termination_dict, title="", ylabel=""):
+    # Set up the plot style
+    plt.figure(figsize=(12, 6))
+    sns.set_style("whitegrid")
+
+    # Prepare data for plotting
+    models = list(success_dict.keys())
+    success_values = [np.mean(arr) for arr in success_dict.values()]
+    success_errors = [np.std(arr)/np.sqrt(len(arr))
+                      for arr in success_dict.values()]
+    termination_values = [np.mean(arr) for arr in termination_dict.values()]
+    termination_errors = [np.std(arr)/np.sqrt(len(arr))
+                          for arr in termination_dict.values()]
+
+    # Set up bar positions
+    x = np.arange(len(models))
+    width = 0.35
+
+    # Create the bar plot with consistent colors
+    fig, ax = plt.subplots(figsize=(12, 6))
+    success_bars = ax.bar(x - width/2, success_values, width, yerr=success_errors, capsize=5,
+                          color=[model_colors.get(model, '#333333')
+                                 for model in models],
+                          label='Success Rate', hatch='//')
+    termination_bars = ax.bar(x + width/2, termination_values, width, yerr=termination_errors, capsize=5,
+                              color=[model_colors.get(model, '#333333')
+                                     for model in models],
+                              label='Termination Rate', alpha=0.7)
+
+    # Customize the plot
+    ax.set_title(title, fontsize=16)
+    ax.set_xlabel("Data source", fontsize=12)
+    ax.set_ylabel(ylabel, fontsize=12)
+    ax.set_xticks(x)
+    ax.set_xticklabels(models, rotation=45, ha='right')
+
+    # Add legend
+    ax.legend()
+
+    # Add value labels on top of each bar
+    def autolabel(rects):
+        for rect in rects:
+            height = rect.get_height()
+            ax.text(rect.get_x() + rect.get_width()/2., height,
+                    f'{height:.2f}',
+                    ha='center', va='bottom')
+
+    autolabel(success_bars)
+    autolabel(termination_bars)
+
+    # Adjust layout and display the plot
+    fig.tight_layout()
+    plt.show()
+
+
+def plot_reaction_times(group1, group2, label1='group1', label2='group2'):
+
+    def rt_fn2(e):
+        rts = e.reaction_times[:-1]
+        return rts.mean()
+
+    def rt_fn3(e):
+        rts = e.reaction_times[:-1]
+        return rts[0]
+
+    rt_types = ['avg', 'first']
+    rt_functions = [rt_fn2, rt_fn3]
+
+    fig, axes = plt.subplots(1, 2, figsize=(10, 5))
+    fig.suptitle("Episode Reaction Time Comparison", fontsize=16)
+
+    for ax, rt_fn, rt_type in zip(axes, rt_functions, rt_types):
+        s_rts = np.array([rt_fn(e) for e in group1])
+        f_rts = np.array([rt_fn(e) for e in group2])
+
+        # Combine data and create labels
+        data = np.concatenate([f_rts, s_rts])
+        labels = np.array([label2] * len(f_rts) + [label1] * len(s_rts))
+
+        # Create box plot with individual points
+        sns.boxplot(x=labels, y=data, ax=ax, width=0.5,
+                    palette=['red', 'green'])
+        sns.stripplot(x=labels, y=data, ax=ax,
+                      color='black', alpha=0.5, jitter=True)
+
+        ax.set_ylabel('Reaction Time')
+        ax.set_title(f"RT Type: {rt_type}")
+
+    plt.tight_layout()
+    plt.show()

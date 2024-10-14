@@ -48,7 +48,6 @@ class R2D2LossFn(vbb.RecurrentLossFn):
   https://openreview.net/forum?id=r1lyTjAqYX
   """
 
-  tx_pair: rlax.TxPair = rlax.IDENTITY_PAIR
   extract_q: Callable[[jax.Array], jax.Array] = lambda preds: preds.q_vals
 
 
@@ -110,7 +109,7 @@ class R2D2LossFn(vbb.RecurrentLossFn):
     if self.logger.learner_log_extra is not None:
         self.logger.learner_log_extra({
         'data': data,
-        'td_errors': batch_td_error,                 # [T]
+        'td_errors': jnp.abs(batch_td_error),        # [T]
         'mask': loss_mask,                 # [T]
         'q_values': self.extract_q(online_preds),    # [T, B]
         'q_loss': batch_loss,                        #[ T, B]
