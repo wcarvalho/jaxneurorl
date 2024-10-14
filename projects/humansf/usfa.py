@@ -1,50 +1,23 @@
 """
-Recurrent Q-learning.
+Universal Successor Feature Approximator (USFA)
 """
 
-
-
-import os
 import jax
-from typing import Tuple, Callable
+from typing import Callable
 
 
-import flax.linen as nn
-import flashbax as fbx
 import wandb
 
 import flax
 import rlax
-from gymnax.environments import environment
 import matplotlib.pyplot as plt
 
-from xminigrid.rendering.rgb_render import render as rgb_render
-
-
-from projects.humansf.networks import KeyroomObsEncoder, HouzemazeObsEncoder
-from projects.humansf import keyroom
 from projects.humansf.visualizer import plot_frames
 
 from jaxneurorl.agents.basics import TimeStep
-from jaxneurorl.agents import value_based_basics as vbb
 from jaxneurorl.agents.usfa import *
 
-
-
-#Agent = nn.Module
-#Params = flax.core.FrozenDict
-#AgentState = flax.struct.PyTreeNode
-#RNNInput = vbb.RNNInput
-#R2D2LossFn = base_agent.R2D2LossFn
-#Predictions = base_agent.Predictions
-#make_optimizer = base_agent.make_optimizer
-#make_loss_fn_class = base_agent.make_loss_fn_class
-#make_actor = base_agent.make_actor
-#make_agent = base_agent.make_agent
-#epsilon_greedy_act = base_agent.epsilon_greedy_act
-#make_train = base_agent.make_train
-
-# only redine this
+# only redoing this
 def learner_log_extra(
         data: dict,
         config: dict,
@@ -201,12 +174,6 @@ def learner_log_extra(
 
         def index(t, idx): return jax.tree_map(lambda x: x[idx], t)
         def panel_title_fn(timesteps, i):
-            #room_setting = int(timesteps.state.room_setting[i])
-            #task_room = int(timesteps.state.goal_room_idx[i])
-            #task_object = int(timesteps.state.task_object_idx[i])
-            #setting = 'single' if room_setting == 0 else 'multi'
-            #category, color = maze_config['pairs'][task_room][task_object]
-            #task_name = f'{setting} - {color} {category}'
             task_name = get_task_name(extract_task_info(index(timesteps, i)))
             title = f'{task_name}\n'
             title += f't={i}\n'
