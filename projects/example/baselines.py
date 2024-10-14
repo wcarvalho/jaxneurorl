@@ -47,6 +47,12 @@ from jaxneurorl.agents import value_based_pqn as vpq
 
 from jaxneurorl.agents import alphazero
 from jaxneurorl.agents import qlearning
+from jaxneurorl.agents import dyna
+from projects.example import housemaze_dyna
+
+gymnax_envs = ['CartPole-v1',
+       'Breakout-MinAtar',
+       'Catch-bsuite']
 
 def run_single(
         config: dict,
@@ -55,14 +61,21 @@ def run_single(
     assert config['ENV_NAME'] in (
        'CartPole-v1',
        'Breakout-MinAtar',
-       'Catch-bsuite'
+       'Catch-bsuite',
+       'housemaze'
     ), 'only these have been tested so far'
 
-    basic_env, env_params = gymnax.make(config['ENV_NAME'])
-    env = FlattenObservationWrapper(basic_env)
-    
-    # converts to using timestep
-    env = TimestepWrapper(env, autoreset=True)
+    if config['ENV_NAME'] in gymnax_envs:
+      basic_env, env_params = gymnax.make(config['ENV_NAME'])
+    elif config['ENV_NAME'] == "housemaze":
+       env_params, basic_env = housemaze_dyna.housemaze_env()
+
+    env = basic_env
+    if config['ENV_NAME'] != "housemaze":
+      env = FlattenObservationWrapper(basic_env)
+
+      # converts to using timestep
+      env = TimestepWrapper(env, autoreset=True)
 
     alg_name = config['ALG']
     if alg_name == 'qlearning':
@@ -79,6 +92,8 @@ def run_single(
       make_train = vpq.make_train
     elif alg_name == 'alphazero':
       make_train = alphazero.make_train_preloaded(config)
+    elif alg_name == 'qlearning_dyna':
+      make_train = dyna.make_train_preloaded
 
     else:
       raise NotImplementedError(alg_name)
@@ -112,11 +127,8 @@ def sweep(search: str = ''):
         'parameters': {
             "ENV_NAME": {'values': ['Catch-bsuite']},
             "AGENT_HIDDEN_DIM": {'values': [32, 64, 128, 256]},
-            
         },
-        'overrides': ['alg=qlearning',
-                      'rlenv=cartpole',
-                      'user=wilka'],
+        'overrides': ['alg=qlearning'],
         'group': 'qlearning-4',
     }
   elif search == 'pqn':
@@ -132,7 +144,8 @@ def sweep(search: str = ''):
             "NORM_QFN": {'values': ['layer_norm', 'none']},
             #"TOTAL_TIMESTEPS": {'values': [100_000_000]},
         },
-        'overrides': ['alg=pqn', 'rlenv=cartpole', 'user=wilka'],
+        'overrides': ['alg=pqn', # 'user=wilka'
+                      ],
         'group': 'pqn-3',
     }
   elif search == 'alpha':
@@ -145,9 +158,22 @@ def sweep(search: str = ''):
             "ENV_NAME": {'values': ['Catch-bsuite']},
         },
         'overrides': ['alg=alphazero',
-                      'rlenv=cartpole',
                       'user=wilka'],
         'group': 'alpha-1',
+    }
+  elif search == 'dyna':
+    sweep_config = {
+       'metric': {
+            'name': 'evaluator_performance/0.0 avg_episode_return',
+            'goal': 'maximize',
+        },
+        'parameters': {
+            # "ENV_NAME": {'values': ['Catch-bsuite']},
+            "AGENT_HIDDEN_DIM": {'values': [256]},
+            "AGENT_USE_BIAS": {'values': [True]}
+        },
+        'overrides': ['alg=dyna'],
+        'group': 'qlearning-5',
     }
   else:
     raise NotImplementedError(search)
@@ -164,7 +190,7 @@ def main(config: DictConfig):
   #current_directory = os.path.dirname(current_file_path)
   launcher.run(
       config,
-      trainer_filename=__file__,
+      trainer_filename='__file__',
       config_path='projects/example/configs',
       run_fn=run_single,
       sweep_fn=sweep,

@@ -2,7 +2,7 @@
 "NUM_SEEDS": 1
 "SEED": 1
 
-"ALG": 'qlearning_dyna'
+"ALG": 'dyna'
 
 # RUN PARAMS
 "NUM_ENVS": 32
