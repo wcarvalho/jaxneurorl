@@ -215,7 +215,12 @@ class HouseMazeTasks(maze.HouseMaze):
         ##################
         # create ouputs
         ##################
-        vector = jnp.zeros(params.n_train)
+        vector = jnp.zeros(params.n_train, dtype=jnp.int32)
+        train_vector = jax.lax.cond(map_idx >= params.n_train,
+                          lambda _: jnp.ones(params.n_train, dtype=jnp.int32),            # If X >= D, all ones
+                          lambda _: vector.at[map_idx].set(1).astype(jnp.int32),    # Else set 1 at index X
+                          operand=None)
+        train_vector = jax.tree_map(jax.lax.stop_gradient, train_vector)
         state = EnvStateTask(
             key=rng,
             step_num=jnp.asarray(0),
@@ -225,11 +230,10 @@ class HouseMazeTasks(maze.HouseMaze):
             map_idx=map_idx,
             task_w=task_w,
             task_state=task_state,
-            is_train=jax.lax.cond(map_idx < params.n_train, lambda: 1, lambda: 0),
-            train_vector=jax.lax.cond(map_idx >= params.n_train,
-                          lambda _: jnp.ones(params.n_train),            # If X >= D, all ones
-                          lambda _: vector.at[map_idx].set(1),    # Else set 1 at index X
-                          operand=None)
+            is_train=jax.lax.cond(map_idx < params.n_train,
+                                  lambda: jnp.asarray(1, dtype=jnp.int32),
+                                  lambda: jnp.asarray(0, dtype=jnp.int32)),
+            train_vector=train_vector
         )
 
         reset_action = jnp.array(self.num_actions() + 1, dtype=jnp.int32)
@@ -242,7 +246,6 @@ class HouseMazeTasks(maze.HouseMaze):
                 state,
                 prev_action=reset_action)
         )
-        pdb.set_trace()
         return timestep
 
     def step(self, rng: jax.Array, timestep: maze.TimeStep, action: jax.Array, params: EnvParamsTask) -> maze.TimeStep:
@@ -257,6 +260,8 @@ class HouseMazeTasks(maze.HouseMaze):
                 action)
         else:
             raise NotImplementedError(self.action_spec)
+
+        agent_pos = (jnp.asarray(agent_pos[0]), jnp.asarray(agent_pos[1]))
 
         task_state = self.task_runner.step(
             timestep.state.task_state, grid, agent_pos)
@@ -289,7 +294,6 @@ class HouseMazeTasks(maze.HouseMaze):
                 state,
                 prev_action=action),
         )
-        pdb.set_trace()
         return timestep
 
 

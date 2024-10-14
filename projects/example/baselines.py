@@ -92,7 +92,7 @@ def run_single(
       make_train = vpq.make_train
     elif alg_name == 'alphazero':
       make_train = alphazero.make_train_preloaded(config)
-    elif alg_name == 'qlearning_dyna':
+    elif alg_name == 'dyna':
       make_train = dyna.make_train_preloaded
 
     else:

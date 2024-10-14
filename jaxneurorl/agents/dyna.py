@@ -124,8 +124,7 @@ class UsfaLossFn(vbb.RecurrentLossFn):
     # all are [T+1, B, N, A, C]
     # N = num policies, A = actions, C = cumulant dim
     online_sf = online_preds.sf
-    # online_z = online_preds.policy
-    online_task = online_preds.task
+    # online_task = online_preds.task
     target_sf = target_preds.sf
     # pseudo rewards, [T/T+1, B, C]
     cumulants = cumulants_from_env(data)
@@ -147,7 +146,7 @@ class UsfaLossFn(vbb.RecurrentLossFn):
     # ======================================================
     td_error_fn = functools.partial(
             rlax.transformed_n_step_q_learning,
-            n=20)
+            n=20) # TODO: use constant here.
 
     # vmap over batch dimension (B), return B in dim=1
     td_error_fn = jax.vmap(td_error_fn, in_axes=1, out_axes=1)
