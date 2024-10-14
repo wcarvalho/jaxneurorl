@@ -1,5 +1,5 @@
 """
-Universal Successor Feature Approximator (USFA).
+Universal Successor Feature Approximator (USFA)
 """
 
 import functools
