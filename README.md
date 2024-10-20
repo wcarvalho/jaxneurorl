@@ -20,10 +20,9 @@ pip install -U jupyterlab matplotlib
 # Single-agent algorithms (all recurrent)
 
 1. [Q-learning](https://openreview.net/forum?id=r1lyTjAqYX) ([code](agents/qlearning.py)). This is a Q-learning based agent.
-2. [Universal Successor Feature Approximators](https://arxiv.org/abs/1812.07626) ([code](agents/qlearning.py)). This is a Successor Feature based agent that takes task/policy encodings as inputs.
-    a. [Successor Representation](successor_representation.ipynb) - colab explaining the successor representation following [this paper](https://arxiv.org/abs/2402.06590)
-2. [AlphaZero](https://arxiv.org/abs/1712.01815) ([code](agents/alphazero.py)). This is a model-based agent that does planning with a ground-truth world model via monte-carlo tree search.
-
+2. [Universal Successor Feature Approximators](https://arxiv.org/abs/1812.07626) ([code](agents/qlearning.py)). This is a Successor Feature based agent that takes task/policy encodings as inputs. 
+   1. [Successor Representation](successor_representation.ipynb) - colab explaining the successor representation following [this paper](https://arxiv.org/abs/2402.06590)
+3. [AlphaZero](https://arxiv.org/abs/1712.01815) ([code](agents/alphazero.py)). This is a model-based agent that does planning with a ground-truth world model via monte-carlo tree search.
 
 
 
