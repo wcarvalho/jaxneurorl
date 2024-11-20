@@ -153,7 +153,6 @@ def extract_timestep_input(timestep: TimeStep):
         reset=timestep.first())
 
 def sample_gauss(mean, var, key, nsamples):
-    import ipdb; ipdb.set_trace()
     if nsamples >= 1:
         mean = jnp.expand_dims(mean, -2)  # [1, ]
         samples = jnp.tile(mean, [1, nsamples, 1])
@@ -167,9 +166,10 @@ def sample_gauss(mean, var, key, nsamples):
 
 def get_task_onehot(task_vector, train_tasks):
     # Compare the task_vector with each train_task
-    matches = jnp.all(task_vector == train_tasks, axis=1)
+    matches = jnp.all(jnp.abs(task_vector - train_tasks) < 1e-6, axis=1)
     # Create a one-hot vector based on the match
     one_hot = jnp.eye(len(train_tasks))[jnp.argmax(matches)]
+
     return one_hot
 
 class MLP(nn.Module):
@@ -250,7 +250,7 @@ class SfGpiHead(nn.Module):
         policy_embeddings = self.policy_net(policies)
         sfs, q_values = jax.vmap(compute_sf_q, in_axes=(None, 0, None), out_axes=0)(
             usfa_input, policy_embeddings, task)
-
+        
         q_values = jnp.max(q_values, axis=-2)
         policies = jnp.expand_dims(policies, axis=-2)
         policies = jnp.tile(policies, (1, self.num_actions, 1))
