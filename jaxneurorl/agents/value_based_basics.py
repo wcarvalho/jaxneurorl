@@ -611,6 +611,7 @@ def make_train(
         make_logger: MakeLoggerFn = loggers.default_make_logger,
         test_env_params: Optional[environment.EnvParams] = None,
         ObserverCls: observers.BasicObserver = observers.BasicObserver,
+        vmap_env: bool = True,
         ):
     """Creates a train function that does learning after unrolling agent for K timesteps.
 
@@ -634,14 +635,18 @@ def make_train(
     )
     test_env_params = test_env_params or copy.deepcopy(train_env_params)
 
-    def vmap_reset(rng, env_params):
-      return jax.vmap(env.reset, in_axes=(0, None))(
-          jax.random.split(rng, config["NUM_ENVS"]), env_params)
+    if vmap_env:
+      def vmap_reset(rng, env_params):
+        return jax.vmap(env.reset, in_axes=(0, None))(
+            jax.random.split(rng, config["NUM_ENVS"]), env_params)
 
-    def vmap_step(rng, env_state, action, env_params):
-       return jax.vmap(
-           env.step, in_axes=(0, 0, 0, None))(
-           jax.random.split(rng, config["NUM_ENVS"]), env_state, action, env_params)
+      def vmap_step(rng, env_state, action, env_params):
+        return jax.vmap(
+            env.step, in_axes=(0, 0, 0, None))(
+            jax.random.split(rng, config["NUM_ENVS"]), env_state, action, env_params)
+    else:
+      vmap_reset = env.reset
+      vmap_step = env.step
 
     def train(rng: jax.random.PRNGKey):
         logger = make_logger(config, env, train_env_params)

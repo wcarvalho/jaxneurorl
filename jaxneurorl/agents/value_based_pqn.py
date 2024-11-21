@@ -141,7 +141,7 @@ def masked_mean(x, mask):
     return (z.sum(0))/(mask.sum(0)+1e-5)
 
 def batch_to_sequence(values: jax.Array) -> jax.Array:
-    return jax.tree_map(
+    return jax.tree.map(
         lambda x: jnp.transpose(x, axes=(1, 0, *range(2, len(x.shape)))), values)
 
 @struct.dataclass
@@ -176,7 +176,7 @@ class RecurrentLossFn:
     state = batch.extras.get('agent_state')
 
     # get state from 0-th time-step
-    state = jax.tree_map(lambda x: x[:, 0], state)
+    state = jax.tree.map(lambda x: x[:, 0], state)
 
     # Convert sample data to sequence-major format [T, B, ...].
     data = batch_to_sequence(batch)
@@ -1067,6 +1067,7 @@ def make_train(
         make_logger: MakeLoggerFn = loggers.default_make_logger,
         test_env_params: Optional[environment.EnvParams] = None,
         ObserverCls: observers.BasicObserver = observers.BasicObserver,
+        vmap_env: bool = True,
         ):
     """Creates a train function that does learning after unrolling agent for K timesteps.
 
@@ -1085,7 +1086,8 @@ def make_train(
         _type_: _description_
     """
 
-    config['NUM_ENVS'] = config['BATCH_SIZE'] // config["TRAINING_INTERVAL"]
+    #config['NUM_ENVS'] = config['BATCH_SIZE'] // config["TRAINING_INTERVAL"]
+    config['BATCH_SIZE'] = config['NUM_ENVS'] * config["TRAINING_INTERVAL"]
 
     config["NUM_UPDATES"] = int(
         config["TOTAL_TIMESTEPS"] // config['BATCH_SIZE']
@@ -1094,14 +1096,18 @@ def make_train(
 
     test_env_params = test_env_params or copy.deepcopy(train_env_params)
 
-    def vmap_reset(rng, env_params):
-      return jax.vmap(env.reset, in_axes=(0, None))(
+    if vmap_env:
+      def vmap_reset(rng, env_params):
+        return jax.vmap(env.reset, in_axes=(0, None))(
           jax.random.split(rng, config["NUM_ENVS"]), env_params)
 
-    def vmap_step(rng, env_state, action, env_params):
-       return jax.vmap(
-           env.step, in_axes=(0, 0, 0, None))(
-           jax.random.split(rng, config["NUM_ENVS"]), env_state, action, env_params)
+      def vmap_step(rng, env_state, action, env_params):
+        return jax.vmap(
+            env.step, in_axes=(0, 0, 0, None))(
+            jax.random.split(rng, config["NUM_ENVS"]), env_state, action, env_params)
+    else:
+        vmap_reset = env.reset
+        vmap_step = env.step
 
     def train(rng: jax.random.PRNGKey):
         logger = make_logger(config, env, train_env_params)
@@ -1110,7 +1116,7 @@ def make_train(
         # INIT ENV
         ##############################
         rng, _rng = jax.random.split(rng)
-        init_timestep = vmap_reset(rng=_rng, env_params=train_env_params)
+        init_timestep = vmap_reset(_rng, train_env_params)
 
         ##############################
         # INIT NETWORK
@@ -1179,7 +1185,7 @@ def make_train(
             init_timestep,
             action=action,
             extras=FrozenDict(preds=init_preds, agent_state=init_agent_state))
-        init_transition_example = jax.tree_map(
+        init_transition_example = jax.tree.map(
             lambda x: x[0], init_transition)
 
         # [num_envs, max_length, ...]
@@ -1282,8 +1288,8 @@ def make_train(
             )
 
             # use only last one
-            learner_metrics = jax.tree_map(lambda x:x[-1], learner_metrics)
-            grads = jax.tree_map(
+            learner_metrics = jax.tree.map(lambda x:x[-1], learner_metrics)
+            grads = jax.tree.map(
                 lambda x: x[-1], grads)
 
             train_state = train_state.replace(n_updates=train_state.n_updates + 1)

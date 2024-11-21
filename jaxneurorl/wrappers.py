@@ -7,13 +7,21 @@ import chex
 from functools import partial
 
 from gymnax.environments import environment
-from gymnax.wrappers.purerl import GymnaxWrapper
 
 from jaxneurorl.agents.basics import TimeStep
 from jaxneurorl.agents.basics import StepType
 
+class EnvWrapper(object):
+    """Base class for Gymnax wrappers."""
 
-class TimestepWrapper(GymnaxWrapper):
+    def __init__(self, env):
+        self._env = env
+
+    # provide proxy access to regular attributes of wrapped object
+    def __getattr__(self, name):
+        return getattr(self._env, name)
+
+class TimestepWrapper(EnvWrapper):
     """Flatten the observations of the environment."""
 
     def __init__(
@@ -31,12 +39,14 @@ class TimestepWrapper(GymnaxWrapper):
         params: Optional[environment.EnvParams] = None
     ) -> Tuple[TimeStep, dict]:
         obs, state = self._env.reset(key, params)
+        # Get shape from first leaf of obs, assuming it's a batch dimension
+        shape = jax.tree_util.tree_leaves(obs)[0].shape[0:1]
         timestep = TimeStep(
             state=state,
             observation=obs,
-            discount=0.0,
-            reward=0.0,
-            step_type=StepType.FIRST,
+            discount=jnp.zeros(shape, dtype=jnp.float32),
+            reward=jnp.zeros(shape, dtype=jnp.float32),
+            step_type=jnp.full(shape, StepType.FIRST, dtype=StepType.FIRST.dtype),
         )
         return timestep
 
