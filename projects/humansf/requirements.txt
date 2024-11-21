@@ -1,4 +1,0 @@
-google-cloud-storage
-git+https://github.com/wcarvalho/nicewebrl --no-deps
-ipywidgets
-polars

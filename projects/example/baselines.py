@@ -164,7 +164,7 @@ def main(config: DictConfig):
   launcher.run(
       config,
       trainer_filename=__file__,
-      config_path='projects/example/configs',
+      absolute_config_path='projects/example/configs',
       run_fn=run_single,
       sweep_fn=sweep,
       folder=os.environ.get(

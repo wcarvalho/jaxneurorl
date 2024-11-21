@@ -13,7 +13,6 @@ from pprint import pprint
 from pathlib import Path
 import wandb
 import threading
-wandb.require("core")
 
 
 def date_time(time: bool = False):
@@ -698,7 +697,7 @@ def run_individual(
     run_fn,
     app_config: dict,
     sweep_config: dict,
-    config_path: str,
+    absolute_config_path: str,
     trainer_filename: str,
     folder: str,
     process_configs_fn=default_process_configs,
@@ -724,10 +723,10 @@ def run_individual(
 
   if GlobalHydra.instance().is_initialized():
     GlobalHydra.instance().clear()
-
-  with hydra.initialize(
+  
+  with hydra.initialize_config_dir(
           version_base=None,
-          config_path=config_path):
+          config_dir=absolute_config_path):
     hydra_config = hydra.compose(
         config_name='config',
         overrides=overrides)
@@ -794,15 +793,15 @@ def run(
     sweep_fn,
     folder: str,
     trainer_filename: str,
-    config_path: str,
+    absolute_config_path: str,
     process_configs_fn=default_process_configs,
   ):
-  config_path = os.path.join("..", config_path)
+  absolute_config_path = os.path.join("..", absolute_config_path)
 
   sweep_kwargs = lambda: dict(
     hydra_config=hydra_config,
     sweep_config=sweep_fn(hydra_config['app']['search']),
-    config_path=config_path,
+    config_path=absolute_config_path,
     trainer_filename=trainer_filename,
     process_configs_fn=process_configs_fn,
     folder=folder,
@@ -843,7 +842,7 @@ def run(
           run_fn=run_fn,
           app_config=hydra_config['app'],
           sweep_config=sweep_fn(hydra_config['app']['search']),
-          config_path=config_path,
+          absolute_config_path=absolute_config_path,
           trainer_filename=trainer_filename,
           folder=folder,
           process_configs_fn=process_configs_fn,
