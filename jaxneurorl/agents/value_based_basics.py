@@ -149,6 +149,7 @@ class RecurrentLossFn:
   network: nn.Module
   discount: float = 0.99
   lambda_: float = .9
+  step_cost: float = 0.01
   tx_pair: rlax.TxPair = rlax.IDENTITY_PAIR
   burn_in_length: int = None
 
@@ -655,7 +656,7 @@ def make_train(
         # INIT ENV
         ##############################
         rng, _rng = jax.random.split(rng)
-        init_timestep = vmap_reset(rng=_rng, env_params=train_env_params)
+        init_timestep = vmap_reset(_rng, train_env_params)
 
         ##############################
         # INIT NETWORK

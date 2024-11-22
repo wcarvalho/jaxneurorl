@@ -18,7 +18,8 @@ def default_gradient_logger(
     gradients: dict,
     key: str = 'gradients'):
 
-    gradients = gradients['params']
+    if 'params' in gradients:
+        gradients = gradients['params']
     gradient_metrics = {f'{key}/{k}_norm': optax.global_norm(v) for k, v in gradients.items()}
 
     def callback(ts, g):

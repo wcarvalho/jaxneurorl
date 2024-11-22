@@ -63,6 +63,7 @@ class R2D2LossFn(vbb.RecurrentLossFn):
     discounts = float(data.discount)*self.discount
     lambda_ = jnp.ones_like(data.discount)*self.lambda_
     rewards = float(data.reward)
+    rewards = rewards - self.step_cost
     is_last = float(data.is_last)
 
     # Get N-step transformed TD error and loss.

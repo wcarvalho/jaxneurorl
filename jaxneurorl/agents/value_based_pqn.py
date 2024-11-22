@@ -72,7 +72,7 @@ Config = Dict
 Action = flax.struct.PyTreeNode
 Agent = nn.Module
 PRNGKey = jax.random.PRNGKey
-Params = flax.core.FrozenDict
+Params = Any
 AgentState = flax.struct.PyTreeNode
 Predictions = flax.struct.PyTreeNode
 Env = environment.Environment
@@ -141,15 +141,17 @@ def masked_mean(x, mask):
     return (z.sum(0))/(mask.sum(0)+1e-5)
 
 def batch_to_sequence(values: jax.Array) -> jax.Array:
-    return jax.tree.map(
+    return jax.tree_map(
         lambda x: jnp.transpose(x, axes=(1, 0, *range(2, len(x.shape)))), values)
 
 @struct.dataclass
-class RecurrentLossFn:
-  """Recurrent loss function with burn-in structured modelled after R2D2.
+class PQNLossFn:
+
+  """Loss function of R2D2.
   
   https://openreview.net/forum?id=r1lyTjAqYX
   """
+
 
   network: nn.Module
   discount: float = 0.99
@@ -157,6 +159,7 @@ class RecurrentLossFn:
   tx_pair: rlax.TxPair = rlax.IDENTITY_PAIR
   burn_in_length: int = None
 
+  extract_q: Callable[[jax.Array], jax.Array] = lambda preds: preds.q_vals
   data_wrapper: flax.struct.PyTreeNode = AcmeBatchData
   logger: loggers.Logger = loggers.Logger
 
@@ -166,9 +169,15 @@ class RecurrentLossFn:
       batch: fbx.trajectory_buffer.BufferSample,
       key_grad: jax.random.PRNGKey,
       steps: int,
+      batch_stats: Any = None,
     ):
     """Calculate a loss on a single batch of data."""
-    unroll = functools.partial(self.network.apply, method=self.network.unroll)
+    unroll = functools.partial(
+        self.network.apply,
+        method=self.network.unroll,
+        train=True,
+        mutable=['batch_stats'],
+        )
 
     # Get core state & warm it up on observations for a burn-in period.
     # Replay core state.
@@ -176,14 +185,19 @@ class RecurrentLossFn:
     state = batch.extras.get('agent_state')
 
     # get state from 0-th time-step
-    state = jax.tree.map(lambda x: x[:, 0], state)
+    state = jax.tree_map(lambda x: x[:, 0], state)
 
     # Convert sample data to sequence-major format [T, B, ...].
     data = batch_to_sequence(batch)
 
     # Unroll on sequences to get online and target Q-Values.
     key_grad, rng = jax.random.split(key_grad)
-    preds, _ = unroll(params, state, data.timestep, rng)
+    (preds, _), updates = unroll(
+        {
+            'params': params,
+            'batch_stats': batch_stats,
+        },
+        state, data.timestep, rng)
 
     # compute loss
     data = self.data_wrapper(
@@ -201,19 +215,7 @@ class RecurrentLossFn:
       key_grad=key_grad)
     batch_loss = batch_loss.mean()
 
-    return batch_loss, metrics
-
-
-@struct.dataclass
-class PQNLossFn(RecurrentLossFn):
-
-  """Loss function of R2D2.
-  
-  https://openreview.net/forum?id=r1lyTjAqYX
-  """
-
-  tx_pair: rlax.TxPair = rlax.IDENTITY_PAIR
-  extract_q: Callable[[jax.Array], jax.Array] = lambda preds: preds.q_vals
+    return batch_loss, (updates, metrics)
 
   def error(self, data, preds, steps, **kwargs):
     """R2D2 learning.
@@ -285,7 +287,7 @@ class PQNLossFn(RecurrentLossFn):
 
     return batch_td_error, batch_loss_mean, metrics  # [T-1, B], [B]
 
-def make_loss_fn_class(config) -> RecurrentLossFn:
+def make_loss_fn_class(config) -> PQNLossFn:
   return functools.partial(
       PQNLossFn,
       discount=config['GAMMA'],
@@ -672,7 +674,7 @@ EnvResetFn = Callable[[PRNGKey, EnvParams], TimeStep]
 MakeAgentFn = Callable[[Config, Env, EnvParams, TimeStep, jax.random.PRNGKey],
                        Tuple[nn.Module, Params, AgentResetFn]]
 MakeOptimizerFn = Callable[[Config], optax.GradientTransformation]
-MakeLossFnClass = Callable[[Config], RecurrentLossFn]
+MakeLossFnClass = Callable[[Config], PQNLossFn]
 MakeActorFn = Callable[[Config, Agent], Actor]
 MakeLoggerFn = Callable[[Config, Env, EnvParams, Agent], loggers.Logger]
 
@@ -768,15 +770,20 @@ def learn_step(
 
     # (batch_size, timesteps, ...)
     rng, _rng = jax.random.split(rng)
-    (_, metrics), grads = jax.value_and_grad(loss_fn, has_aux=True)(
-        train_state.params,
-        learn_trajectory,
-        _rng,
-        train_state.n_grad_steps)
+    (_, (updates, metrics)), grads = jax.value_and_grad(
+        partial(loss_fn, batch_stats=train_state.batch_stats), 
+        has_aux=True,
+        allow_int=True)(
+            train_state.params,
+            learn_trajectory,
+            _rng,
+            train_state.n_grad_steps)
 
     train_state = train_state.apply_gradients(grads=grads)
     train_state = train_state.replace(
-        n_grad_steps=train_state.n_grad_steps + 1)
+        n_grad_steps=train_state.n_grad_steps + 1,
+        batch_stats=updates['batch_stats'],
+        )
 
     metrics.update({
         '0.grad_norm': optax.global_norm(grads),
@@ -813,7 +820,10 @@ def log_performance(
         # reset agent state
         rng, _rng = jax.random.split(rng)
         init_agent_state = agent_reset_fn(
-            runner_state.train_state.params,
+            {
+                "params": runner_state.train_state.params,
+                "batch_stats": runner_state.train_state.batch_stats,
+            },
             init_timestep,
             _rng)
 
@@ -859,7 +869,10 @@ def log_performance(
         # reset agent state
         rng, _rng = jax.random.split(rng)
         init_agent_state = agent_reset_fn(
-            runner_state.train_state.params,
+            {
+                "params": runner_state.train_state.params,
+                "batch_stats": runner_state.train_state.batch_stats,
+            },
             init_timestep,
             _rng)
         
@@ -903,7 +916,7 @@ def make_optimizer(config: dict) -> optax.GradientTransformation:
 
   return optax.chain(
       optax.clip_by_global_norm(config["MAX_GRAD_NORM"]),
-      optax.adam(learning_rate=lr, eps=config['EPS_ADAM'])
+      optax.radam(learning_rate=lr)
   )
 
 def make_agent(
@@ -933,18 +946,13 @@ def make_agent(
     agent = RnnAgent(
         observation_encoder=ObsEncoderCls(),
         rnn=rnn,
-        q_fn=MLP(
-            hidden_dim=512,
-            num_layers=config['NUM_Q_LAYERS'],
-            norm_type=config.get("NORM_QFN", 'layer_norm'),
-            out_dim=env.action_space(env_params).n,
-            activate_final=False,
-        )
+        q_fn=nn.Dense(env.action_space(env_params).n, use_bias=False),
     )
 
     rng, _rng = jax.random.split(rng)
     network_params = agent.init(
-        _rng, example_timestep, method=agent.initialize)
+        _rng, example_timestep,
+        method=agent.initialize)
 
     def reset_fn(params, example_timestep, reset_rng):
       batch_dims = (example_timestep.reward.shape[0],)
@@ -1034,8 +1042,12 @@ def make_actor(config: dict, agent: Agent, rng: jax.random.PRNGKey) -> Actor:
             agent_state: jax.Array,
             timestep: TimeStep,
             rng: jax.random.PRNGKey):
+        variables = {
+            "params": train_state.params,
+            "batch_stats": train_state.batch_stats,
+        }
         preds, agent_state = agent.apply(
-            train_state.params, agent_state, timestep, rng)
+            variables, agent_state, timestep, rng)
 
         action = explorer.choose_actions(
             preds.q_vals, train_state.timesteps, rng)
@@ -1047,8 +1059,12 @@ def make_actor(config: dict, agent: Agent, rng: jax.random.PRNGKey) -> Actor:
             agent_state: jax.Array,
             timestep: TimeStep,
             rng: jax.random.PRNGKey):
+        variables = {
+            "params": train_state.params,
+            "batch_stats": train_state.batch_stats,
+        }
         preds, agent_state = agent.apply(
-            train_state.params, agent_state, timestep, rng)
+            variables, agent_state, timestep, rng)
 
         action = preds.q_vals.argmax(-1)
 
@@ -1152,7 +1168,8 @@ def make_train(
 
         train_state = CustomTrainState.create(
             apply_fn=agent.apply,
-            params=network_params,
+            params=network_params['params'],
+            batch_stats=network_params.get('batch_stats', None),
             tx=tx,
         )
 
@@ -1185,7 +1202,7 @@ def make_train(
             init_timestep,
             action=action,
             extras=FrozenDict(preds=init_preds, agent_state=init_agent_state))
-        init_transition_example = jax.tree.map(
+        init_transition_example = jax.tree_map(
             lambda x: x[0], init_transition)
 
         # [num_envs, max_length, ...]
@@ -1288,8 +1305,8 @@ def make_train(
             )
 
             # use only last one
-            learner_metrics = jax.tree.map(lambda x:x[-1], learner_metrics)
-            grads = jax.tree.map(
+            learner_metrics = jax.tree_map(lambda x:x[-1], learner_metrics)
+            grads = jax.tree_map(
                 lambda x: x[-1], grads)
 
             train_state = train_state.replace(n_updates=train_state.n_updates + 1)

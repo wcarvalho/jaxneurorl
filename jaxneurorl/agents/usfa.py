@@ -38,6 +38,7 @@ class UsfaR2D2LossFn(vbb.RecurrentLossFn):
 
         cumulants = self.extract_cumulants(data=data)
         cumulants = cumulants.astype(online_sf.dtype)
+        cumulants = cumulants - self.step_cost
 
         # Get selector actions from online Q-values for double Q-learning
         dot = lambda x, y: (x * y).sum(axis=-1)
@@ -153,14 +154,11 @@ def extract_timestep_input(timestep: TimeStep):
         reset=timestep.first())
 
 def sample_gauss(mean, var, key, nsamples):
-    if nsamples >= 1:
-        mean = jnp.expand_dims(mean, -2)  # [1, ]
-        samples = jnp.tile(mean, [1, nsamples, 1])
-        dims = samples.shape  # [N, D]
-        samples = samples + jnp.sqrt(var) * jax.random.normal(key, dims)
-        samples = samples.astype(mean.dtype)
-    else:
-        samples = jnp.expand_dims(mean, axis=-1)  # [N, D]
+    mean = jnp.expand_dims(mean, -2)  # [1, ]
+    samples = jnp.tile(mean, [nsamples, 1])
+    dims = samples.shape  # [N, D]
+    samples = samples + jnp.sqrt(var) * jax.random.normal(key, dims)
+    samples = samples.astype(mean.dtype)
     return samples
 
 
@@ -204,14 +202,15 @@ class SfGpiHead(nn.Module):
            out_dim=self.num_actions * self.state_features_dim)
 
     @nn.compact
-    def __call__(self, usfa_input: jnp.ndarray, task: jnp.ndarray) -> USFAPreds:
+    def __call__(self, usfa_input: jnp.ndarray, task: jnp.ndarray, rng: jax.random.PRNGKey) -> USFAPreds:
         policy = get_task_onehot(task, self.train_tasks)
         if self.nsamples > 1:
+            rng, _rng = jax.random.split(rng)
             policy_samples = sample_gauss(
                 mean=policy,
                 var=self.variance,
-                key=self.make_rng('sample'),
-                nsamples=self.nsamples-1, axis=-2)
+                key=_rng,
+                nsamples=self.nsamples)
             policy_base = jnp.expand_dims(policy, axis=-2)  # [1, D_w]
             policies = jnp.concatenate((policy_base, policy_samples), axis=-2)  # [N+1, D_w]
         else:
@@ -282,9 +281,12 @@ class UsfaAgent(nn.Module):
             predictions = jax.vmap(self.sf_head.evaluate)(
               rnn_out, x.observation.task_w)
         else:
+            B = rnn_out.shape[0]
             predictions = jax.vmap(self.sf_head)(
               # [B, D], [B, D]
-              rnn_out, x.observation.task_w)
+              rnn_out,
+              x.observation.task_w,
+              jax.random.split(rng, B))
         
         return predictions, new_rnn_state
 
@@ -294,8 +296,13 @@ class UsfaAgent(nn.Module):
         rnn_in = vbb.RNNInput(obs=embedding, reset=xs.first())
         rng, _rng = jax.random.split(rng)
         new_rnn_state, rnn_out = self.rnn.unroll(rnn_state, rnn_in, _rng)
-
-        predictions = jax.vmap(jax.vmap(self.sf_head))(rnn_out, xs.observation.task_w)
+    
+        T, B = rnn_out.shape[:2]
+        rngs = jax.random.split(rng, T*B).reshape(T, B, -1)
+        predictions = jax.vmap(jax.vmap(self.sf_head))(
+            rnn_out,
+            xs.observation.task_w,
+            rngs)
 
         return predictions, new_rnn_state
 

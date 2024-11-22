@@ -223,9 +223,9 @@ def start_slurm_wandb_sweep(
   if GlobalHydra.instance().is_initialized():
     GlobalHydra.instance().clear()
 
-  with hydra.initialize(
+  with hydra.initialize_config_dir(
           version_base=None,
-          config_path=config_path):
+          config_dir=config_path):
     hydra_config = hydra.compose(
         config_name='config',
         overrides=overrides)
@@ -409,9 +409,9 @@ def start_slurm_vanilla_sweep(
   if GlobalHydra.instance().is_initialized():
     GlobalHydra.instance().clear()
 
-  with hydra.initialize(
+  with hydra.initialize_config_dir(
           version_base=None,
-          config_path=config_path):
+          config_dir=config_path):
     hydra_config = hydra.compose(
         config_name='config',
         overrides=overrides)
@@ -534,9 +534,9 @@ def start_wandb_sweep(
   if GlobalHydra.instance().is_initialized():
     GlobalHydra.instance().clear()
 
-  with hydra.initialize(
+  with hydra.initialize_config_dir(
           version_base=None,
-          config_path=config_path):
+          config_dir=config_path):
     hydra_config = hydra.compose(
         config_name='config',
         overrides=overrides)
