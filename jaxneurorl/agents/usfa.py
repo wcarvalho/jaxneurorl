@@ -134,6 +134,7 @@ def make_loss_fn_class(config) -> vbb.RecurrentLossFn:
   return functools.partial(
       UsfaR2D2LossFn,
       discount=config['GAMMA'],
+      step_cost=config.get("STEP_COST", .001),
       )
 
 
@@ -321,7 +322,7 @@ def make_agent(
         nsamples=config.get('NSAMPLES', 1),
         eval_task_support=config.get('EVAL_TASK_SUPPORT', 'train'),
         train_tasks=train_tasks,
-        num_layers=config.get('NUM_SF_LAYERS', 2),
+        num_layers=config.get('NUM_SF_LAYERS', 1),
         hidden_dim=config.get('SF_HIDDEN_DIM', 512),
     )
 

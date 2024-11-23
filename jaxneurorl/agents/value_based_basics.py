@@ -149,7 +149,7 @@ class RecurrentLossFn:
   network: nn.Module
   discount: float = 0.99
   lambda_: float = .9
-  step_cost: float = 0.01
+  step_cost: float = 0.001
   tx_pair: rlax.TxPair = rlax.IDENTITY_PAIR
   burn_in_length: int = None
 
