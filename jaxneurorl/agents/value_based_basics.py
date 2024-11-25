@@ -540,7 +540,7 @@ def log_performance(
             agent_state=init_agent_state,
             rng=_rng)
 
-        final_eval_runner_state, _ = collect_trajectory(
+        final_eval_runner_state, trajectory = collect_trajectory(
             runner_state=eval_runner_state,
             num_steps=config["EVAL_STEPS"]*config["EVAL_EPISODES"],
             actor_step_fn=actor_eval_step_fn,
@@ -552,10 +552,8 @@ def log_performance(
             runner_state.train_state,
             final_eval_runner_state.observer_state,
             'evaluator_performance',
-            # log trajectory details for evaluator at this period
-            # counter = number of times logger
-            # e.g., every 10th-log log details
             log_details_period=eval_log_period_eval,
+            trajectory=trajectory,
         )
 
     ########################
@@ -586,7 +584,7 @@ def log_performance(
             agent_state=init_agent_state,
             rng=_rng)
 
-        final_eval_runner_state, _ = collect_trajectory(
+        final_eval_runner_state, trajectory = collect_trajectory(
             runner_state=eval_runner_state,
             num_steps=config["EVAL_STEPS"]*config["EVAL_EPISODES"],
             actor_step_fn=actor_train_step_fn,
@@ -599,6 +597,7 @@ def log_performance(
             final_eval_runner_state.observer_state,
             'actor_performance',
             log_details_period=config.get("EVAL_LOG_PERIOD_ACTOR", 20),
+            trajectory=trajectory,
         )
 
 def make_train(
@@ -869,11 +868,8 @@ def make_train(
                 is_learn_time, train_state.n_updates % log_period == 0
             )
 
-            train_state = jax.lax.cond(
-                is_log_time,
-                lambda: train_state.replace(n_logs=train_state.n_logs + 1),
-                lambda: train_state,
-            )
+            train_state = train_state.replace(
+                n_logs=train_state.n_logs + is_log_time.astype(jnp.int32))
 
             jax.lax.cond(
                 is_log_time,
