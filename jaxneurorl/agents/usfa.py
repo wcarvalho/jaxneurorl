@@ -134,6 +134,7 @@ def make_loss_fn_class(config) -> vbb.RecurrentLossFn:
   return functools.partial(
       UsfaR2D2LossFn,
       discount=config['GAMMA'],
+      step_cost=config.get('STEP_COST', 0.001),
       )
 
 

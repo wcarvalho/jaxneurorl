@@ -40,7 +40,8 @@ class TimestepWrapper(EnvWrapper):
     ) -> Tuple[TimeStep, dict]:
         obs, state = self._env.reset(key, params)
         # Get shape from first leaf of obs, assuming it's a batch dimension
-        shape = jax.tree_util.tree_leaves(obs)[0].shape[0:1]
+        first_leaf = jax.tree_util.tree_leaves(obs)[0]
+        shape = first_leaf.shape[0:1] if first_leaf.ndim > 1 else ()
         timestep = TimeStep(
             state=state,
             observation=obs,

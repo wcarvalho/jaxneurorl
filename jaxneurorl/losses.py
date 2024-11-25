@@ -32,19 +32,30 @@ def q_learning_lambda_td(
     discount_t: jax.Array,
     is_last_t: jax.Array,
     lambda_: jax.Array,
-    stop_target_gradients: bool = True):
+    stop_target_gradients: bool = True,
+    tx_pair: rlax.TxPair = rlax.IDENTITY_PAIR,
+    ):
     """Essentially the same as rlax.q_lambda except we use selector actions on q-values, not average. This makes it like Q-learning.
       
       Other difference is is_last_t is here.
     """
 
-    v_tm1 = rlax.batched_index(q_tm1, a_tm1)
+    # Apply signed hyperbolic transform to Q-values
+    q_tm1_transformed = tx_pair.apply(q_tm1)
+    target_q_t_transformed = tx_pair.apply(target_q_t)
+    
+    v_tm1 = rlax.batched_index(q_tm1_transformed, a_tm1)
     target_mt1 = q_learning_lambda_target(
-        r_t=r_t, q_t=target_q_t, a_t=a_t,
+        r_t=r_t,
+        q_t=target_q_t_transformed,
+        a_t=a_t,
         discount_t=discount_t,
         is_last_t=is_last_t,
         lambda_=lambda_,
         stop_target_gradients=stop_target_gradients)
+
+    v_tm1, target_mt1 = tx_pair.apply_inv(v_tm1), tx_pair.apply_inv(target_mt1)
+
     return v_tm1, target_mt1
 
 def n_step_target(

@@ -384,6 +384,7 @@ def make_optimizer(config: dict) -> optax.GradientTransformation:
 def make_loss_fn_class(config) -> vbb.RecurrentLossFn:
   return functools.partial(
      R2D2LossFn,
+     step_cost=config.get('STEP_COST', 0.001),
      discount=config['GAMMA'])
 
 def make_actor(config: dict, agent: Agent, rng: jax.random.PRNGKey) -> vbb.Actor:
