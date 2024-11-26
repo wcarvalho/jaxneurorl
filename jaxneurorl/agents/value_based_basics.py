@@ -150,6 +150,8 @@ class RecurrentLossFn:
   discount: float = 0.99
   lambda_: float = .9
   step_cost: float = 0.001
+  max_priority_weight: float = 0.0
+  importance_sampling_exponent: float = 0.0
   tx_pair: rlax.TxPair = rlax.IDENTITY_PAIR
   burn_in_length: int = None
 
@@ -170,14 +172,14 @@ class RecurrentLossFn:
     # Get core state & warm it up on observations for a burn-in period.
     # Replay core state.
     # [B, T, D]
-    online_state = batch.extras.get('agent_state')
+    online_state = batch.experience.extras.get('agent_state')
 
     # get online_state from 0-th time-step
     online_state = jax.tree_map(lambda x: x[:, 0], online_state)
     target_state = online_state
 
     # Convert sample data to sequence-major format [T, B, ...].
-    data = batch_to_sequence(batch)
+    data = batch_to_sequence(batch.experience)
 
     #--------------------------
     # Maybe burn the core state in.
@@ -227,10 +229,26 @@ class RecurrentLossFn:
       target_params=target_params,
       steps=steps,
       key_grad=key_grad)
-    batch_loss = batch_loss.mean()
-    # TODO: support for prioritized replay
 
-    return batch_loss, metrics
+    # Calculate priorities as a mixture of max and mean sequence errors.
+    abs_td_error = jnp.abs(elemwise_error).astype(jnp.float32)
+    max_priority = self.max_priority_weight * jnp.max(abs_td_error, axis=0)
+    mean_priority = (1 - self.max_priority_weight) * jnp.mean(abs_td_error, axis=0)
+    priorities = (max_priority + mean_priority)
+
+    # Importance weighting.
+    probs = batch.priorities / (jnp.sum(batch.priorities) + 1e-6)
+    importance_weights = (1. / (probs + 1e-6)).astype(jnp.float32)
+    importance_weights **= self.importance_sampling_exponent
+    importance_weights /= jnp.max(importance_weights)
+    batch_loss = jnp.mean(importance_weights * batch_loss)
+    
+    updates = dict(
+        priorities=priorities,
+        #importance_weights=importance_weights,
+    )
+
+    return batch_loss, (updates, metrics)
 
 ##############################
 # Neural Network
@@ -476,11 +494,11 @@ def learn_step(
 
     # (batch_size, timesteps, ...)
     rng, _rng = jax.random.split(rng)
-    learn_trajectory = buffer.sample(buffer_state, _rng).experience
+    learn_trajectory = buffer.sample(buffer_state, _rng)
 
     # (batch_size, timesteps, ...)
     rng, _rng = jax.random.split(rng)
-    (_, metrics), grads = jax.value_and_grad(loss_fn, has_aux=True)(
+    (_, (updates, metrics)), grads = jax.value_and_grad(loss_fn, has_aux=True)(
         train_state.params,
         train_state.target_network_params,
         learn_trajectory,
@@ -488,14 +506,20 @@ def learn_step(
         train_state.n_updates)
 
     train_state = train_state.apply_gradients(grads=grads)
-    train_state = train_state.replace(n_updates=train_state.n_updates + 1)
+    train_state = train_state.replace(
+        n_updates=train_state.n_updates + 1,
+        )
+
+    new_priorities = updates['priorities']
+    buffer_state = buffer.set_priorities(
+        buffer_state, learn_trajectory.indices, new_priorities)
 
     metrics.update({
         '0.grad_norm': optax.global_norm(grads),
         '0.param_norm': optax.global_norm(train_state.params),
     })
 
-    return train_state, metrics, grads
+    return train_state, buffer_state, metrics, grads
 
 def log_performance(
       config: dict,
@@ -710,13 +734,14 @@ def make_train(
         if sample_sequence_length is None:
             sample_sequence_length = total_batch_size//sample_batch_size
 
-        buffer = fbx.make_trajectory_buffer(
+        buffer = fbx.make_prioritised_trajectory_buffer(
             max_length_time_axis=config['BUFFER_SIZE']//config['NUM_ENVS'],
             min_length_time_axis=sample_sequence_length,
             add_batch_size=config['NUM_ENVS'],
             sample_batch_size=config['BUFFER_BATCH_SIZE'],
             sample_sequence_length=sample_sequence_length,
             period=period,
+            priority_exponent=config.get("PRIORITY_EXPONENT", 0.9),
         )
         buffer = buffer.replace(
             init=jax.jit(buffer.init),
@@ -773,7 +798,7 @@ def make_train(
 
         dummy_rng = jax.random.PRNGKey(0)
 
-        _, dummy_metrics, dummy_grads = learn_step(
+        _, _, dummy_metrics, dummy_grads = learn_step(
             train_state=train_state,
             rng=dummy_rng,
             buffer=buffer,
@@ -833,7 +858,7 @@ def make_train(
                 ))
 
             rng, _rng = jax.random.split(rng)
-            train_state, learner_metrics, grads = jax.lax.cond(
+            train_state, buffer_state, learner_metrics, grads = jax.lax.cond(
                 is_learn_time,
                 lambda train_state_, rng_: learn_step(
                     train_state=train_state_,
@@ -842,7 +867,7 @@ def make_train(
                     buffer_state=buffer_state,
                     loss_fn=loss_fn),
                 lambda train_state, rng: (
-                    train_state, dummy_metrics, dummy_grads),  # do nothing
+                    train_state, buffer_state, dummy_metrics, dummy_grads),  # do nothing
                 train_state,
                 _rng,
             )
