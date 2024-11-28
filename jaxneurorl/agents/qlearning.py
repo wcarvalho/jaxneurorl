@@ -196,26 +196,22 @@ class Predictions(NamedTuple):
     q_vals: jax.Array
     rnn_states: jax.Array
 
-class Block(nn.Module):
-  features: int
-
-  @nn.compact
-  def __call__(self, x, _):
-    x = nn.Dense(self.features, use_bias=False)(x)
-    x = jax.nn.relu(x)
-    return x, None
-
 class MLP(nn.Module):
   hidden_dim: int
-  out_dim: Optional[int] = None
+  out_dim: Optional[int] = 0
   num_layers: int = 1
+  use_bias: bool = False
 
   @nn.compact
   def __call__(self, x):
     for _ in range(self.num_layers):
-        x, _ = Block(self.hidden_dim)(x, None)
+      x = nn.Dense(self.hidden_dim, use_bias=self.use_bias)(x)
+      x = jax.nn.relu(x)
 
-    x = nn.Dense(self.out_dim or self.hidden_dim, use_bias=False)(x)
+    if self.out_dim == 0:
+      return x
+
+    x = nn.Dense(self.out_dim or self.hidden_dim, use_bias=self.use_bias)(x)
     return x
 
 class RnnAgent(nn.Module):

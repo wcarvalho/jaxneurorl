@@ -568,6 +568,7 @@ class MLP(nn.Module):
   norm_type: str = 'none'
   activation: str = 'relu'
   activate_final: bool = True
+  use_bias: bool = False
 
   @nn.compact
   def __call__(self, x, train: bool = False):
@@ -583,14 +584,14 @@ class MLP(nn.Module):
         raise NotImplementedError(self.norm_type)
 
     for _ in range(self.num_layers):
-        x = nn.Dense(self.hidden_dim, use_bias=False)(x)
+        x = nn.Dense(self.hidden_dim, use_bias=self.use_bias)(x)
         x = normalize(x)
         x = activation_fn(x)
 
     if self.out_dim == 0:
         return x
 
-    x = nn.Dense(self.out_dim or self.hidden_dim, use_bias=False)(x)
+    x = nn.Dense(self.out_dim or self.hidden_dim, use_bias=self.use_bias)(x)
 
     if self.activate_final:
         x = normalize(x)
