@@ -45,7 +45,7 @@ class TimestepWrapper(EnvWrapper):
         timestep = TimeStep(
             state=state,
             observation=obs,
-            discount=jnp.zeros(shape, dtype=jnp.float32),
+            discount=jnp.ones(shape, dtype=jnp.float32),
             reward=jnp.zeros(shape, dtype=jnp.float32),
             step_type=jnp.full(shape, StepType.FIRST, dtype=StepType.FIRST.dtype),
         )
