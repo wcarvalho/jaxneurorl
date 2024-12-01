@@ -410,7 +410,7 @@ def make_actor(config: dict, agent: Agent, rng: jax.random.PRNGKey) -> vbb.Actor
         explorer = LinearDecayEpsilonGreedy(
             start_e=config["EPSILON_START"],
             end_e=config["EPSILON_FINISH"],
-            duration=config["EPSILON_ANNEAL_TIME"]
+            duration=config.get("EPSILON_ANNEAL_TIME") or config["TOTAL_TIMESTEPS"]
         )
 
     def actor_step(

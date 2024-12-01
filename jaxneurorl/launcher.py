@@ -248,7 +248,7 @@ def start_slurm_wandb_sweep(
        f"app.PROJECT={final_config['PROJECT']}",
        f"app.base_path={base_path}",
        f"app.group={group}",
-       f"app.parallel=wandb_slurm",
+       f"app.parallel=slurm_wandb",
        ] + sweep_config_overrides
   if debug:
     sweep_config['command'].append(
