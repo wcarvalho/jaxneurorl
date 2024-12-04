@@ -32,7 +32,7 @@ class TimestepWrapper(EnvWrapper):
         super().__init__(env)
         self._autoreset = autoreset
 
-    @partial(jax.jit, static_argnums=(0,))
+    @partial(jax.jit, static_argnums=(0,2))
     def reset(
         self,
         key: chex.PRNGKey,
@@ -51,7 +51,7 @@ class TimestepWrapper(EnvWrapper):
         )
         return timestep
 
-    @partial(jax.jit, static_argnums=(0,))
+    @partial(jax.jit, static_argnums=(0,4))
     def step(
         self,
         key: chex.PRNGKey,
