@@ -29,7 +29,8 @@ dependencies = [
     "hydra-core",
     "gymnax",
     "flashbax",
-    "flax>=0.9.0",
+    "flax>=0.8.4",
+    "chex==0.1.86",
 ]
 
 [project.urls]
