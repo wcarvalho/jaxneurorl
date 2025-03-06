@@ -126,7 +126,9 @@ class UsfaR2D2LossFn(vbb.RecurrentLossFn):
         }
       )
 
-    return batch_td_error, batch_loss_mean, metrics  # [T, B, N, C], [B]
+    # [T, B, N, C] --> [T, B]
+    batch_td_error = batch_td_error.mean(axis=(2, 3))
+    return batch_td_error, batch_loss_mean, metrics  # [T, B], [B]
 
 
 def make_optimizer(config: dict) -> optax.GradientTransformation:
