@@ -15,11 +15,9 @@ import optax
 import flax.linen as nn
 import flax
 from flax import struct
-import rlax
 from gymnax.environments import environment
 
 from jaxneurorl import losses
-from jaxneurorl import loggers
 from jaxneurorl.agents.basics import TimeStep
 from jaxneurorl.agents import value_based_basics as vbb
 
