@@ -5,7 +5,9 @@ from typing import Dict, Union, Optional
 import jax
 import jax.numpy as jnp
 import flashbax as fbx
-from flax import struct, field
+from flax import struct
+from flax.struct import field
+
 import numpy as np
 import wandb
 
