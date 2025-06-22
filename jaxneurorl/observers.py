@@ -5,7 +5,7 @@ from typing import Dict, Union, Optional
 import jax
 import jax.numpy as jnp
 import flashbax as fbx
-from flax import struct
+from flax import struct, field
 import numpy as np
 import wandb
 
@@ -44,9 +44,9 @@ class BasicObserverState:
   # timestep_buffer: fbx.trajectory_buffer.TrajectoryBufferState
   # prediction_buffer: fbx.trajectory_buffer.TrajectoryBufferState
   task_info_buffer: fbx.trajectory_buffer.TrajectoryBufferState
-  idx: jax.Array = jnp.array(0, dtype=jnp.int32)
-  episodes: jax.Array = jnp.array(0, dtype=jnp.int32)
-  env_steps: jax.Array = jnp.array(0, dtype=jnp.int32)
+  idx: jax.Array = field(default_factory=lambda: jnp.array(0, dtype=jnp.int32))
+  episodes: jax.Array = field(default_factory=lambda: jnp.array(0, dtype=jnp.int32))
+  env_steps: jax.Array = field(default_factory=lambda: jnp.array(0, dtype=jnp.int32))
 
 
 def add_to_buffer(
