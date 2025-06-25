@@ -604,18 +604,34 @@ def individual_wandb_run(
   run_directly: bool = False,
 ):
   def wrapped_run_fn():
+    # Check for existing wandb run ID
+    run_id_file = os.path.join(folder, "wandb_run_id")
+    resume_id = None
+
+    if os.path.exists(run_id_file):
+      with open(run_id_file, "r") as f:
+        resume_id = f.read().strip()
+      print(f"Resuming wandb run: {resume_id}")
+
+    # Initialize wandb with resume capability
     wandb_init = dict(
       project=hydra_config["app"]["PROJECT"],
       entity=hydra_config["user"]["entity"],
       group=hydra_config["app"]["group"],
-      # save_code=True,
-      # mode='offline',
       dir=folder,
+      id=resume_id,  # Will be None for new runs
+      resume="allow",  # This allows resuming if run_id exists
     )
+
     if not hydra_config["app"]["wandb"]:
       wandb_init["mode"] = "disabled"
 
-    wandb.init(**wandb_init)
+    run = wandb.init(**wandb_init)
+
+    # Save run ID for future resuming if this is a new run
+    if not os.path.exists(run_id_file):
+      with open(run_id_file, "w") as f:
+        f.write(run.id)
 
     run_config = wandb.config.as_dict()
     default_config = OmegaConf.to_container(hydra_config)
@@ -632,10 +648,7 @@ def individual_wandb_run(
 
     # Update wandb configuration
     wandb_kwargs = dict(
-      # group=final_config['group'],
-      # entity=final_config["entity"],
       name=experiment_config["wandb_name"],
-      # dir=experiment_config['log_dir'],
     )
     for key, value in wandb_kwargs.items():
       setattr(wandb.run, key, value)

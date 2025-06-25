@@ -414,6 +414,8 @@ def make_actor(config: dict, agent: Agent, rng: jax.random.PRNGKey) -> vbb.Actor
         base=config.get("EPSILON_BASE", 0.1),
       )
     epsilons = jax.random.choice(rng, vals, shape=(config["NUM_ENVS"],))
+    if config.get("ADD_GREEDY_EPSILON", True):
+      epsilons = jnp.concatenate((epsilons[:-1], jnp.array((0,))))
 
     explorer = FixedEpsilonGreedy(epsilons)
   else:
@@ -422,6 +424,9 @@ def make_actor(config: dict, agent: Agent, rng: jax.random.PRNGKey) -> vbb.Actor
       end_e=config["EPSILON_FINISH"],
       duration=config.get("EPSILON_ANNEAL_TIME") or config["TOTAL_TIMESTEPS"],
     )
+
+  eval_epsilon = jnp.full(config["NUM_ENVS"], config.get("EVAL_EPSILON", 0.1))
+  eval_explorer = FixedEpsilonGreedy(eval_epsilon)
 
   def actor_step(
     train_state: vbb.TrainState,
@@ -443,7 +448,7 @@ def make_actor(config: dict, agent: Agent, rng: jax.random.PRNGKey) -> vbb.Actor
   ):
     preds, agent_state = agent.apply(train_state.params, agent_state, timestep, rng)
 
-    action = preds.q_vals.argmax(-1)
+    action = eval_explorer.choose_actions(preds.q_vals, train_state.timesteps, rng)
 
     return preds, action, agent_state
 
