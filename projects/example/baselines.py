@@ -94,7 +94,7 @@ def run_single(config: dict, save_path: str = None):
       save_file(flattened_dict, filename)
 
     model_state = outs["runner_state"][0]
-    params = jax.tree_map(
+    params = jax.tree.map(
       lambda x: x[0], model_state.params
     )  # save only params of the firt run
     os.makedirs(save_path, exist_ok=True)

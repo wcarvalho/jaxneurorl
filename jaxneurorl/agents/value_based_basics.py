@@ -182,7 +182,7 @@ def masked_mean(x, mask):
 
 
 def batch_to_sequence(values: jax.Array) -> jax.Array:
-  return jax.tree_map(
+  return jax.tree.map(
     lambda x: jnp.transpose(x, axes=(1, 0, *range(2, len(x.shape)))), values
   )
 
@@ -223,7 +223,7 @@ class RecurrentLossFn:
     online_state = batch.experience.extras.get("agent_state")
 
     # get online_state from 0-th time-step
-    online_state = jax.tree_map(lambda x: x[:, 0], online_state)
+    online_state = jax.tree.map(lambda x: x[:, 0], online_state)
     target_state = online_state
 
     # Convert sample data to sequence-major format [T, B, ...].
@@ -234,13 +234,13 @@ class RecurrentLossFn:
     # --------------------------
     burn_in_length = self.burn_in_length
     if burn_in_length:
-      burn_data = jax.tree_map(lambda x: x[:burn_in_length], data)
+      burn_data = jax.tree.map(lambda x: x[:burn_in_length], data)
       key_grad, rng_1, rng_2 = jax.random.split(key_grad, 3)
       _, online_state = unroll(params, online_state, burn_data.timestep, rng_1)
       _, target_state = unroll(target_params, target_state, burn_data.timestep, rng_2)
 
       # Only get data to learn on from after the end of the burn in period.
-      data = jax.tree_map(lambda seq: seq[burn_in_length:], data)
+      data = jax.tree.map(lambda seq: seq[burn_in_length:], data)
 
     # --------------------------
     # Unroll on sequences to get online and target Q-Values.
@@ -768,7 +768,7 @@ def make_train(
     train_state = CustomTrainState.create(
       apply_fn=agent.apply,
       params=network_params,
-      target_network_params=jax.tree_map(lambda x: jnp.copy(x), network_params),
+      target_network_params=jax.tree.map(lambda x: jnp.copy(x), network_params),
       tx=tx,
       timesteps=0,
       n_updates=0,
@@ -813,7 +813,7 @@ def make_train(
       action=action,
       extras=FrozenDict(preds=init_preds, agent_state=init_agent_state),
     )
-    init_transition_example = jax.tree_map(lambda x: x[0], init_transition)
+    init_transition_example = jax.tree.map(lambda x: x[0], init_transition)
 
     # [num_envs, max_length, ...]
     buffer_state = buffer.init(init_transition_example)
@@ -939,7 +939,7 @@ def make_train(
       train_state = jax.lax.cond(
         train_state.n_updates % config["TARGET_UPDATE_INTERVAL"] == 0,
         lambda train_state: train_state.replace(
-          target_network_params=jax.tree_map(lambda x: jnp.copy(x), train_state.params)
+          target_network_params=jax.tree.map(lambda x: jnp.copy(x), train_state.params)
         ),
         lambda train_state: train_state,
         operand=train_state,

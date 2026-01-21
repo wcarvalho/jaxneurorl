@@ -277,8 +277,8 @@ class AlphaZeroAgent(nn.Module):
     predictions, rnn_state = self.__call__(rnn_state, x, rng)
     dummy_action = jnp.zeros(batch_dims, dtype=jnp.int32)
 
-    state = jax.tree_map(lambda x: x[:, None], predictions.state)
-    dummy_action = jax.tree_map(lambda x: x[:, None], dummy_action)
+    state = jax.tree.map(lambda x: x[:, None], predictions.state)
+    dummy_action = jax.tree.map(lambda x: x[:, None], dummy_action)
     jax.vmap(self.apply_model, (0, 0, None), 0)(state, dummy_action, rng)
 
   def initialize_carry(self, *args, **kwargs):
@@ -348,9 +348,9 @@ class AlphaZeroAgent(nn.Module):
     )
     rng, rng_ = jax.random.split(rng)
     env_params = self.test_env_params if evaluation else self.env_params
-    timestep = jax.tree_map(lambda x: x[0], state.timestep)
+    timestep = jax.tree.map(lambda x: x[0], state.timestep)
     next_timestep = self.env.step(rng_, timestep, action[0], env_params)
-    next_timestep = jax.tree_map(lambda x: x[None], next_timestep)
+    next_timestep = jax.tree.map(lambda x: x[None], next_timestep)
 
     rng, rng_ = jax.random.split(rng)
     return self.__call__(state.rnn_state, next_timestep, rng_)
@@ -448,7 +448,7 @@ def make_actor(
     # will vmap over mcts
     # mcts excepts []
     # [B,...] --> [B, 1, ...]
-    root = jax.tree_map(lambda x: x[:, None], root)
+    root = jax.tree.map(lambda x: x[:, None], root)
     rng, improve_key = jax.random.split(rng)
 
     def apply_mcts_policy(root_, discount_):
@@ -470,7 +470,7 @@ def make_actor(
     mcts_outputs = jax.vmap(apply_mcts_policy)(root, timestep.discount[:, None])
 
     # [B, 1, ...] --> [B, ...]
-    mcts_outputs = jax.tree_map(lambda x: x[:, 0], mcts_outputs)
+    mcts_outputs = jax.tree.map(lambda x: x[:, 0], mcts_outputs)
 
     policy_target = mcts_outputs.action_weights
     if evaluation:

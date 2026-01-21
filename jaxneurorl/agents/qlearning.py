@@ -138,7 +138,7 @@ def make_logger(
       # Extract the relevant data
       # only use data from batch dim = 0
       # [T, B, ...] --> # [T, ...]
-      d_ = jax.tree_map(lambda x: x[:, 0], d)
+      d_ = jax.tree.map(lambda x: x[:, 0], d)
 
       rewards = d_["data"].timestep.reward
       actions = d_["data"].action

@@ -50,7 +50,7 @@ def default_learner_logger(
       wandb.log(metrics)
 
   # prepare
-  learner_metrics = jax.tree_map(lambda x: x.mean(), learner_metrics)  # []
+  learner_metrics = jax.tree.map(lambda x: x.mean(), learner_metrics)  # []
   jax.debug.callback(callback, train_state, learner_metrics)
 
 
