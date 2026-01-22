@@ -19,18 +19,18 @@ classifiers = [
 dependencies = [
     "wandb",
     "ipdb",
-    "tqdm==4.66.2",
-    "rlax==0.1.6",
-    "mctx==0.0.5",
-    "ray[tune]==2.10.0",
-    "typing_extensions==4.11.0",
-    "optax==0.2.1",
-    "scipy==1.12.0",
+    "tqdm>=4.66.2",
+    "rlax>=0.1.6",
+    "mctx>=0.0.5",
+    "ray[tune]>=2.10.0",
+    "typing_extensions>=4.11.0",
+    "optax>=0.2.1",
+    "scipy>=1.12.0",
     "hydra-core",
     "gymnax",
     "flashbax",
     "flax>=0.8.4",
-    "chex==0.1.86",
+    "chex>=0.1.86",
 ]
 
 [project.urls]
