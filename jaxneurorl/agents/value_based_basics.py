@@ -26,8 +26,6 @@ for some number of updates:
     periodically log metrics from evaluation actor + learner:
         (set by LEARNER_LOG_PERIOD)
 
-TODO:
-- add priorizied replay
 """
 
 from pprint import pprint
@@ -41,13 +39,16 @@ import jax.numpy as jnp
 import numpy as np
 from typing import NamedTuple, Dict, Optional, Tuple, Callable, TypeVar
 import tree
+import os
+import pickle
 
 
 import optax
 import flax.linen as nn
 from flax.training.train_state import TrainState
 from flax.core import FrozenDict
-
+from flax.traverse_util import flatten_dict
+from safetensors.flax import save_file
 import flashbax as fbx
 import wandb
 
@@ -131,6 +132,43 @@ class CustomTrainState(TrainState):
   timesteps: int = 0
   n_updates: int = 0
   n_logs: int = 0
+
+
+def save_training_state(
+  params: Dict,
+  config: Dict,
+  save_path: str,
+  alg_name: str,
+  idx: int = None,
+  n_updates: int = None,
+) -> None:
+  """Save model parameters and config to disk.
+
+  Args:
+      params: Model parameters to save
+      config: Configuration dictionary to save
+      save_path: Directory to save files in
+      alg_name: Name of algorithm for file naming
+  """
+  os.makedirs(save_path, exist_ok=True)
+
+  # Save parameters
+  if idx is not None:
+    param_path = os.path.join(save_path, f"{alg_name}_{idx}.safetensors")
+  else:
+    param_path = os.path.join(save_path, f"{alg_name}.safetensors")
+  flattened_dict = flatten_dict(params, sep=",")
+  save_file(flattened_dict, param_path)
+
+  prefix = f"update {n_updates}: " if n_updates is not None else ""
+  print(f"{prefix}Parameters saved in {param_path}")
+
+  # Save config
+  config_path = os.path.join(save_path, f"{alg_name}.config")
+  if not os.path.exists(config_path):
+    with open(config_path, "wb") as f:
+      pickle.dump(config, f)
+    print(f"{prefix}Config saved in {config_path}")
 
 
 ##############################
@@ -644,6 +682,9 @@ def make_train(
   test_env_params: Optional[environment.EnvParams] = None,
   ObserverCls: observers.BasicObserver = observers.BasicObserver,
   vmap_env: bool = True,
+  initial_params: Optional[Params] = None,
+  save_path: Optional[str] = None,
+  online_trajectory_log_fn=None,
 ):
   """Creates a train function that does learning after unrolling agent for K timesteps.
 
@@ -704,6 +745,8 @@ def make_train(
       example_timestep=init_timestep,
       rng=_rng,
     )
+    if initial_params is not None:
+      network_params = initial_params
 
     log_params(network_params["params"])
 
@@ -905,6 +948,8 @@ def make_train(
       ##############################
       # 3. Logging learner metrics + evaluation episodes
       ##############################
+      if online_trajectory_log_fn is not None:
+        online_trajectory_log_fn(traj_batch, train_state.n_updates, config)
       # ------------------------
       # log performance information
       # ------------------------
@@ -971,6 +1016,33 @@ def make_train(
         train_state=train_state, buffer_state=buffer_state, rng=rng
       )
 
+      #########################################################
+      # 5. Every 20% of training, save parameters
+      #########################################################
+      one_tenth = config["NUM_UPDATES"] // 5
+      if save_path is not None:
+
+        def save_params(params, n_updates):
+          def callback(params, n_updates):
+            if n_updates % one_tenth != 0:
+              return
+            idx = int(n_updates // one_tenth)
+            save_training_state(
+              params, config, save_path, config["ALG"], idx, n_updates
+            )
+
+          jax.debug.callback(callback, params, n_updates)
+
+        should_save = jnp.logical_or(
+          train_state.n_updates == 0, train_state.n_updates % one_tenth == 0
+        )
+
+        jax.lax.cond(
+          should_save,
+          lambda: save_params(train_state.params, train_state.n_updates),
+          lambda: None,
+        )
+
       return next_runner_state, {}
 
     ##############################
@@ -1003,6 +1075,15 @@ def make_train(
       observer=eval_observer,
       observer_state=init_eval_observer_state,
       logger=logger,
+    )
+
+    # final save
+    jax.debug.callback(
+      save_training_state,
+      runner_state.train_state.params,
+      config,
+      save_path,
+      config["ALG"],
     )
 
     return {"runner_state": runner_state}
