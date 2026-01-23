@@ -276,8 +276,7 @@ class RecurrentLossFn:
     priorities = max_priority + mean_priority
 
     # Importance weighting.
-    probs = batch.priorities / (jnp.sum(batch.priorities) + 1e-6)
-    importance_weights = (1.0 / (probs + 1e-6)).astype(jnp.float32)
+    importance_weights = (1.0 / (batch.probabilities + 1e-6)).astype(jnp.float32)
     importance_weights **= self.importance_sampling_exponent
     importance_weights /= jnp.max(importance_weights)
     batch_loss = jnp.mean(importance_weights * batch_loss)
