@@ -767,7 +767,7 @@ def make_train(
     train_state = CustomTrainState.create(
       apply_fn=agent.apply,
       params=network_params,
-      target_network_params=jax.tree.map(lambda x: jnp.copy(x), network_params),
+      target_network_params=network_params,
       tx=tx,
       timesteps=0,
       n_updates=0,
@@ -851,13 +851,23 @@ def make_train(
 
     dummy_rng = jax.random.PRNGKey(0)
 
+    # Add dummy transitions so buffer can be sampled for shape inference
+    dummy_transitions = jax.tree.map(
+      lambda x: jnp.repeat(x[:, None], sample_sequence_length, axis=1),
+      init_transition,
+    )
+    dummy_buffer_state = buffer.add(buffer_state, dummy_transitions)
+
     _, _, dummy_metrics, dummy_grads = learn_step(
       train_state=train_state,
       rng=dummy_rng,
       buffer=buffer,
-      buffer_state=buffer_state,
+      buffer_state=dummy_buffer_state,
       loss_fn=loss_fn,
     )
+
+    # Re-initialize buffer_state since the original was donated/deleted by buffer.add
+    buffer_state = buffer.init(init_transition_example)
 
     ##############################
     # DEFINE TRAINING LOOP
