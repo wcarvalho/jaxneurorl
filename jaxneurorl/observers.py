@@ -56,12 +56,12 @@ def add_to_buffer(
   buffer_state: struct.PyTreeNode,
   x: struct.PyTreeNode,
 ):
-  x = jax.tree.map(lambda y: y[:, np.newaxis], x)
+  x = jax.tree_util.tree_map(lambda y: y[:, np.newaxis], x)
   return buffer.add(buffer_state, x)
 
 
 def get_first(b):
-  return jax.tree.map(lambda x: x[0], b)
+  return jax.tree_util.tree_map(lambda x: x[0], b)
 
 
 def add_first_to_buffer(
@@ -73,7 +73,7 @@ def add_first_to_buffer(
   x: [num_envs, ...]
   get first env data and dummy dummy time dim.
   """
-  x = jax.tree.map(lambda y: y[:1, np.newaxis], x)
+  x = jax.tree_util.tree_map(lambda y: y[:1, np.newaxis], x)
   return buffer.add(buffer_state, x)
 
 
@@ -182,7 +182,7 @@ class BasicObserverOld(Observer):
     # )
 
     # only use first time-step
-    next_timestep = jax.tree.map(lambda x: x[0], next_timestep)
+    next_timestep = jax.tree_util.tree_map(lambda x: x[0], next_timestep)
 
     # update return/length information
     idx = observer_state.idx
@@ -209,7 +209,7 @@ class BasicObserverOld(Observer):
     # it's easier to just do 1 env, so will ignore rest...
     # otherwise, having competing conditons when when episode ends
     #############
-    first_next_timestep = jax.tree.map(lambda x: x[0], next_timestep)
+    first_next_timestep = jax.tree_util.tree_map(lambda x: x[0], next_timestep)
 
     ##-----------------------
     ## if final time-step and log-period has been hit, flush the metrics

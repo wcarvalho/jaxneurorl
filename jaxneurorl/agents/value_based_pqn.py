@@ -151,7 +151,7 @@ def masked_mean(x, mask):
 
 
 def batch_to_sequence(values: jax.Array) -> jax.Array:
-  return jax.tree.map(
+  return jax.tree_util.tree_map(
     lambda x: jnp.transpose(x, axes=(1, 0, *range(2, len(x.shape)))), values
   )
 
@@ -195,7 +195,7 @@ class PQNLossFn:
     state = batch.extras.get("agent_state")
 
     # get state from 0-th time-step
-    state = jax.tree.map(lambda x: x[:, 0], state)
+    state = jax.tree_util.tree_map(lambda x: x[:, 0], state)
 
     # Convert sample data to sequence-major format [T, B, ...].
     data = batch_to_sequence(batch)
@@ -1223,7 +1223,7 @@ def make_train(
       action=action,
       extras=FrozenDict(preds=init_preds, agent_state=init_agent_state),
     )
-    init_transition_example = jax.tree.map(lambda x: x[0], init_transition)
+    init_transition_example = jax.tree_util.tree_map(lambda x: x[0], init_transition)
 
     # [num_envs, max_length, ...]
     buffer_state = buffer.init(init_transition_example)
@@ -1333,8 +1333,8 @@ def make_train(
       )
 
       # use only last one
-      learner_metrics = jax.tree.map(lambda x: x[-1], learner_metrics)
-      grads = jax.tree.map(lambda x: x[-1], grads)
+      learner_metrics = jax.tree_util.tree_map(lambda x: x[-1], learner_metrics)
+      grads = jax.tree_util.tree_map(lambda x: x[-1], grads)
 
       train_state = train_state.replace(n_updates=train_state.n_updates + 1)
 
