@@ -313,6 +313,7 @@ def start_slurm_wandb_sweep(
   sbatch_contents += f"#SBATCH -e {sbatch_base_path}/id=%j.err\n"
 
   sbatch_contents += f"\ncd {root_path}\n"
+  sbatch_contents += f"\nunset JAX_PLATFORMS\n"
   sbatch_contents += f"\nwhich python\n"
   sbatch_contents += "\n" + python_file_command
 
@@ -481,7 +482,8 @@ def start_slurm_vanilla_sweep(
   sbatch_contents += f"#SBATCH --account {app_config['account']}\n"
   sbatch_contents += f"#SBATCH -o {sbatch_base_path}/id=%j.out\n"
   sbatch_contents += f"#SBATCH -e {sbatch_base_path}/id=%j.err\n"
-  sbatch_contents += sbatch_contents + python_file_command
+  sbatch_contents += f"\nunset JAX_PLATFORMS\n"
+  sbatch_contents += "\n" + python_file_command
 
   print("-" * 20)
   print(sbatch_contents)

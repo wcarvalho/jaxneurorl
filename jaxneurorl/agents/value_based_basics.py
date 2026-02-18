@@ -1044,9 +1044,7 @@ def make_train(
 
           jax.debug.callback(callback, params, n_updates)
 
-        should_save = jnp.logical_or(
-          train_state.n_updates == 0, train_state.n_updates % one_tenth == 0
-        )
+        should_save = (train_state.n_updates % one_tenth == 0) & (train_state.n_updates > 0)
 
         jax.lax.cond(
           should_save,
