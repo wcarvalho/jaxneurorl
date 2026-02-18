@@ -783,6 +783,8 @@ def make_train(
     sample_sequence_length = config.get("SAMPLE_LENGTH")
     if sample_sequence_length is None:
       sample_sequence_length = total_batch_size // sample_batch_size
+    elif total_batch_size is None:
+      total_batch_size = sample_batch_size*sample_sequence_length
 
     buffer = fbx.make_prioritised_trajectory_buffer(
       max_length_time_axis=config["BUFFER_SIZE"] // config["NUM_ENVS"],
