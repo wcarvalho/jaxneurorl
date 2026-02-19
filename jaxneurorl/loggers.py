@@ -59,6 +59,7 @@ def default_experience_logger(
   observer_state: BasicObserverState,
   key: str = "train",
   log_details_period: int = 0,
+  **kwargs,
 ):
   def callback(ts: train_state, os: BasicObserverState):
     # main
