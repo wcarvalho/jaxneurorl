@@ -5,14 +5,14 @@ import rlax
 
 
 def sarsa_lambda(
-    q_tm1: jax.Array,
-    a_tm1: jax.Array,
-    r_t: jax.Array,
-    discount_t: jax.Array,
-    q_t: jax.Array,
-    a_t: jax.Array,
-    lambda_: jax.Array,
-    stop_target_gradients: bool = True,
+  q_tm1: jax.Array,
+  a_tm1: jax.Array,
+  r_t: jax.Array,
+  discount_t: jax.Array,
+  q_t: jax.Array,
+  a_t: jax.Array,
+  lambda_: jax.Array,
+  stop_target_gradients: bool = True,
 ) -> jax.Array:
   """Calculates the SARSA(lambda) temporal difference error.
 
@@ -33,16 +33,20 @@ def sarsa_lambda(
   Returns:
     SARSA(lambda) temporal difference error.
   """
-  chex.assert_rank([q_tm1, a_tm1, r_t, discount_t, q_t, a_t, lambda_],
-                   [2, 1, 1, 1, 2, 1, {0, 1}])
-  chex.assert_type([q_tm1, a_tm1, r_t, discount_t, q_t, a_t, lambda_],
-                   [float, int, float, float, float, int, float])
+  chex.assert_rank(
+    [q_tm1, a_tm1, r_t, discount_t, q_t, a_t, lambda_], [2, 1, 1, 1, 2, 1, {0, 1}]
+  )
+  chex.assert_type(
+    [q_tm1, a_tm1, r_t, discount_t, q_t, a_t, lambda_],
+    [float, int, float, float, float, int, float],
+  )
 
   qa_tm1 = rlax.batched_index(q_tm1, a_tm1)
   qa_t = rlax.batched_index(q_t, a_t)
   target_tm1 = rlax.lambda_returns(r_t, discount_t, qa_t, lambda_)
-  target_tm1 = jax.lax.select(stop_target_gradients,
-                              jax.lax.stop_gradient(target_tm1), target_tm1)
+  target_tm1 = jax.lax.select(
+    stop_target_gradients, jax.lax.stop_gradient(target_tm1), target_tm1
+  )
 
   return qa_tm1, target_tm1
 
@@ -156,16 +160,13 @@ def q_learning_n_step_td(
 
 
 def cql_loss(
-    q_vals: jax.Array,       # [T, A]
-    actions: jax.Array,      # [T]
-    temperature: float = 1.0,
+  q_vals: jax.Array,  # [T, A]
+  actions: jax.Array,  # [T]
+  temperature: float = 1.0,
 ) -> jax.Array:
-    """Conservative Q-Learning regularizer for discrete actions.
-    Returns per-timestep CQL penalty: temp * logsumexp(Q/temp) - Q(s, a_data).
-    """
-    q_data = rlax.batched_index(q_vals, actions)
-    logsumexp_q = temperature * jax.scipy.special.logsumexp(
-        q_vals / temperature, axis=-1
-    )
-    return logsumexp_q - q_data
-
+  """Conservative Q-Learning regularizer for discrete actions.
+  Returns per-timestep CQL penalty: temp * logsumexp(Q/temp) - Q(s, a_data).
+  """
+  q_data = rlax.batched_index(q_vals, actions)
+  logsumexp_q = temperature * jax.scipy.special.logsumexp(q_vals / temperature, axis=-1)
+  return logsumexp_q - q_data

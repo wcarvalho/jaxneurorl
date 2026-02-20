@@ -1047,15 +1047,20 @@ def make_actor(config: dict, agent: Agent, rng: jax.random.PRNGKey) -> Actor:
         stop=config.get("EPSILON_MAX", 0.9),
         base=config.get("EPSILON_BASE", 0.1),
       )
-    epsilons = jax.random.choice(rng, vals, shape=(config["NUM_ENVS"],))
+    num_envs = config["NUM_ENVS"]
 
-    explorer = FixedEpsilonGreedy(epsilons)
+    def train_choose_actions(q_vals, t, rng):
+      rng, rng_eps = jax.random.split(rng)
+      epsilons = jax.random.choice(rng_eps, vals, shape=(num_envs,))
+      action_rngs = jax.random.split(rng, num_envs)
+      return jax.vmap(epsilon_greedy_act)(q_vals, epsilons, action_rngs)
   else:
     explorer = LinearDecayEpsilonGreedy(
       start_e=config["EPSILON_START"],
       end_e=config["EPSILON_FINISH"],
       duration=(config.get("EPSILON_ANNEAL_TIME") or config["TOTAL_TIMESTEPS"]),
     )
+    train_choose_actions = explorer.choose_actions
 
   def actor_step(
     train_state: TrainState,
@@ -1069,7 +1074,7 @@ def make_actor(config: dict, agent: Agent, rng: jax.random.PRNGKey) -> Actor:
     }
     preds, agent_state = agent.apply(variables, agent_state, timestep, rng)
 
-    action = explorer.choose_actions(preds.q_vals, train_state.timesteps, rng)
+    action = train_choose_actions(preds.q_vals, train_state.timesteps, rng)
 
     return preds, action, agent_state
 

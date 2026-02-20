@@ -784,7 +784,7 @@ def make_train(
     if sample_sequence_length is None:
       sample_sequence_length = total_batch_size // sample_batch_size
     elif total_batch_size is None:
-      total_batch_size = sample_batch_size*sample_sequence_length
+      total_batch_size = sample_batch_size * sample_sequence_length
 
     buffer = fbx.make_prioritised_trajectory_buffer(
       max_length_time_axis=config["BUFFER_SIZE"] // config["NUM_ENVS"],
@@ -1046,7 +1046,9 @@ def make_train(
 
           jax.debug.callback(callback, params, n_updates)
 
-        should_save = (train_state.n_updates % one_tenth == 0) & (train_state.n_updates > 0)
+        should_save = (train_state.n_updates % one_tenth == 0) & (
+          train_state.n_updates > 0
+        )
 
         jax.lax.cond(
           should_save,
