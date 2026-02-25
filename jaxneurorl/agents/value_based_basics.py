@@ -276,7 +276,7 @@ class RecurrentLossFn:
     priorities = max_priority + mean_priority
 
     # Importance weighting.
-    importance_weights = (1.0 / (batch.probabilities + 1e-6)).astype(jnp.float32)
+    importance_weights = (1.0 / (batch.priorities + 1e-6)).astype(jnp.float32)
     importance_weights **= self.importance_sampling_exponent
     importance_weights /= jnp.max(importance_weights)
     batch_loss = jnp.mean(importance_weights * batch_loss)
@@ -1092,11 +1092,13 @@ def make_train(
 
     # final save
     jax.debug.callback(
-      save_training_state,
+      functools.partial(
+        save_training_state,
+        config=config,
+        save_path=save_path,
+        alg_name=config["ALG"],
+      ),
       runner_state.train_state.params,
-      config,
-      save_path,
-      config["ALG"],
     )
 
     return {"runner_state": runner_state}
