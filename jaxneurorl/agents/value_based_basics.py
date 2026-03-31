@@ -725,6 +725,8 @@ def make_train(
 
   def train(rng: jax.random.PRNGKey):
     logger = make_logger(config, env, train_env_params)
+    if config.get("LEARNER_EXTRA_LOG_PERIOD", 0) <= 0:
+      logger = logger.replace(learner_log_extra=None)
 
     ##############################
     # INIT ENV
