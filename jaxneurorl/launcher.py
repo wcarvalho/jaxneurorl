@@ -694,21 +694,38 @@ def individual_vanilla_slurm_run(
     debug=hydra_config["app"]["debug"],
   )
 
+  # Check for existing wandb run ID (resume support)
+  log_dir = experiment_config["log_dir"]
+  run_id_file = os.path.join(log_dir, "wandb_run_id")
+  resume_id = None
+  if os.path.exists(run_id_file):
+    with open(run_id_file, "r") as f:
+      resume_id = f.read().strip()
+    print(f"Resuming wandb run: {resume_id}")
+
   wandb_init = dict(
     project=hydra_config["app"]["PROJECT"],
     entity=hydra_config["user"]["entity"],
     group=experiment_config["wandb_group"],
     name=experiment_config["wandb_name"],
-    dir=experiment_config["log_dir"],
+    dir=log_dir,
     save_code=True,
     config=final_config,
+    id=resume_id,
+    resume="allow",
   )
   if not hydra_config["app"]["wandb"]:
     wandb_init["mode"] = "disabled"
 
-  wandb.init(**wandb_init)
+  run = wandb.init(**wandb_init)
 
-  run_fn(config=final_config, save_path=experiment_config["log_dir"])
+  # Save run ID for future resuming
+  if not os.path.exists(run_id_file):
+    os.makedirs(os.path.dirname(run_id_file), exist_ok=True)
+    with open(run_id_file, "w") as f:
+      f.write(run.id)
+
+  run_fn(config=final_config, save_path=log_dir)
 
 
 def run_individual(

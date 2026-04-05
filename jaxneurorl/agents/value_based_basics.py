@@ -47,8 +47,8 @@ import optax
 import flax.linen as nn
 from flax.training.train_state import TrainState
 from flax.core import FrozenDict
-from flax.traverse_util import flatten_dict
-from safetensors.flax import save_file
+from flax.traverse_util import flatten_dict, unflatten_dict
+from safetensors.flax import save_file, load_file
 import flashbax as fbx
 import wandb
 
@@ -169,6 +169,76 @@ def save_training_state(
     with open(config_path, "wb") as f:
       pickle.dump(config, f)
     print(f"{prefix}Config saved in {config_path}")
+
+
+def save_checkpoint(
+  state_data: Dict,
+  config: Dict,
+  save_path: str,
+  alg_name: str,
+  idx: int = None,
+  n_updates: int = None,
+) -> None:
+  """Save full training state (params + opt_state + target_params + counters).
+
+  Saves params via safetensors for backward compat, and full state via pickle.
+  """
+  os.makedirs(save_path, exist_ok=True)
+
+  # Save params via safetensors (backward compat)
+  params = state_data['params']
+  if idx is not None:
+    param_path = os.path.join(save_path, f"{alg_name}_{idx}.safetensors")
+  else:
+    param_path = os.path.join(save_path, f"{alg_name}.safetensors")
+  flattened_dict = flatten_dict(params, sep=",")
+  save_file(flattened_dict, param_path)
+
+  prefix = f"update {n_updates}: " if n_updates is not None else ""
+  print(f"{prefix}Parameters saved in {param_path}")
+
+  # Save config (once)
+  config_path = os.path.join(save_path, f"{alg_name}.config")
+  if not os.path.exists(config_path):
+    with open(config_path, "wb") as f:
+      pickle.dump(config, f)
+    print(f"{prefix}Config saved in {config_path}")
+
+  # Save full state (opt_state, target_params, counters)
+  if idx is not None:
+    state_path = os.path.join(save_path, f"{alg_name}_{idx}_state.pkl")
+  else:
+    state_path = os.path.join(save_path, f"{alg_name}_state.pkl")
+  with open(state_path, "wb") as f:
+    pickle.dump(state_data, f)
+  print(f"{prefix}Full state saved in {state_path}")
+
+
+def load_checkpoint(
+  save_path: str, alg_name: str
+) -> Optional[Dict]:
+  """Load full training state if available, fall back to params-only for old checkpoints."""
+  if save_path is None:
+    return None
+
+  param_path = os.path.join(save_path, f"{alg_name}.safetensors")
+  state_path = os.path.join(save_path, f"{alg_name}_state.pkl")
+
+  # Try full state first
+  if os.path.exists(state_path):
+    print(f"Loading full checkpoint from {state_path}")
+    with open(state_path, "rb") as f:
+      state_data = pickle.load(f)
+    return state_data
+
+  # Fall back to params-only (old format)
+  if os.path.exists(param_path):
+    print(f"Loading params-only checkpoint from {param_path}")
+    flattened_params = load_file(param_path)
+    params = unflatten_dict(flattened_params, sep=",")
+    return {'params': params}
+
+  return None
 
 
 ##############################
@@ -682,6 +752,7 @@ def make_train(
   ObserverCls: observers.BasicObserver = observers.BasicObserver,
   vmap_env: bool = True,
   initial_params: Optional[Params] = None,
+  checkpoint_data: Optional[Dict] = None,
   save_path: Optional[str] = None,
   online_trajectory_log_fn=None,
 ):
@@ -705,6 +776,17 @@ def make_train(
   config["NUM_UPDATES"] = int(
     config["TOTAL_TIMESTEPS"] // config["NUM_ENVS"] // config["TRAINING_INTERVAL"]
   )
+
+  # Backward compat: wrap initial_params into checkpoint_data
+  if checkpoint_data is None and initial_params is not None:
+    checkpoint_data = {'params': initial_params}
+
+  # Compute remaining updates for resume
+  initial_n_updates = 0
+  if checkpoint_data is not None and 'n_updates' in checkpoint_data:
+    initial_n_updates = int(checkpoint_data['n_updates'])
+  remaining_updates = max(config["NUM_UPDATES"] - initial_n_updates, 0)
+
   test_env_params = test_env_params or copy.deepcopy(train_env_params)
 
   if vmap_env:
@@ -746,8 +828,8 @@ def make_train(
       example_timestep=init_timestep,
       rng=_rng,
     )
-    if initial_params is not None:
-      network_params = initial_params
+    if checkpoint_data is not None:
+      network_params = checkpoint_data['params']
 
     log_params(network_params["params"])
 
@@ -775,6 +857,19 @@ def make_train(
       n_updates=0,
       n_logs=0,
     )
+
+    # Restore checkpoint state (opt_state, target_params, counters)
+    if checkpoint_data is not None:
+      replacements = {}
+      if 'opt_state' in checkpoint_data:
+        replacements['opt_state'] = checkpoint_data['opt_state']
+      if 'target_network_params' in checkpoint_data:
+        replacements['target_network_params'] = checkpoint_data['target_network_params']
+      for key in ('timesteps', 'n_updates', 'n_logs'):
+        if key in checkpoint_data:
+          replacements[key] = checkpoint_data[key]
+      if replacements:
+        train_state = train_state.replace(**replacements)
 
     ##############################
     # INIT BUFFER
@@ -1037,24 +1132,33 @@ def make_train(
       one_tenth = config["NUM_UPDATES"] // 5
       if save_path is not None:
 
-        def save_params(params, n_updates):
-          def callback(params, n_updates):
+        def save_state(state_data, n_updates):
+          def callback(state_data, n_updates):
             if n_updates % one_tenth != 0:
               return
             idx = int(n_updates // one_tenth)
-            save_training_state(
-              params, config, save_path, config["ALG"], idx, n_updates
+            save_checkpoint(
+              state_data, config, save_path, config["ALG"], idx, n_updates
             )
 
-          jax.debug.callback(callback, params, n_updates)
+          jax.debug.callback(callback, state_data, n_updates)
 
         should_save = (train_state.n_updates % one_tenth == 0) & (
           train_state.n_updates > 0
         )
 
+        state_to_save = {
+          'params': train_state.params,
+          'opt_state': train_state.opt_state,
+          'target_network_params': train_state.target_network_params,
+          'timesteps': train_state.timesteps,
+          'n_updates': train_state.n_updates,
+          'n_logs': train_state.n_logs,
+        }
+
         jax.lax.cond(
           should_save,
-          lambda: save_params(train_state.params, train_state.n_updates),
+          lambda: save_state(state_to_save, train_state.n_updates),
           lambda: None,
         )
 
@@ -1075,7 +1179,7 @@ def make_train(
     )
 
     runner_state, _ = jax.lax.scan(
-      _train_step, runner_state, None, config["NUM_UPDATES"]
+      _train_step, runner_state, None, remaining_updates
     )
     log_performance(
       config=config,
@@ -1093,14 +1197,22 @@ def make_train(
     )
 
     # final save
+    final_state_data = {
+      'params': runner_state.train_state.params,
+      'opt_state': runner_state.train_state.opt_state,
+      'target_network_params': runner_state.train_state.target_network_params,
+      'timesteps': runner_state.train_state.timesteps,
+      'n_updates': runner_state.train_state.n_updates,
+      'n_logs': runner_state.train_state.n_logs,
+    }
     jax.debug.callback(
       functools.partial(
-        save_training_state,
+        save_checkpoint,
         config=config,
         save_path=save_path,
         alg_name=config["ALG"],
       ),
-      runner_state.train_state.params,
+      final_state_data,
     )
 
     return {"runner_state": runner_state}
