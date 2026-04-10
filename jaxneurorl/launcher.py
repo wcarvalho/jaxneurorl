@@ -107,13 +107,19 @@ def process_path(path: str, *subpaths: str) -> str:
   return path
 
 
-def compute_total_combinations(sweep_config):
-  parameters = sweep_config.get("parameters", {})
-  total_combinations = 1
+def _compute_combinations_single(parameters):
+  total = 1
   for key, values in parameters.items():
     if "values" in values:
-      total_combinations *= len(values["values"])
-  return total_combinations
+      total *= len(values["values"])
+  return total
+
+
+def compute_total_combinations(sweep_config):
+  parameters = sweep_config.get("parameters", {})
+  if isinstance(parameters, list):
+    return sum(_compute_combinations_single(p) for p in parameters)
+  return _compute_combinations_single(parameters)
 
 
 def get_agent_env_configs(
@@ -803,7 +809,7 @@ def run_individual(
   run_fn(config=final_config, save_path=experiment_config["log_dir"])
 
 
-def get_all_configurations(parameters_config: dict):
+def _get_all_configurations_single(parameters_config: dict):
   import itertools
 
   parameters_config = {k: v["values"] for k, v in parameters_config.items()}
@@ -816,6 +822,20 @@ def get_all_configurations(parameters_config: dict):
   # Create a list of dictionaries for each combination
   configs = [dict(zip(keys, values)) for values in cartesian_product]
   return configs
+
+
+def get_all_configurations(parameters_config):
+  """Accept a dict (single param group) or list of dicts (multiple groups).
+
+  When given a list, each dict produces its own Cartesian product and the
+  results are concatenated.
+  """
+  if isinstance(parameters_config, list):
+    all_configs = []
+    for params in parameters_config:
+      all_configs.extend(_get_all_configurations_single(params))
+    return all_configs
+  return _get_all_configurations_single(parameters_config)
 
 
 def run(
