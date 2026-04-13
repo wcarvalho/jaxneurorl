@@ -186,7 +186,7 @@ def save_checkpoint(
   os.makedirs(save_path, exist_ok=True)
 
   # Save params via safetensors (backward compat)
-  params = state_data['params']
+  params = state_data["params"]
   if idx is not None:
     param_path = os.path.join(save_path, f"{alg_name}_{idx}.safetensors")
   else:
@@ -214,9 +214,7 @@ def save_checkpoint(
   print(f"{prefix}Full state saved in {state_path}")
 
 
-def load_checkpoint(
-  save_path: str, alg_name: str
-) -> Optional[Dict]:
+def load_checkpoint(save_path: str, alg_name: str) -> Optional[Dict]:
   """Load full training state if available, fall back to params-only for old checkpoints."""
   if save_path is None:
     return None
@@ -236,7 +234,7 @@ def load_checkpoint(
     print(f"Loading params-only checkpoint from {param_path}")
     flattened_params = load_file(param_path)
     params = unflatten_dict(flattened_params, sep=",")
-    return {'params': params}
+    return {"params": params}
 
   return None
 
@@ -779,12 +777,12 @@ def make_train(
 
   # Backward compat: wrap initial_params into checkpoint_data
   if checkpoint_data is None and initial_params is not None:
-    checkpoint_data = {'params': initial_params}
+    checkpoint_data = {"params": initial_params}
 
   # Compute remaining updates for resume
   initial_n_updates = 0
-  if checkpoint_data is not None and 'n_updates' in checkpoint_data:
-    initial_n_updates = int(checkpoint_data['n_updates'])
+  if checkpoint_data is not None and "n_updates" in checkpoint_data:
+    initial_n_updates = int(checkpoint_data["n_updates"])
   remaining_updates = max(config["NUM_UPDATES"] - initial_n_updates, 0)
 
   test_env_params = test_env_params or copy.deepcopy(train_env_params)
@@ -829,7 +827,7 @@ def make_train(
       rng=_rng,
     )
     if checkpoint_data is not None:
-      network_params = checkpoint_data['params']
+      network_params = checkpoint_data["params"]
 
     log_params(network_params["params"])
 
@@ -861,11 +859,11 @@ def make_train(
     # Restore checkpoint state (opt_state, target_params, counters)
     if checkpoint_data is not None:
       replacements = {}
-      if 'opt_state' in checkpoint_data:
-        replacements['opt_state'] = checkpoint_data['opt_state']
-      if 'target_network_params' in checkpoint_data:
-        replacements['target_network_params'] = checkpoint_data['target_network_params']
-      for key in ('timesteps', 'n_updates', 'n_logs'):
+      if "opt_state" in checkpoint_data:
+        replacements["opt_state"] = checkpoint_data["opt_state"]
+      if "target_network_params" in checkpoint_data:
+        replacements["target_network_params"] = checkpoint_data["target_network_params"]
+      for key in ("timesteps", "n_updates", "n_logs"):
         if key in checkpoint_data:
           replacements[key] = checkpoint_data[key]
       if replacements:
@@ -1148,12 +1146,12 @@ def make_train(
         )
 
         state_to_save = {
-          'params': train_state.params,
-          'opt_state': train_state.opt_state,
-          'target_network_params': train_state.target_network_params,
-          'timesteps': train_state.timesteps,
-          'n_updates': train_state.n_updates,
-          'n_logs': train_state.n_logs,
+          "params": train_state.params,
+          "opt_state": train_state.opt_state,
+          "target_network_params": train_state.target_network_params,
+          "timesteps": train_state.timesteps,
+          "n_updates": train_state.n_updates,
+          "n_logs": train_state.n_logs,
         }
 
         jax.lax.cond(
@@ -1178,9 +1176,7 @@ def make_train(
       rng=_rng,
     )
 
-    runner_state, _ = jax.lax.scan(
-      _train_step, runner_state, None, remaining_updates
-    )
+    runner_state, _ = jax.lax.scan(_train_step, runner_state, None, remaining_updates)
     log_performance(
       config=config,
       agent_reset_fn=agent_reset_fn,
@@ -1198,12 +1194,12 @@ def make_train(
 
     # final save
     final_state_data = {
-      'params': runner_state.train_state.params,
-      'opt_state': runner_state.train_state.opt_state,
-      'target_network_params': runner_state.train_state.target_network_params,
-      'timesteps': runner_state.train_state.timesteps,
-      'n_updates': runner_state.train_state.n_updates,
-      'n_logs': runner_state.train_state.n_logs,
+      "params": runner_state.train_state.params,
+      "opt_state": runner_state.train_state.opt_state,
+      "target_network_params": runner_state.train_state.target_network_params,
+      "timesteps": runner_state.train_state.timesteps,
+      "n_updates": runner_state.train_state.n_updates,
+      "n_logs": runner_state.train_state.n_logs,
     }
     jax.debug.callback(
       functools.partial(
