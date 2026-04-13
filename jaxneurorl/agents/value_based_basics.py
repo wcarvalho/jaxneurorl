@@ -1129,7 +1129,7 @@ def make_train(
       #########################################################
       # 5. Every 20% of training, save parameters
       #########################################################
-      one_tenth = config["NUM_UPDATES"] // 5
+      one_tenth = config["NUM_UPDATES"] // 20
       if save_path is not None:
 
         def save_state(state_data, n_updates):
