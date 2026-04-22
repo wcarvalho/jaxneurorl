@@ -414,7 +414,7 @@ def make_actor(config: dict, agent: Agent, rng: jax.random.PRNGKey) -> vbb.Actor
         base=config.get("EPSILON_BASE", 0.1),
       )
     num_envs = config["NUM_ENVS"]
-    add_greedy = config.get("ADD_GREEDY_EPSILON", True)
+    add_greedy = config.get("ADD_GREEDY_EPSILON", False)
 
     def train_choose_actions(q_vals, t, rng):
       rng, rng_eps = jax.random.split(rng)
